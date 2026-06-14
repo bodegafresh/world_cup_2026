@@ -9,18 +9,20 @@ function saveRawJson_(folderName, fileName, data) {
   );
 
   const file = folder.createFile(blob);
+  const fileUrl = file.getUrl();
 
   appendRows_(CONFIG.SHEETS.RAW_LOG, [[
     hash_(`${folderName}/${fileName}/${nowChile_()}`),
     nowChile_(),
     folderName,
     fileName,
-    file.getUrl(),
-    safe_(data.results),
-    'OK'
+    fileUrl,
+    safe_(data.results || data.count || ''),
+    'OK',
+    ''
   ]]);
 
-  return file.getUrl();
+  return fileUrl;
 }
 
 function getOrCreateFolder_(parent, name) {

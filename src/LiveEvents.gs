@@ -213,3 +213,56 @@ function formatImportantEventMessage_(fixture, event) {
 
   return `📌 Evento ${minute}'\n${safe_(event.type)} - ${safe_(event.detail)}\n${safe_(event.team && event.team.name)}\n${safe_(event.player && event.player.name)}`;
 }
+
+function saveEvents_(fixtureId, events, rawUrl, homeTeamId, awayTeamId) {
+  const existing = getExistingIds_(CONFIG.SHEETS.EVENTOS_LIVE, 'evento_id');
+
+  let scoreHome = 0;
+  let scoreAway = 0;
+
+  const rows = [];
+
+  events.forEach(event => {
+    const eventId = buildEventId_(fixtureId, event);
+    if (existing[eventId]) return;
+
+    if (event.type === 'Goal') {
+      const teamId = event.team ? Number(event.team.id) : null;
+
+      if (homeTeamId && teamId === Number(homeTeamId)) scoreHome++;
+      if (awayTeamId && teamId === Number(awayTeamId)) scoreAway++;
+    }
+
+    rows.push([
+      eventId,
+      fixtureId,
+      fixtureId,
+      safe_(event.time && event.time.elapsed),
+      safe_(event.time && event.time.extra),
+      safe_(event.type),
+      safe_(event.detail),
+      safe_(event.team && event.team.id),
+      safe_(event.team && event.team.name),
+      safe_(event.player && event.player.id),
+      safe_(event.player && event.player.name),
+      safe_(event.assist && event.assist.id),
+      safe_(event.assist && event.assist.name),
+      safe_(event.comments),
+      scoreHome,
+      scoreAway,
+      calculateEventImpact_(event),
+      nowChile_(),
+      rawUrl
+    ]);
+  });
+
+  appendRows_(CONFIG.SHEETS.EVENTOS_LIVE, rows);
+}
+
+function calculateEventImpact_(event) {
+  if (event.type === 'Goal') return 'ALTO';
+  if (event.type === 'Card' && event.detail === 'Red Card') return 'ALTO';
+  if (event.type === 'Card' && event.detail === 'Yellow Card') return 'MEDIO';
+  if (event.type === 'subst') return 'MEDIO';
+  return 'BAJO';
+}

@@ -1,5 +1,6 @@
 function apiFootballGet_(path, params) {
   const query = Object.keys(params || {})
+    .filter(k => params[k] !== undefined && params[k] !== null && params[k] !== '')
     .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
     .join('&');
 
@@ -29,9 +30,11 @@ function fetchFixturesByDate_(date) {
 
 function fetchWorldCupFixturesByDate_(date) {
   const data = fetchFixturesByDate_(date);
+
   const filtered = (data.response || []).filter(isWorldCupFixture_);
   data.response = filtered;
   data.results = filtered.length;
+
   return data;
 }
 

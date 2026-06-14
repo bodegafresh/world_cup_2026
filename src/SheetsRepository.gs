@@ -1,74 +1,68 @@
-function saveFixtures_(fixtures, rawUrl) {
-  const existing = getExistingIds_(CONFIG.SHEETS.PARTIDOS, 'match_id');
+function getSheet_(name) {
+  const ss = SpreadsheetApp.openById(getSpreadsheetId_());
+  const sheet = ss.getSheetByName(name);
 
-  const rows = fixtures
-    .filter(f => !existing[String(f.fixture.id)])
-    .map(f => [
-      f.fixture.id,
-      safe_(f.fixture.date ? f.fixture.date.substring(0, 10) : ''),
-      toChileDateTime_(f.fixture.date),
-      safe_(f.league.round),
-      safe_(f.teams.home.name),
-      safe_(f.teams.away.name),
-      safe_(f.fixture.venue ? f.fixture.venue.name : ''),
-      safe_(f.fixture.venue ? f.fixture.venue.city : ''),
-      safe_(f.league.country),
-      safe_(f.goals.home),
-      safe_(f.goals.away),
-      '', '', '', '', '', '', '', '', '', '', '', '', '', '',
-      rawUrl
-    ]);
+  if (!sheet) throw new Error(`No existe hoja: ${name}`);
 
-  appendRows_(CONFIG.SHEETS.PARTIDOS, rows);
+  return sheet;
 }
 
-function saveEvents_(fixtureId, events, rawUrl) {
-  const existing = getExistingIds_(CONFIG.SHEETS.EVENTOS_LIVE, 'evento_id');
+function appendRows_(sheetName, rows) {
+  if (!rows || rows.length === 0) return;
 
-  let scoreHome = 0;
-  let scoreAway = 0;
+  const sheet = getSheet_(sheetName);
+  const startRow = sheet.getLastRow() + 1;
+  const startCol = 1;
 
-  const rows = [];
+  sheet.getRange(startRow, startCol, rows.length, rows[0].length).setValues(rows);
+}
 
-  events.forEach(event => {
-    const eventId = buildEventId_(fixtureId, event);
-    if (existing[eventId]) return;
+function readAll_(sheetName) {
+  const sheet = getSheet_(sheetName);
+  const values = sheet.getDataRange().getValues();
 
-    if (event.type === 'Goal') {
-      if (event.team && Number(event.team.id) === 17) scoreHome++;
-      else scoreAway++;
-    }
+  if (values.length <= 1) return [];
 
-    rows.push([
-      eventId,
-      fixtureId,
-      fixtureId,
-      safe_(event.time && event.time.elapsed),
-      safe_(event.time && event.time.extra),
-      safe_(event.type),
-      safe_(event.detail),
-      safe_(event.team && event.team.id),
-      safe_(event.team && event.team.name),
-      safe_(event.player && event.player.id),
-      safe_(event.player && event.player.name),
-      safe_(event.assist && event.assist.id),
-      safe_(event.assist && event.assist.name),
-      safe_(event.comments),
-      scoreHome,
-      scoreAway,
-      calculateEventImpact_(event),
-      nowChile_(),
-      rawUrl
-    ]);
+  const headers = values[0];
+
+  return values.slice(1).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = row[i]);
+    return obj;
+  });
+}
+
+function getHeaders_(sheetName) {
+  const sheet = getSheet_(sheetName);
+  return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+}
+
+function clearDataKeepHeader_(sheetName) {
+  const sheet = getSheet_(sheetName);
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+  }
+}
+
+function getExistingIds_(sheetName, idColumnName) {
+  const sheet = getSheet_(sheetName);
+  const values = sheet.getDataRange().getValues();
+
+  if (values.length <= 1) return {};
+
+  const headers = values[0];
+  const idx = headers.indexOf(idColumnName);
+
+  if (idx === -1) throw new Error(`No existe columna ${idColumnName} en ${sheetName}`);
+
+  const map = {};
+
+  values.slice(1).forEach(row => {
+    if (row[idx]) map[String(row[idx])] = true;
   });
 
-  appendRows_(CONFIG.SHEETS.EVENTOS_LIVE, rows);
-}
-
-function calculateEventImpact_(event) {
-  if (event.type === 'Goal') return 'ALTO';
-  if (event.type === 'Card' && event.detail === 'Red Card') return 'ALTO';
-  if (event.type === 'Card' && event.detail === 'Yellow Card') return 'MEDIO';
-  if (event.type === 'subst') return 'MEDIO';
-  return 'BAJO';
+  return map;
 }
