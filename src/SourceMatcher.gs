@@ -1,3 +1,12 @@
+/**
+ * SourceMatcher.gs
+ *
+ * Responsabilidad:
+ * - Construir match_key estable.
+ * - Normalizar nombres de selecciones.
+ * - Match entre API-Football y football-data.org.
+ */
+
 function buildMatchKey_(homeName, awayName, dateUtc) {
   const date = String(dateUtc || '').substring(0, 10);
   const home = normalizeTeamNameStrong_(homeName);
@@ -12,12 +21,22 @@ function normalizeTeamNameStrong_(name) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
 
+  value = value
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
   const aliases = {
     'usa': 'unitedstates',
     'u s a': 'unitedstates',
+    'u s': 'unitedstates',
     'u.s.a.': 'unitedstates',
     'united states': 'unitedstates',
     'united states of america': 'unitedstates',
+
+    'turkiye': 'turkey',
+    'türkiye': 'turkey',
+    'turkey': 'turkey',
 
     'korea republic': 'southkorea',
     'republic of korea': 'southkorea',
@@ -28,13 +47,16 @@ function normalizeTeamNameStrong_(name) {
 
     'ivory coast': 'cotedivoire',
     "cote d'ivoire": 'cotedivoire',
+    'cote d ivoire': 'cotedivoire',
     'côte d’ivoire': 'cotedivoire',
 
+    'curacao': 'curacao',
+    'curaçao': 'curacao',
+
     'bosnia and herzegovina': 'bosniaherzegovina',
+    'bosnia herzegovina': 'bosniaherzegovina',
     'bosnia-herzegovina': 'bosniaherzegovina'
   };
-
-  value = value.replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 
   if (aliases[value]) return aliases[value];
 

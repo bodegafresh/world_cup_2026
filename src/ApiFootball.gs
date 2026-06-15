@@ -58,3 +58,10 @@ function isWorldCupFixture_(fixture) {
     fixture.league.country === 'World' &&
     Number(fixture.league.season) === CONFIG.API_FOOTBALL.SEASON;
 }
+
+function fetchSquadByTeam_(teamId) {
+  return apiFootballGet_('/players/squads', {
+    team: teamId
+  });
+}
+

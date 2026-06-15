@@ -9,9 +9,6 @@
  * - Crear mapping entre fuentes.
  * - Evaluar calidad/conflictos.
  * - Escribir/actualizar la hoja Partidos como dataset final curado.
- *
- * Este archivo NO debe contener funciones de scraping, llamadas API directas,
- * comandos Telegram ni análisis IA.
  */
 
 function loadGoldenMatchesByDate_(date) {
@@ -72,18 +69,13 @@ function loadGoldenMatchesByDate_(date) {
   };
 }
 
-/**
- * Construye el objeto final que se escribirá en la hoja Partidos.
- *
- * Regla:
- * - API-Football sigue siendo fuente primaria para fixture, estadio, ciudad, score y eventos.
- * - football-data.org funciona como fuente de contraste.
- * - Si football-data existe y coincide, sube confianza.
- * - Si no existe, se mantiene API-Football con confianza media.
- */
 function buildGoldenMatchObject_(mapping, quality) {
   const af = mapping.api_football;
   const fd = mapping.football_data;
+
+  const venueName = af.venue_name || (fd && fd.venue_name) || '';
+  const venueCity = af.venue_city || (fd && fd.venue_city) || '';
+  const venueInfo = getVenueInfo_(venueName, venueCity);
 
   const homeScore = selectScore_(af.home_score, fd && fd.home_score);
   const awayScore = selectScore_(af.away_score, fd && fd.away_score);
@@ -94,31 +86,38 @@ function buildGoldenMatchObject_(mapping, quality) {
   const sourcesUsed = fd ? 'API_FOOTBALL,FOOTBALL_DATA' : 'API_FOOTBALL';
   const sourcesCount = fd ? 2 : 1;
 
-  const dataQualityNotes = buildDataQualityNotes_(mapping, quality);
+  const dataQualityNotes = buildDataQualityNotes_(mapping, quality, venueInfo);
 
   return {
     match_id: af.source_match_id,
 
-    // fecha = fecha UTC técnica del proveedor principal.
     fecha: String(af.date_utc || '').substring(0, 10),
-
-    // fecha_chile = día local Chile para reportes y comandos.
     fecha_chile: String(af.date_chile || '').substring(0, 10),
-
     hora_chile: af.date_chile,
 
     fase: af.stage || (fd && fd.stage) || '',
     local: af.home_team_name || (fd && fd.home_team_name) || '',
     visitante: af.away_team_name || (fd && fd.away_team_name) || '',
 
-    estadio: af.venue_name || (fd && fd.venue_name) || '',
-    ciudad: af.venue_city || (fd && fd.venue_city) || '',
-    pais: 'World',
+    estadio: venueName,
+    ciudad: venueCity,
+
+    // pais ahora representa el país real del estadio.
+    pais: venueInfo.pais_estadio || '',
+
+    // país de la competición.
+    pais_torneo: 'World',
+
+    // datos reales de sede.
+    pais_estadio: venueInfo.pais_estadio || '',
+    venue_id: af.venue_id || '',
+    lat: venueInfo.lat,
+    lon: venueInfo.lon,
+    timezone_estadio: venueInfo.timezone_estadio,
 
     goles_local: homeScore,
     goles_visitante: awayScore,
 
-    // Se completarán luego desde fixtures/statistics.
     posesion_local: '',
     posesion_visitante: '',
     tiros_local: '',
@@ -155,15 +154,6 @@ function buildGoldenMatchObject_(mapping, quality) {
   };
 }
 
-/**
- * Escribe o actualiza partidos por match_key.
- *
- * Importante:
- * - No duplica si vuelves a ejecutar la misma fecha.
- * - Usa los headers reales de la hoja Partidos.
- * - Si agregas una nueva columna en Sheets y existe en el objeto,
- *   se empezará a escribir automáticamente.
- */
 function upsertGoldenMatches_(goldenRows) {
   if (!goldenRows || goldenRows.length === 0) return;
 
@@ -201,32 +191,32 @@ function upsertGoldenMatches_(goldenRows) {
   });
 }
 
-/**
- * Arma una descripción corta de qué fuentes se usaron
- * y cómo debe interpretar la IA el nivel de confianza.
- */
-function buildDataQualityNotes_(mapping, quality) {
+function buildDataQualityNotes_(mapping, quality, venueInfo) {
+  const notes = [];
   const fd = mapping.football_data;
 
   if (!fd) {
-    return 'Dato construido solo con API-Football. football-data.org no disponible o no matcheado para esta fecha/partido. Usar con confianza media.';
+    notes.push('Dato construido solo con API-Football. football-data.org no disponible o no matcheado para esta fecha/partido. Usar con confianza media.');
+  } else if (quality.has_conflict) {
+    notes.push(`Dato con doble fuente, pero existen diferencias: ${quality.conflict_detail}`);
+  } else {
+    notes.push('Dato validado con API-Football y football-data.org sin conflictos relevantes.');
   }
 
-  if (quality.has_conflict) {
-    return `Dato con doble fuente, pero existen diferencias: ${quality.conflict_detail}`;
+  if (!venueInfo || !venueInfo.pais_estadio) {
+    notes.push('Venue no encontrado en VenueCatalog. Falta completar país/coordenadas/timezone.');
+  } else {
+    notes.push('Venue enriquecido desde VenueCatalog.');
   }
 
-  return 'Dato validado con API-Football y football-data.org sin conflictos relevantes.';
+  return notes.join(' | ');
 }
 
-/**
- * Explica la política de selección del Golden Dataset.
- */
 function buildGoldenSourceScore_(hasFootballData) {
   if (hasFootballData) {
     return [
       'score: API_FOOTBALL validado con FOOTBALL_DATA',
-      'venue: API_FOOTBALL',
+      'venue: API_FOOTBALL + VenueCatalog',
       'status: API_FOOTBALL fallback FOOTBALL_DATA',
       'teams: API_FOOTBALL validado con FOOTBALL_DATA'
     ].join(' | ');
@@ -234,16 +224,13 @@ function buildGoldenSourceScore_(hasFootballData) {
 
   return [
     'score: API_FOOTBALL',
-    'venue: API_FOOTBALL',
+    'venue: API_FOOTBALL + VenueCatalog',
     'status: API_FOOTBALL',
     'teams: API_FOOTBALL',
     'validation: sin fuente secundaria'
   ].join(' | ');
 }
 
-/**
- * Selección del ganador final.
- */
 function selectWinner_(apiFootballWinner, footballDataWinner) {
   if (apiFootballWinner) return apiFootballWinner;
   if (footballDataWinner) return footballDataWinner;

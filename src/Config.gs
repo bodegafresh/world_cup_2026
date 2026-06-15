@@ -4,6 +4,9 @@ const CONFIG = {
     PARTIDOS: 'Partidos',
     EQUIPOS: 'Equipos',
     JUGADORES: 'Jugadores',
+    PLANTELES: 'Planteles',
+    PLAYER_MATCH_STATS: 'PlayerMatchStats',
+
     EVENTOS_LIVE: 'EventosLive',
     RESUMEN_JUGADOR_PARTIDO: 'ResumenJugadorPartido',
     ODDS: 'OddsApuestas',
@@ -17,7 +20,8 @@ const CONFIG = {
 
     SOURCE_FIXTURES: 'SourceFixtures',
     MATCH_MAPPING: 'MatchMapping',
-    DATA_QUALITY_LOG: 'DataQualityLog'
+    DATA_QUALITY_LOG: 'DataQualityLog',
+    PIPELINE_RUNS: 'PipelineRuns'
   },
 
   API_FOOTBALL: {

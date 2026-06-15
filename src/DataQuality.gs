@@ -44,8 +44,13 @@ function evaluateMatchQuality_(mapping) {
 }
 
 function compareField_(checks, fieldName, afValue, fdValue, selectedValue) {
-  const normalizedAf = String(afValue || '').trim();
-  const normalizedFd = String(fdValue || '').trim();
+  let normalizedAf = String(afValue || '').trim();
+  let normalizedFd = String(fdValue || '').trim();
+
+  if (fieldName === 'date_utc') {
+    normalizedAf = normalizeDateForCompare_(afValue);
+    normalizedFd = normalizeDateForCompare_(fdValue);
+  }
 
   const same = normalizedAf === normalizedFd ||
     normalizeTeamNameStrong_(normalizedAf) === normalizeTeamNameStrong_(normalizedFd);
@@ -113,4 +118,14 @@ function saveDataQualityChecks_(qualityResults) {
   });
 
   appendRows_(CONFIG.SHEETS.DATA_QUALITY_LOG, rows);
+}
+
+function normalizeDateForCompare_(value) {
+  if (!value) return '';
+
+  try {
+    return new Date(value).toISOString();
+  } catch (e) {
+    return String(value);
+  }
 }

@@ -24,6 +24,7 @@ function normalizeApiFootballFixture_(fixture, rawFileUrl) {
     away_score: safe_(fixture.goals.away),
     winner: inferWinner_(fixture.goals.home, fixture.goals.away, fixture.teams.home.name, fixture.teams.away.name),
 
+    venue_id: safe_(fixture.fixture.venue && fixture.fixture.venue.id),
     venue_name: safe_(fixture.fixture.venue && fixture.fixture.venue.name),
     venue_city: safe_(fixture.fixture.venue && fixture.fixture.venue.city),
 
@@ -58,6 +59,7 @@ function normalizeFootballDataMatch_(match, rawFileUrl) {
     away_score: safe_(match.score && match.score.fullTime && match.score.fullTime.away),
     winner: normalizeFootballDataWinner_(match.score && match.score.winner, match.homeTeam, match.awayTeam),
 
+    venue_id: '',
     venue_name: '',
     venue_city: '',
 

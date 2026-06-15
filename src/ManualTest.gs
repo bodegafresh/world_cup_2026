@@ -83,3 +83,159 @@ function manualClearPipelineTables() {
 
   Logger.log('Tablas pipeline limpiadas: SourceFixtures, MatchMapping, DataQualityLog');
 }
+
+function manualEnrichGoldenMatches_2026_06_13() {
+  const result = enrichGoldenMatchesByDate_('2026-06-13');
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualEnrichGoldenMatches_2026_06_12() {
+  const result = enrichGoldenMatchesByDate_('2026-06-12');
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualDebugPartidosDates() {
+  const rows = readAll_(CONFIG.SHEETS.PARTIDOS);
+
+  rows.forEach(row => {
+    Logger.log(JSON.stringify({
+      match_key: row.match_key,
+      local: row.local,
+      visitante: row.visitante,
+      fecha: row.fecha,
+      fecha_chile: row.fecha_chile,
+      fecha_chile_type: Object.prototype.toString.call(row.fecha_chile),
+      fecha_chile_norm: normalizeSheetDateToYyyyMmDd_(row.fecha_chile),
+      fixture_id_api_football: row.fixture_id_api_football
+    }, null, 2));
+  });
+}
+
+function manualRefreshGoldenMatches_2026_06_13() {
+  const result = loadGoldenMatchesByDate_('2026-06-13');
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualRefreshGoldenMatches_2026_06_12() {
+  const result = loadGoldenMatchesByDate_('2026-06-12');
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualRefreshAndEnrich_2026_06_13() {
+  const goldenResult = loadGoldenMatchesByDate_('2026-06-13');
+  Logger.log('Golden result: ' + JSON.stringify(goldenResult, null, 2));
+
+  const enrich12 = enrichGoldenMatchesByDate_('2026-06-12');
+  Logger.log('Enrich 2026-06-12: ' + JSON.stringify(enrich12, null, 2));
+
+  const enrich13 = enrichGoldenMatchesByDate_('2026-06-13');
+  Logger.log('Enrich 2026-06-13: ' + JSON.stringify(enrich13, null, 2));
+}
+
+function manualLoadTeamsFromCurrentData() {
+  const result = loadTeamsFromCurrentData_();
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualLoadSquadsForCurrentTeams() {
+  const result = loadSquadsForKnownTeams_();
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualLoadTeamAndSquadsFromCurrentData() {
+  const teamsResult = loadTeamsFromCurrentData_();
+  Logger.log('Teams: ' + JSON.stringify(teamsResult, null, 2));
+
+  const squadsResult = loadSquadsForKnownTeams_();
+  Logger.log('Squads: ' + JSON.stringify(squadsResult, null, 2));
+}
+
+function manualBackfillWorldCup_2026_06_11_to_2026_06_14() {
+  const result = backfillWorldCupRange_('2026-06-11', '2026-06-14', {
+    enrichMatches: true,
+    loadTeams: true,
+    loadSquads: false,
+    sleepMs: 1200
+  });
+
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualBackfillWorldCup_2026_06_13_to_2026_06_14() {
+  const result = backfillWorldCupRange_('2026-06-13', '2026-06-14', {
+    enrichMatches: true,
+    loadTeams: true,
+    loadSquads: false,
+    sleepMs: 1200
+  });
+
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualBackfillTodayOnly() {
+  const today = todayChile_();
+
+  const result = backfillWorldCupRange_(today, today, {
+    enrichMatches: true,
+    loadTeams: true,
+    loadSquads: false,
+    sleepMs: 1200
+  });
+
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualBackfillWorldCup_2026_06_11_to_2026_06_14() {
+  const result = backfillWorldCupRange_('2026-06-11', '2026-06-14', {
+    enrichMatches: true,
+    loadTeams: true,
+    loadSquads: false,
+    sleepMs: 1200
+  });
+
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualBackfillWorldCup_2026_06_13_to_2026_06_14() {
+  const result = backfillWorldCupRange_('2026-06-13', '2026-06-14', {
+    enrichMatches: true,
+    loadTeams: true,
+    loadSquads: false,
+    sleepMs: 1200
+  });
+
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualBackfillTodayOnly() {
+  const today = todayChile_();
+
+  const result = backfillWorldCupRange_(today, today, {
+    enrichMatches: true,
+    loadTeams: true,
+    loadSquads: false,
+    sleepMs: 1200
+  });
+
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualValidateGoldenDatasetTest() {
+  const result = validateGoldenDataset_();
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+function manualBackfillYesterdayTodayTomorrow() {
+  const yesterday = yesterdayChile_();
+  const today = todayChile_();
+  const tomorrow = tomorrowChile_();
+
+  const result = backfillWorldCupRange_(yesterday, tomorrow, {
+    enrichMatches: true,
+    loadTeams: true,
+    loadSquads: false,
+    sleepMs: 1200
+  });
+
+  Logger.log(JSON.stringify(result, null, 2));
+}
