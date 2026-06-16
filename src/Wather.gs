@@ -187,9 +187,42 @@ function buildWeatherStub_(fixture, condition) {
 }
 
 /**
- * Guarda el clima del fixture en la hoja EstadiosClima.
+ * Guarda el clima del fixture en EstadiosClima. Si ya existe una fila para
+ * este fixture_id, actualiza en lugar de agregar una nueva.
  */
 function saveWeatherForFixture_(fixture, weather) {
+  const fixtureId = String(fixture.fixture.id);
+  const sheet = getOrCreateSheet_(CONFIG.SHEETS.ESTADIOS_CLIMA, [
+    'venue_id','estadio','ciudad','pais','latitud_longitud',
+    'temperatura_c','humedad','viento_kmh','prob_lluvia','condicion',
+    'updated_at','fuente','fixture_id'
+  ]);
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0];
+  const fidIdx = headers.indexOf('fixture_id');
+
+  if (fidIdx !== -1) {
+    const rowIdx = values.slice(1).findIndex(r => String(r[fidIdx]) === fixtureId);
+    if (rowIdx !== -1) {
+      // Actualizar fila existente
+      const row = rowIdx + 2;
+      const map = {
+        temperatura_c: weather.temperature_c,
+        humedad:       weather.humidity,
+        viento_kmh:    weather.wind_kmh,
+        prob_lluvia:   weather.rain_probability,
+        condicion:     weather.condition,
+        updated_at:    nowChile_(),
+        fuente:        weather.source
+      };
+      Object.keys(map).forEach(field => {
+        const col = headers.indexOf(field);
+        if (col !== -1) sheet.getRange(row, col + 1).setValue(safe_(map[field]));
+      });
+      return;
+    }
+  }
+
   appendRows_(CONFIG.SHEETS.ESTADIOS_CLIMA, [[
     safe_(fixture.fixture.venue && fixture.fixture.venue.id),
     safe_(weather.stadium),

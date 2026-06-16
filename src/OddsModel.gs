@@ -134,8 +134,26 @@ function buildFallbackOddsSignals_(fixture) {
 }
 
 function saveOddsSignals_(fixture, baseOdds) {
+  const fixtureId = String(fixture.fixture.id);
+
+  // Dedup: eliminar filas existentes del mismo fixture antes de insertar
+  try {
+    const sheet = SpreadsheetApp.openById(getSpreadsheetId_()).getSheetByName(CONFIG.SHEETS.ODDS);
+    if (sheet && sheet.getLastRow() > 1) {
+      const values = sheet.getDataRange().getValues();
+      const headers = values[0];
+      const fidIdx = headers.indexOf('fixture_id');
+      if (fidIdx !== -1) {
+        // Borrar de abajo hacia arriba para no desplazar índices
+        for (let i = values.length - 1; i >= 1; i--) {
+          if (String(values[i][fidIdx]) === fixtureId) sheet.deleteRow(i + 1);
+        }
+      }
+    }
+  } catch (e) { console.warn('saveOddsSignals_ dedup:', e.message); }
+
   const rows = baseOdds.markets.map(m => [
-    fixture.fixture.id,
+    fixtureId,
     m.odd ? 'THE_ODDS_API' : 'MODELO_INTERNO',
     m.market,
     m.selection,

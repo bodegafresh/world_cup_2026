@@ -65,21 +65,33 @@ function dedupeNews_(items) {
 }
 
 function saveNewsForFixture_(fixture, news) {
-  const rows = news.map(item => [
-    hash_(item.title + item.link),
-    safe_(item.pubDate),
-    nowChile_(),
-    '',
-    '',
-    safe_(item.title),
-    'previa',
-    'PENDIENTE_CLASIFICAR',
-    safe_(item.link),
-    safe_(item.source),
-    fixture.fixture.id,
-    safe_(fixture.teams.home.name),
-    safe_(fixture.teams.away.name)
-  ]);
+  // Dedup: no insertar noticias cuyo hash ya existe en la hoja
+  let existingHashes = {};
+  try {
+    const sheet = SpreadsheetApp.openById(getSpreadsheetId_()).getSheetByName(CONFIG.SHEETS.NOTICIAS);
+    if (sheet && sheet.getLastRow() > 1) {
+      sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues()
+        .forEach(r => { if (r[0]) existingHashes[String(r[0])] = true; });
+    }
+  } catch (e) { /* hoja aún no existe */ }
 
-  appendRows_(CONFIG.SHEETS.NOTICIAS, rows);
+  const rows = news
+    .map(item => [
+      hash_(item.title + item.link),
+      safe_(item.pubDate),
+      nowChile_(),
+      '',
+      '',
+      safe_(item.title),
+      'previa',
+      'PENDIENTE_CLASIFICAR',
+      safe_(item.link),
+      safe_(item.source),
+      fixture.fixture.id,
+      safe_(fixture.teams.home.name),
+      safe_(fixture.teams.away.name)
+    ])
+    .filter(row => !existingHashes[String(row[0])]);
+
+  if (rows.length) appendRows_(CONFIG.SHEETS.NOTICIAS, rows);
 }
