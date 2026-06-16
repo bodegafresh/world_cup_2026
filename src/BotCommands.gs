@@ -19,6 +19,17 @@
  */
 
 function doPost(e) {
+  // Serializar ejecuciones: Apps Script no soporta concurrencia en web apps.
+  // Sin lock, si Telegram reenvía antes que terminemos, obtiene 302.
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(8000); // esperar hasta 8s para obtener el lock
+  } catch (lockErr) {
+    // No se pudo obtener el lock — responder 200 igual para que Telegram no reintente
+    console.warn('doPost: lock timeout, descartando update');
+    return ContentService.createTextOutput('ok').setMimeType(ContentService.MimeType.TEXT);
+  }
+
   try {
     const update = JSON.parse((e && e.postData && e.postData.contents) || '{}');
 
@@ -32,6 +43,8 @@ function doPost(e) {
     }
   } catch (err) {
     console.error('doPost error:', err.message);
+  } finally {
+    lock.releaseLock();
   }
 
   return ContentService.createTextOutput('ok').setMimeType(ContentService.MimeType.TEXT);
