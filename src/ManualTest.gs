@@ -23,6 +23,153 @@
  * 15. test15_Dashboard           — refresca el Dashboard consolidado (sin API calls)
  */
 
+// ─── DIAGNÓSTICO BOT TELEGRAM ─────────────────────────────────────────────────
+
+/**
+ * Paso 1: verifica token y obtiene info del bot.
+ * Ejecutar primero — no envía nada.
+ */
+function diagBot01_TokenInfo() {
+  Logger.log('=== DIAG 01: Info del bot ===');
+  const token = getTelegramBotToken_();
+  Logger.log(`Token (primeros 10 chars): ${token.substring(0, 10)}...`);
+
+  const url = `https://api.telegram.org/bot${token}/getMe`;
+  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  const data = JSON.parse(res.getContentText());
+
+  if (data.ok) {
+    Logger.log(`✅ Bot válido: @${data.result.username} (id: ${data.result.id})`);
+  } else {
+    Logger.log(`❌ Token inválido: ${data.description}`);
+    Logger.log('   → Revisa TELEGRAM_BOT_TOKEN en Script Properties');
+  }
+  return data;
+}
+
+/**
+ * Paso 2: muestra los últimos updates que Telegram tiene pendientes.
+ * Útil para ver el chat_id real de quien escribe.
+ * NOTA: solo funciona si NO tienes webhook activo.
+ * Para usarlo temporalmente: ejecuta deleteTelegramWebhook(), luego
+ * escribe al bot, corre esta función, luego setupTelegramWebhook() de nuevo.
+ */
+function diagBot02_GetUpdates() {
+  Logger.log('=== DIAG 02: Últimos updates (requiere webhook desactivado) ===');
+  const token = getTelegramBotToken_();
+  const res = UrlFetchApp.fetch(
+    `https://api.telegram.org/bot${token}/getUpdates?limit=5`,
+    { muteHttpExceptions: true }
+  );
+  const data = JSON.parse(res.getContentText());
+
+  if (!data.ok) {
+    Logger.log(`❌ ${data.description}`);
+    Logger.log('   → Si dice "Conflict", el webhook está activo. Desactívalo primero con deleteTelegramWebhook()');
+    return;
+  }
+
+  if (!data.result.length) {
+    Logger.log('Sin updates recientes. Escribe algo al bot y vuelve a ejecutar.');
+    return;
+  }
+
+  data.result.forEach(u => {
+    const msg = u.message || {};
+    Logger.log(`chat_id: ${msg.chat && msg.chat.id} | username: @${msg.from && msg.from.username} | texto: "${msg.text}"`);
+  });
+}
+
+/**
+ * Paso 3: envía un mensaje directo a un chat_id específico.
+ * Cambia CHAT_ID_DESTINO por tu chat_id real (número).
+ * Tu chat_id lo puedes obtener escribiéndole a @userinfobot en Telegram.
+ */
+function diagBot03_SendDirectMessage() {
+  const CHAT_ID_DESTINO = 'PON_AQUI_TU_CHAT_ID'; // ← cambiar
+
+  Logger.log(`=== DIAG 03: Envío directo a chat_id ${CHAT_ID_DESTINO} ===`);
+
+  if (CHAT_ID_DESTINO === 'PON_AQUI_TU_CHAT_ID') {
+    Logger.log('❌ Debes reemplazar CHAT_ID_DESTINO con tu chat_id real.');
+    Logger.log('   → Escríbele a @userinfobot en Telegram para obtener tu chat_id.');
+    return;
+  }
+
+  const token = getTelegramBotToken_();
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+
+  const res = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({
+      chat_id: CHAT_ID_DESTINO,
+      text: '✅ Prueba directa desde Apps Script — el bot está funcionando.',
+      parse_mode: 'HTML'
+    }),
+    muteHttpExceptions: true
+  });
+
+  const data = JSON.parse(res.getContentText());
+  if (data.ok) {
+    Logger.log('✅ Mensaje enviado correctamente');
+  } else {
+    Logger.log(`❌ Error Telegram: ${data.description} (código ${data.error_code})`);
+    if (data.error_code === 400) Logger.log('   → chat_id incorrecto o el bot nunca habló con este chat');
+    if (data.error_code === 403) Logger.log('   → El usuario bloqueó el bot');
+  }
+}
+
+/**
+ * Paso 4: simula un doPost con un comando real para ver qué responde.
+ * Cambia CHAT_ID_DESTINO por tu chat_id real.
+ */
+function diagBot04_SimulateDoPost() {
+  const CHAT_ID_DESTINO = 'PON_AQUI_TU_CHAT_ID'; // ← cambiar
+  const COMANDO = '/ayuda';
+
+  Logger.log(`=== DIAG 04: Simular doPost con "${COMANDO}" ===`);
+
+  let response;
+  try {
+    response = handleTelegramCommand_(COMANDO);
+    Logger.log(`Respuesta del handler (${(response || '').length} chars):`);
+    Logger.log(response ? response.substring(0, 300) : '(null — comando no reconocido)');
+  } catch (e) {
+    Logger.log(`❌ Error en handleTelegramCommand_: ${e.message}`);
+    return;
+  }
+
+  if (!response) {
+    Logger.log('⚠️  El handler devolvió null — el comando no está registrado en el switch');
+    return;
+  }
+
+  if (CHAT_ID_DESTINO === 'PON_AQUI_TU_CHAT_ID') {
+    Logger.log('ℹ️  No se envió (CHAT_ID_DESTINO sin configurar). El handler funciona correctamente.');
+    return;
+  }
+
+  sendTelegramMessageToSingleChat_(CHAT_ID_DESTINO, response);
+  Logger.log('✅ Mensaje enviado');
+}
+
+/**
+ * Paso 5: muestra los suscriptores registrados en la hoja.
+ */
+function diagBot05_Subscribers() {
+  Logger.log('=== DIAG 05: Suscriptores registrados ===');
+  const ids = getKnownChatIds_();
+  Logger.log(`Total: ${ids.length}`);
+  ids.forEach(id => Logger.log(`  chat_id: ${id}`));
+
+  if (!ids.length) {
+    Logger.log('⚠️  Sin suscriptores. Opciones:');
+    Logger.log('   1. Escríbele /ayuda al bot (se registra automáticamente)');
+    Logger.log('   2. Configura TELEGRAM_CHAT_ID en Script Properties como fallback');
+  }
+}
+
 // ─── 1. Configuración ──────────────────────────────────────────────────────────
 
 function test01_Config() {
