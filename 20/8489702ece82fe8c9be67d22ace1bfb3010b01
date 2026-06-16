@@ -1,0 +1,31 @@
+src/SheetManager.gs
+  s_8d080e6df27905::t_4cb536c40d98fb 1-167
+docs/cron-plan.md
+  s_8d080e6df27905::t_b9a947fdf4576e 94-115
+src/MatchPreview.gs
+  s_8d080e6df27905::t_bccec8e67bc8d2 1-368
+src/Prompts.gs
+  s_8d080e6df27905::t_d70e42da830931 3-5,7,18-19,22-44,47,49-50,53,59-60,62,65,67,73-93,98
+src/AiAnalysis.gs
+  s_8d080e6df27905::t_b694dc17012c76 1-8,10,21,28,34,40,56-61,65-72,78-82,86-90,94-131
+src/Telegram.gs
+  s_8d080e6df27905::t_fc2b0e08eab767 83-86,88-101,110-113
+src/Main.gs
+  s_8d080e6df27905::t_e2e575d7641c4a 76-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "208489702ece82fe8c9be67d22ace1bfb3010b01",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
