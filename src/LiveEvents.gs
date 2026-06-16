@@ -71,7 +71,22 @@ function savePlayerSummaryFromEvents_(fixtureId, fixture, events) {
     nowChile_()
   ]);
 
-  appendRows_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO, rows);
+  if (!rows.length) return;
+
+  const sheet = getSheet_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO);
+  const values = sheet.getDataRange().getValues();
+  const headers = values.length ? values[0] : [];
+  const fidIdx = headers.indexOf('fixture_id');
+  const pidIdx = headers.indexOf('jugador_id');
+
+  const existingPairs = {};
+  values.slice(1).forEach(row => {
+    const k = `${row[fidIdx]}_${row[pidIdx]}`;
+    existingPairs[k] = true;
+  });
+
+  const newRows = rows.filter(r => !existingPairs[`${r[0]}_${r[2]}`]);
+  appendRows_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO, newRows);
 }
 
 function createPlayerSummary_(fixtureId, player, team) {
