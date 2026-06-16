@@ -22,6 +22,11 @@ function doPost(e) {
   try {
     const update = JSON.parse((e && e.postData && e.postData.contents) || '{}');
 
+    // Ignorar updates ya procesados (Telegram reintenta si no recibe 200 a tiempo)
+    if (update.update_id != null && !shouldProcessUpdate_(update.update_id)) {
+      return ContentService.createTextOutput('ok').setMimeType(ContentService.MimeType.TEXT);
+    }
+
     if (update.message) {
       handleMessage_(update.message);
     }
@@ -30,6 +35,22 @@ function doPost(e) {
   }
 
   return ContentService.createTextOutput('ok').setMimeType(ContentService.MimeType.TEXT);
+}
+
+/**
+ * Devuelve true solo si este update_id es nuevo (mayor al último procesado).
+ * Guarda el último en Script Properties para persistir entre ejecuciones.
+ */
+function shouldProcessUpdate_(updateId) {
+  const props = PropertiesService.getScriptProperties();
+  const last  = Number(props.getProperty('LAST_UPDATE_ID') || '0');
+  const cur   = Number(updateId);
+
+  if (!isFinite(cur) || cur <= 0) return true;
+  if (last && cur <= last) return false;
+
+  props.setProperty('LAST_UPDATE_ID', String(cur));
+  return true;
 }
 
 // Telegram verifica el endpoint con GET antes de aceptar el webhook
