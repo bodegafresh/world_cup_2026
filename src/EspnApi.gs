@@ -146,28 +146,40 @@ function parseEspnTeamForm_(lastFiveGames, espnTeamId) {
  * @param {Array} scoringPlays - summary.scoringPlays
  * @returns {Map<string, Array>}
  */
-function parseEspnScorers_(scoringPlays) {
-  const map = new Map(); // teamId → array de goles
-  (scoringPlays || []).forEach(play => {
-    const teamId   = String((play.team || {}).id || '');
-    const athletes = play.athlete || play.athletes || [];
-    const clock    = (play.clock || {}).displayValue || '';
-    const ownGoal  = !!play.ownGoal;
-    const penalty  = !!play.penaltyKick;
+function parseEspnScorers_(scoringPlays, keyEvents) {
+  const map = new Map();
 
-    (Array.isArray(athletes) ? athletes : [athletes]).forEach(a => {
-      if (!a || !a.id) return;
+  const processPlay = (play) => {
+    const teamId   = String((play.team || {}).id || '');
+    // ESPN uses different field names: athlete, athletes, athlete.athlete
+    const rawAthletes = play.athlete || play.athletes || [];
+    const athletes = Array.isArray(rawAthletes) ? rawAthletes : [rawAthletes];
+    const clock    = (play.clock || {}).displayValue || '';
+    const ownGoal  = !!(play.ownGoal || play.isOwnGoal);
+    const penalty  = !!(play.penaltyKick || play.isPenaltyKick);
+
+    athletes.forEach(a => {
+      // Some ESPN entries wrap athlete inside another athlete object
+      const athlete = a.athlete || a;
+      if (!athlete || !athlete.id) return;
       const entry = {
-        athleteId:  String(a.id),
-        shortName:  a.shortName || a.displayName || '',
-        minute:     clock,
+        athleteId: String(athlete.id),
+        shortName: athlete.shortName || athlete.displayName || '',
+        minute:    clock,
         ownGoal,
         penalty
       };
       if (!map.has(teamId)) map.set(teamId, []);
       map.get(teamId).push(entry);
     });
-  });
+  };
+
+  // Try scoringPlays
+  (scoringPlays || []).forEach(processPlay);
+  // Also try keyEvents (ESPN sometimes uses this instead)
+  (keyEvents || []).filter(e => e.scoringPlay || (e.type && String(e.type.text || '').toLowerCase().includes('goal')))
+    .forEach(processPlay);
+
   return map;
 }
 

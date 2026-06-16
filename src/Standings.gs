@@ -193,6 +193,7 @@ function recalcularTablaDesdePartidos() {
   played.forEach(r => {
     const home  = teamNameToSpanish_(r.local     || r.home     || '') || (r.local || r.home || '');
     const away  = teamNameToSpanish_(r.visitante || r.away     || '') || (r.visitante || r.away || '');
+    if (!home || !away) return; // skip incomplete rows
     const grupo = r.grupo || WC2026_GROUPS[home] || WC2026_GROUPS[r.local || ''] || WC2026_GROUPS[r.home || ''] || '';
     const gh    = parseInt(r.goles_local)     || 0;
     const ga    = parseInt(r.goles_visitante) || 0;
@@ -246,6 +247,49 @@ function recalcularTablaDesdePartidos() {
 
   upsertStandings_(groupRows);
   Logger.log(`✅ Tabla recalculada: ${groupRows.length} equipos en ${Object.keys(grupos).length} grupos.`);
+  completarTablaConTodos48();
+}
+
+/**
+ * Añade a la tabla los 48 equipos del Mundial con 0 stats
+ * para los que aún no tienen partidos registrados.
+ * Ejecutar después de recalcularTablaDesdePartidos().
+ */
+function completarTablaConTodos48() {
+  const ALL_TEAMS = {
+    'Grupo A': ['México','Sudáfrica','Corea del Sur','República Checa'],
+    'Grupo B': ['Canadá','Bosnia','Catar','Suiza'],
+    'Grupo C': ['Brasil','Marruecos','Haití','Escocia'],
+    'Grupo D': ['EE.UU.','Paraguay','Australia','Turquía'],
+    'Grupo E': ['Alemania','Curazao','Costa de Marfil','Ecuador'],
+    'Grupo F': ['Países Bajos','Japón','Suecia','Túnez'],
+    'Grupo G': ['Bélgica','Egipto','Irán','Nueva Zelanda'],
+    'Grupo H': ['España','Cabo Verde','Arabia Saudita','Uruguay'],
+    'Grupo I': ['Francia','Senegal','Irak','Noruega'],
+    'Grupo J': ['Argentina','Argelia','Austria','Jordania'],
+    'Grupo K': ['Portugal','Congo DR','Uzbekistán','Colombia'],
+    'Grupo L': ['Inglaterra','Croacia','Ghana','Panamá'],
+  };
+
+  const sheet = ensureStandingsSheet_('Clasificacion');
+  const existing = readAll_('Clasificacion');
+  const existingTeams = new Set(existing.map(r => String(r.equipo || '').toLowerCase().trim()));
+
+  const newRows = [];
+  Object.entries(ALL_TEAMS).forEach(([grupo, equipos]) => {
+    equipos.forEach(equipo => {
+      if (!existingTeams.has(equipo.toLowerCase().trim())) {
+        newRows.push([grupo, '', '', equipo, 0, 0, 0, 0, 0, 0, 0, 0, '', '', nowChile_()]);
+      }
+    });
+  });
+
+  if (newRows.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
+    Logger.log(`✅ Agregados ${newRows.length} equipos faltantes a la tabla.`);
+  } else {
+    Logger.log('Todos los 48 equipos ya están en la tabla.');
+  }
 }
 
 /**
@@ -275,11 +319,22 @@ function buildStandingsText_() {
 
   Object.keys(byGroup).sort().forEach(grupo => {
     msg += `\n<b>${grupo}</b>\n`;
-    byGroup[grupo].forEach(r => {
-      const avanza = r.descripcion && r.descripcion.toLowerCase().includes('advance') ? '✅' : '  ';
-      const gd = Number(r.gd || 0);
-      msg += `${avanza}${r.posicion}. <b>${r.equipo || '?'}</b> — ${r.puntos}pts | ${r.pj}PJ ${r.pg}G ${r.pe}E ${r.pp}P | ${r.gf}:${r.gc} (${gd >= 0 ? '+' : ''}${gd})\n`;
-    });
+    byGroup[grupo]
+      .sort((a, b) => Number(b.puntos||0) - Number(a.puntos||0) || Number(b.gd||0) - Number(a.gd||0) || Number(b.gf||0) - Number(a.gf||0))
+      .forEach((r, i) => {
+        const gd  = Number(r.gd || 0);
+        const pts = Number(r.puntos || 0);
+        const pj  = Number(r.pj || 0);
+        const pg  = Number(r.pg || 0);
+        const pe  = Number(r.pe || 0);
+        const pp  = Number(r.pp || 0);
+        const gf  = Number(r.gf || 0);
+        const gc  = Number(r.gc || 0);
+        const avanza = i < 2 ? '✅' : '  ';
+        msg += `${avanza}${i+1}. <b>${r.equipo || '?'}</b> ${pts}pts`;
+        if (pj > 0) msg += ` | ${pj}PJ ${pg}G ${pe}E ${pp}P | ${gf}:${gc} (${gd >= 0 ? '+' : ''}${gd})`;
+        msg += '\n';
+      });
   });
 
   return msg.trim();

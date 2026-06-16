@@ -297,8 +297,19 @@ function buildJugadoresCommandResponse_(pais) {
             const side     = isHome ? 'home' : 'away';
             const lineup   = parseEspnLineup_(rosters, side);
             if (lineup) {
-              const scorersMap = parseEspnScorers_(summary.scoringPlays || []);
+              const scorersMap = parseEspnScorers_(summary.scoringPlays || [], summary.keyEvents || []);
               msg += formatEspnLineupText_(equipoNombre, lineup, scorersMap);
+              // Mostrar suplentes del roster ESPN
+              const teamRoster = rosters.find(r_ => r_.homeAway === side);
+              if (teamRoster) {
+                const suplentes = (teamRoster.roster || [])
+                  .filter(p => !p.starter)
+                  .map(p => `${(p.athlete||{}).jersey ? (p.athlete||{}).jersey + '.' : ''}${(p.athlete||{}).shortName || (p.athlete||{}).displayName || ''}`)
+                  .filter(Boolean);
+                if (suplentes.length) {
+                  msg += `<i>Banco:</i> ${suplentes.join(', ')}\n`;
+                }
+              }
             } else {
               msg += '\n<i>Alineación aún no disponible (se publica al inicio del partido)</i>\n';
             }
@@ -527,6 +538,24 @@ function buildTodayCommandResponse_() {
     !FINAL_STATUS.includes(p.status) && !LIVE_STATUS.includes(p.status)
   );
 
+  // Para partidos en vivo, obtener marcador actual desde ESPN
+  const liveScoreMap = {};
+  try {
+    const espnData = espnGet_('/scoreboard');
+    (espnData.events || []).forEach(ev => {
+      const comp  = (ev.competitions || [])[0] || {};
+      const comps = comp.competitors || [];
+      const home  = comps.find(c => c.homeAway === 'home') || {};
+      const away  = comps.find(c => c.homeAway === 'away') || {};
+      const normN = s => String(s || '').toLowerCase().replace(/[^a-z]/g,'');
+      const key   = normN((home.team||{}).displayName) + '_' + normN((away.team||{}).displayName);
+      liveScoreMap[key] = {
+        gLocal: home.score !== undefined ? home.score : null,
+        gVisit: away.score !== undefined ? away.score : null
+      };
+    });
+  } catch (e_) { /* usar datos de hoja como fallback */ }
+
   let msg = `📅 <b>Partidos de hoy ${date}</b>\n`;
 
   if (terminados.length) {
@@ -546,8 +575,15 @@ function buildTodayCommandResponse_() {
     enVivo.forEach(p => {
       const local = teamNameToSpanish_(p.local);
       const visit = teamNameToSpanish_(p.visitante);
-      const gLocal = p.goles_local !== null && p.goles_local !== '' ? p.goles_local : '0';
-      const gVisit = p.goles_visitante !== null && p.goles_visitante !== '' ? p.goles_visitante : '0';
+      const normN = s => String(s || '').toLowerCase().replace(/[^a-z]/g,'');
+      const liveKey = normN(teamNameToSpanish_(p.local)) + '_' + normN(teamNameToSpanish_(p.visitante));
+      const liveScore = liveScoreMap[liveKey] || {};
+      const gLocal = liveScore.gLocal !== null && liveScore.gLocal !== undefined
+        ? liveScore.gLocal
+        : (p.goles_local !== null && p.goles_local !== '' ? p.goles_local : '0');
+      const gVisit = liveScore.gVisit !== null && liveScore.gVisit !== undefined
+        ? liveScore.gVisit
+        : (p.goles_visitante !== null && p.goles_visitante !== '' ? p.goles_visitante : '0');
       msg += `\n⚽ <b>${local} ${gLocal} - ${gVisit} ${visit}</b>`;
       if (p.grupo) msg += ` <i>(Grupo ${p.grupo})</i>`;
       msg += `\n🏟️ ${p.estadio}`;

@@ -500,6 +500,15 @@ function buildLiveMatchesText_() {
       if (venue) msg += ` | 🏟️ ${venue}`;
       msg += '\n';
 
+      // Hora local del estadio
+      try {
+        const venueInfo = getVenueInfo_(venue, (comp.venue || {}).address && comp.venue.address.city || '');
+        if (venueInfo && venueInfo.timezone_estadio) {
+          const horaLocal = Utilities.formatDate(new Date(), venueInfo.timezone_estadio, 'HH:mm');
+          msg += `   🕐 Hora local: ${horaLocal}\n`;
+        }
+      } catch (e_) { /* sin timezone */ }
+
       // Clima del estadio (EstadiosClima o Open-Meteo directo)
       const clima = getClimaForVenue_(venue);
       if (clima && clima.temperatura_c !== null && clima.temperatura_c !== '') {
@@ -530,7 +539,7 @@ function buildLiveMatchesText_() {
         // Alineaciones titulares con goleadores marcados
         const rosters = summary.rosters || [];
         if (rosters.length) {
-          const scorersMap = parseEspnScorers_(summary.scoringPlays || []);
+          const scorersMap = parseEspnScorers_(summary.scoringPlays || [], summary.keyEvents || []);
           const hLineup = parseEspnLineup_(rosters, 'home');
           const aLineup = parseEspnLineup_(rosters, 'away');
           msg += formatEspnLineupText_(homeNombre, hLineup, scorersMap);
