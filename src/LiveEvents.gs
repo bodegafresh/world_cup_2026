@@ -408,10 +408,84 @@ function formatLiveStatsMessage_(fixture, stats, score) {
  * Resumen de todos los partidos que están en curso ahora mismo.
  * Usado por el comando /en_vivo del bot.
  */
+/**
+ * Construye el texto de partidos en vivo usando ESPN como fuente primaria.
+ * ESPN no tiene límite de cuota y refleja el estado en tiempo real.
+ * Fallback a hoja Partidos si ESPN falla.
+ */
 function buildLiveMatchesText_() {
-  const liveStatuses = ['1H', 'HT', '2H', 'ET', 'BT', 'P', 'LIVE', 'INT'];
+  const ESPN_LIVE = {
+    STATUS_FIRST_HALF:    '⏱ 1° Tiempo',
+    STATUS_HALFTIME:      '⏸ Descanso',
+    STATUS_SECOND_HALF:   '⏱ 2° Tiempo',
+    STATUS_EXTRA_TIME:    '⏱ Prórroga',
+    STATUS_BREAK_TIME:    '⏸ Descanso Prórroga',
+    STATUS_PENALTY:       '🥅 Penales',
+    STATUS_IN_PROGRESS:   '🔴 En curso',
+    STATUS_DELAYED:       '⏳ Demorado',
+    STATUS_SUSPENDED:     '⚠️ Suspendido',
+    STATUS_INTERRUPTED:   '⚠️ Interrumpido'
+  };
 
-  let rows;
+  // 1. Intentar ESPN (tiempo real, sin cuota)
+  let espnEvents = [];
+  try {
+    const data = espnGet_('/scoreboard');
+    espnEvents = (data.events || []).filter(e => {
+      const statusName = ((e.competitions || [])[0] || {}).status?.type?.name || '';
+      return Object.keys(ESPN_LIVE).includes(statusName);
+    });
+  } catch (e) {
+    console.warn('buildLiveMatchesText_: ESPN falló, usando hoja:', e.message);
+  }
+
+  if (espnEvents.length) {
+    let msg = `🔴 <b>En vivo — ${espnEvents.length} partido${espnEvents.length > 1 ? 's' : ''}</b>\n\n`;
+
+    espnEvents.forEach(ev => {
+      const comp   = ev.competitions[0];
+      const comps  = comp.competitors || [];
+      const home   = comps.find(c => c.homeAway === 'home') || comps[0] || {};
+      const away   = comps.find(c => c.homeAway === 'away') || comps[1] || {};
+      const status = comp.status || {};
+      const clock  = status.displayClock || '';
+      const label  = ESPN_LIVE[status.type?.name] || '🔴 En curso';
+
+      const homeNombre = teamNameToSpanish_((home.team || {}).displayName || '?');
+      const awayNombre = teamNameToSpanish_((away.team || {}).displayName || '?');
+      const homeScore  = home.score !== undefined ? home.score : '?';
+      const awayScore  = away.score !== undefined ? away.score : '?';
+      const venue      = (comp.venue || {}).fullName || '';
+
+      msg += `⚽ <b>${homeNombre} ${homeScore} - ${awayScore} ${awayNombre}</b>\n`;
+      msg += `   ${label}${clock ? ' ' + clock : ''}`;
+      if (venue) msg += ` | ${venue}`;
+      msg += '\n';
+
+      // Stats ESPN si el summary ya está disponible (espnId)
+      try {
+        const summary = fetchEspnSummary_(ev.id);
+        const bsTeams = (summary.boxscore || {}).teams || [];
+        const hEntry  = bsTeams.find(t => t.homeAway === 'home');
+        const aEntry  = bsTeams.find(t => t.homeAway === 'away');
+        if (hEntry && aEntry) {
+          const hs = parseEspnTeamStats_(hEntry);
+          const as = parseEspnTeamStats_(aEntry);
+          msg += `   Pos: ${hs.possessionPct || '?'}%-${as.possessionPct || '?'}%`;
+          msg += ` | Tiros: ${hs.totalShots || '?'}-${as.totalShots || '?'}`;
+          msg += ` (al arco: ${hs.shotsOnTarget || '?'}-${as.shotsOnTarget || '?'})\n`;
+        }
+      } catch (e_) { /* sin stats */ }
+
+      msg += '\n';
+    });
+
+    return msg.trim();
+  }
+
+  // 2. Fallback: leer de hoja Partidos (puede estar desactualizado)
+  const liveStatuses = ['1H', 'HT', '2H', 'ET', 'BT', 'P', 'LIVE', 'INT'];
+  let rows = [];
   try {
     rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r =>
       liveStatuses.includes(String(r.status || '').toUpperCase())
@@ -419,45 +493,17 @@ function buildLiveMatchesText_() {
   } catch (e) { rows = []; }
 
   if (!rows.length) {
-    return [
-      '⚽ <b>En vivo ahora</b>',
-      '',
-      'No hay partidos en curso en este momento.',
-      '',
-      '<i>Usa /hoy para ver el horario de los partidos de hoy.</i>'
-    ].join('\n');
+    return '⚽ <b>En vivo ahora</b>\n\nNo hay partidos en curso.\n\n<i>Usa /hoy para ver el horario de hoy.</i>';
   }
 
-  let msg = `🔴 <b>Partidos en vivo — ${rows.length} partido${rows.length > 1 ? 's' : ''}</b>\n\n`;
-
-  rows.forEach(fixture => {
-    const fixtureId = fixture.fixture_id_af || fixture.match_id;
-    const home = fixture.local     || '?';
-    const away = fixture.visitante || '?';
-    const statusLabel = {
-      '1H': '1° Tiempo', 'HT': 'Descanso', '2H': '2° Tiempo',
-      'ET': 'Prórroga', 'BT': 'Descanso Prórroga', 'P': 'Penales',
-      'LIVE': 'En curso', 'INT': 'Interrumpido'
-    }[String(fixture.status || '').toUpperCase()] || fixture.status;
-
-    const score = getLiveScore_(fixtureId);
-    const scoreStr = score ? `<b>${score.home} - ${score.away}</b>` : '<b>? - ?</b>';
-
-    msg += `⚽ ${home} ${scoreStr} ${away}\n`;
-    msg += `   ${statusLabel} | ${fixture.estadio || fixture.ciudad || ''}\n`;
-
-    // Mini stats si disponibles
-    try {
-      const stats = fetchLiveStatistics_(fixtureId);
-      if (stats) {
-        msg += `   Pos: ${stats.home.posesion}%-${stats.away.posesion}% | `;
-        msg += `Tiros: ${stats.home.tiros}-${stats.away.tiros}\n`;
-      }
-    } catch (e_) { /* sin stats */ }
-
-    msg += '\n';
+  let msg = `🔴 <b>En vivo — ${rows.length} partido${rows.length > 1 ? 's' : ''}</b> <i>(datos de hoja)</i>\n\n`;
+  rows.forEach(r => {
+    const home = teamNameToSpanish_(r.local || '?');
+    const away = teamNameToSpanish_(r.visitante || '?');
+    const gl   = r.goles_local ?? '?';
+    const gv   = r.goles_visitante ?? '?';
+    msg += `⚽ <b>${home} ${gl} - ${gv} ${away}</b>\n   ${r.estadio || ''}\n\n`;
   });
-
   return msg.trim();
 }
 

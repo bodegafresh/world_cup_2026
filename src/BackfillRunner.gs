@@ -57,6 +57,135 @@ function backfillWorldCupOpeningWeek() {
 }
 
 /**
+ * Carga el calendario completo del Mundial 2026 desde ESPN.
+ * ESPN es gratuito, sin cuota y tiene todos los ~104 partidos.
+ * Itera desde el 11 de junio hasta el 19 de julio (~39 llamadas).
+ *
+ * Genera match_key compatible con el pipeline API-Football para que
+ * el backfill posterior enriquezca las mismas filas (no duplica).
+ *
+ * Ejecutar cuando API-Football no tenga créditos o para pre-cargar
+ * el calendario sin gastar cuota.
+ */
+function loadFullWorldCupCalendarFromEspn() {
+  Logger.log('=== CARGANDO CALENDARIO COMPLETO DESDE ESPN (sin cuota) ===');
+
+  const sheet   = getOrCreateSheet_(CONFIG.SHEETS.PARTIDOS, null);
+  const headers = getHeaders_(CONFIG.SHEETS.PARTIDOS);
+  const mkIdx   = headers.indexOf('match_key');
+  if (mkIdx === -1) {
+    Logger.log('❌ La hoja Partidos no tiene columna match_key. Ejecuta sheetEnsureAllWithHeaders() primero.');
+    return;
+  }
+
+  // Leer filas existentes para upsert
+  const existingValues = sheet.getDataRange().getValues();
+  const existingByKey  = {};
+  existingValues.slice(1).forEach((row, i) => {
+    const key = String(row[mkIdx] || '');
+    if (key) existingByKey[key] = i + 2; // fila 1-indexed
+  });
+
+  // Rango de fechas del Mundial 2026: 11-Jun → 19-Jul
+  const dates = [];
+  const start = new Date('2026-06-11');
+  const end   = new Date('2026-07-19');
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    dates.push(Utilities.formatDate(new Date(d), 'UTC', 'yyyy-MM-dd'));
+  }
+
+  let total = 0;
+  let nuevos = 0;
+  let actualizados = 0;
+
+  dates.forEach(date => {
+    let events;
+    try {
+      events = fetchEspnEventsByDate_(date);
+    } catch (e) {
+      Logger.log(`  ⚠️ ESPN ${date}: ${e.message}`);
+      return;
+    }
+
+    if (!events.length) return;
+    Logger.log(`  ${date}: ${events.length} partido(s)`);
+
+    events.forEach(ev => {
+      // Generar match_key compatible con buildMatchKey_() de SourceMatcher.gs
+      // Formato: yyyy-MM-dd_home_away (normalizado sin acentos, solo a-z0-9)
+      const normName = n => String(n || '')
+        .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+        .replace(/ /g, '');
+
+      const homeNorm = normName(ev.home_team);
+      const awayNorm = normName(ev.away_team);
+      const matchKey = `${date}_${homeNorm}_${awayNorm}`;
+
+      // Convertir hora UTC a Chile
+      const horaChile = ev.hora_utc
+        ? Utilities.formatDate(new Date(ev.hora_utc), CONFIG.TIMEZONE, 'HH:mm')
+        : '';
+
+      // Mapear status ESPN → nuestro formato
+      const statusMap = {
+        'STATUS_SCHEDULED':    'NS',
+        'STATUS_FIRST_HALF':   '1H',
+        'STATUS_HALFTIME':     'HT',
+        'STATUS_SECOND_HALF':  '2H',
+        'STATUS_EXTRA_TIME':   'ET',
+        'STATUS_BREAK_TIME':   'BT',
+        'STATUS_PENALTY':      'P',
+        'STATUS_FULL_TIME':    'FT',
+        'STATUS_FINAL':        'FT',
+        'STATUS_POSTPONED':    'PST',
+        'STATUS_CANCELED':     'CANC',
+        'STATUS_IN_PROGRESS':  'LIVE'
+      };
+      const espnStatus = ev.espn_status || 'STATUS_SCHEDULED';
+      const status     = statusMap[espnStatus] || 'NS';
+
+      // Construir fila con las columnas de Partidos (orden del header)
+      const rowData = {};
+      rowData['match_key']       = matchKey;
+      rowData['local']           = ev.home_team;
+      rowData['visitante']       = ev.away_team;
+      rowData['fecha']           = date;
+      rowData['hora_chile']      = horaChile;
+      rowData['estadio']         = ev.estadio || '';
+      rowData['ciudad']          = ev.ciudad  || '';
+      rowData['status']          = status;
+      rowData['goles_local']     = (status === 'FT' || status === 'AET' || status === 'PEN')
+        ? ev.home_score : '';
+      rowData['goles_visitante'] = (status === 'FT' || status === 'AET' || status === 'PEN')
+        ? ev.away_score : '';
+      rowData['sources_count']   = '1';
+      rowData['conflict_detail'] = '';
+      rowData['updated_at']      = nowChile_();
+
+      const row = headers.map(h => rowData[h] !== undefined ? rowData[h] : '');
+
+      if (existingByKey[matchKey]) {
+        // Solo actualizar status, goles y hora si ya existe
+        sheet.getRange(existingByKey[matchKey], 1, 1, row.length).setValues([row]);
+        actualizados++;
+      } else {
+        appendRows_(CONFIG.SHEETS.PARTIDOS, [row]);
+        existingByKey[matchKey] = -1; // marcar para evitar duplicados en la misma ejecución
+        nuevos++;
+      }
+      total++;
+    });
+
+    Utilities.sleep(200); // respetar rate gentil con ESPN
+  });
+
+  Logger.log(`\n✅ Calendario cargado: ${total} partidos (${nuevos} nuevos, ${actualizados} actualizados)`);
+  Logger.log('Nota: stats y árbitros se cargan con backfillWorldCupOpeningWeek() para partidos ya jugados.');
+  Logger.log('=== FIN ESPN CALENDAR ===');
+}
+
+/**
  * Carga el calendario completo del Mundial 2026 en Partidos.
  * Usa una sola llamada a la API (league + season) en vez de iterar por fecha.
  * Solo guarda fixture_id, equipos, fecha, hora, estadio, ronda y grupo.

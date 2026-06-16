@@ -46,20 +46,27 @@ function fetchEspnEventsByDate_(date) {
   const events  = data.events || [];
 
   return events.map(e => {
-    const comp  = (e.competitions || [])[0] || {};
-    const comps = comp.competitors || [];
-    const home  = comps.find(c => c.homeAway === 'home') || comps[0] || {};
-    const away  = comps.find(c => c.homeAway === 'away') || comps[1] || {};
+    const comp   = (e.competitions || [])[0] || {};
+    const comps  = comp.competitors || [];
+    const home   = comps.find(c => c.homeAway === 'home') || comps[0] || {};
+    const away   = comps.find(c => c.homeAway === 'away') || comps[1] || {};
+    const venue  = comp.venue || {};
+    const addr   = venue.address || {};
+    const status = (comp.status || {}).type || {};
 
     return {
-      espn_id:     e.id,
-      date:        date,
-      home_team:   (home.team || {}).displayName || '',
-      away_team:   (away.team || {}).displayName || '',
-      home_score:  home.score || '0',
-      away_score:  away.score || '0',
-      status:      ((comp.status || {}).type || {}).shortDetail || '',
-      attendance:  comp.attendance || 0
+      espn_id:      e.id,
+      date:         date,
+      hora_utc:     e.date || '',       // ISO UTC timestamp del partido
+      home_team:    (home.team || {}).displayName || '',
+      away_team:    (away.team || {}).displayName || '',
+      home_score:   home.score !== undefined ? home.score : '',
+      away_score:   away.score !== undefined ? away.score : '',
+      status:       status.shortDetail || '',
+      espn_status:  status.name        || 'STATUS_SCHEDULED',
+      attendance:   comp.attendance    || 0,
+      estadio:      venue.fullName     || '',
+      ciudad:       addr.city          || ''
     };
   });
 }
