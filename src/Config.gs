@@ -147,15 +147,54 @@ function normalizeWebAppUrl_(url) {
 }
 
 /**
- * Registra el webhook de Telegram apuntando a este Web App.
+ * Registra el webhook apuntando al Cloudflare Worker (recomendado).
+ * El Worker hace redirect:follow hacia GAS y siempre responde 200 a Telegram,
+ * evitando el error "302 Moved Temporarily" de Apps Script web apps.
+ *
+ * Requisito: Script Property 'WORKER_URL' con la URL del Worker de Cloudflare.
  * Ejecutar UNA VEZ después de cada nueva implementación.
- * drop_pending_updates: true limpia mensajes acumulados mientras el webhook no estaba activo.
+ */
+function setupWebhookToWorker() {
+  const token     = getTelegramBotToken_();
+  const workerUrl = PropertiesService.getScriptProperties().getProperty('WORKER_URL');
+
+  if (!workerUrl) {
+    Logger.log('❌ Falta Script Property WORKER_URL. Agrégala con la URL del Cloudflare Worker.');
+    return;
+  }
+
+  Logger.log(`Registrando webhook al Worker: ${workerUrl}`);
+
+  const response = UrlFetchApp.fetch(
+    `https://api.telegram.org/bot${token}/setWebhook`,
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ url: workerUrl, drop_pending_updates: true }),
+      muteHttpExceptions: true
+    }
+  );
+
+  const result = JSON.parse(response.getContentText());
+  if (result.ok) {
+    Logger.log(`✅ Webhook → Worker: ${workerUrl}`);
+    Logger.log('   El Worker hace forward a GAS con redirect:follow.');
+  } else {
+    Logger.log(`❌ Error: ${result.description}`);
+  }
+  return result;
+}
+
+/**
+ * Registra el webhook de Telegram apuntando directamente a este Web App.
+ * ADVERTENCIA: puede recibir 302 si Apps Script redirige entre dominios.
+ * Usar setupWebhookToWorker() como alternativa estable.
  */
 function setupTelegramWebhook() {
   const token  = getTelegramBotToken_();
   const webUrl = normalizeWebAppUrl_(getWebAppUrl_());
 
-  Logger.log(`Registrando webhook en: ${webUrl}`);
+  Logger.log(`Registrando webhook directo en: ${webUrl}`);
 
   const response = UrlFetchApp.fetch(
     `https://api.telegram.org/bot${token}/setWebhook`,
