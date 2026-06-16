@@ -28,6 +28,12 @@ function loadWorldCupDay_(date) {
 
     Utilities.sleep(800);
   });
+
+  try {
+    loadWorldCupStandings();
+  } catch (e) {
+    console.warn('No se pudo actualizar standings:', e.message);
+  }
 }
 
 function cronTomorrowPreview() {
@@ -56,6 +62,12 @@ function enrichTomorrowFixture_(fixture) {
 
   const baseOdds = calculateBasicOddsSignals_(fixture);
   saveOddsSignals_(fixture, baseOdds);
+
+  try {
+    loadHeadToHeadForFixture_(fixture);
+  } catch (e) {
+    console.warn(`H2H error fixture ${fixtureId}: ${e.message}`);
+  }
 
   const aiInput = buildAiPreviewInput_(fixture, weather, news, baseOdds);
   const aiResult = analyzeFixtureWithAi_(aiInput);

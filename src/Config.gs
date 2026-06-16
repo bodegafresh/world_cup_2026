@@ -21,7 +21,10 @@ const CONFIG = {
     SOURCE_FIXTURES: 'SourceFixtures',
     MATCH_MAPPING: 'MatchMapping',
     DATA_QUALITY_LOG: 'DataQualityLog',
-    PIPELINE_RUNS: 'PipelineRuns'
+    PIPELINE_RUNS: 'PipelineRuns',
+
+    CLASIFICACION: 'Clasificacion',
+    HISTORIAL_H2H: 'HistorialH2H'
   },
 
   API_FOOTBALL: {
