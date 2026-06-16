@@ -22,6 +22,13 @@ const VENUE_CATALOG = {
     timezone_estadio: 'America/Los_Angeles'
   },
 
+  "Levi's Stadium|San Francisco Bay Area": {
+    pais_estadio: 'United States',
+    lat: 37.4030,
+    lon: -121.9700,
+    timezone_estadio: 'America/Los_Angeles'
+  },
+
   'MetLife Stadium|East Rutherford': {
     pais_estadio: 'United States',
     lat: 40.8135,
@@ -148,6 +155,18 @@ function getVenueInfo_(venueName, cityName) {
 
   if (foundKey) {
     return VENUE_CATALOG[foundKey];
+  }
+
+  // Fallback: buscar solo por nombre de estadio, ignorando la ciudad.
+  // Útil cuando API-Football usa nombres de ciudad distintos al catálogo
+  // (ej: "San Francisco Bay Area" en vez de "Santa Clara").
+  const venueOnlyKey = Object.keys(VENUE_CATALOG).find(key => {
+    const catalogVenue = normalizeVenueKey_(key.split('|')[0]);
+    return catalogVenue === normalizedVenue;
+  });
+
+  if (venueOnlyKey) {
+    return VENUE_CATALOG[venueOnlyKey];
   }
 
   return {
