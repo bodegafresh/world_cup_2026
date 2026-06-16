@@ -247,12 +247,13 @@ function buildJugadoresCommandResponse_(pais) {
   const today = todayChile_();
   const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
 
+  const searchTerms = teamSearchTerms_(args);
   const matchToday = partidos.find(r => {
     const fecha = normalizeFecha_(r.fecha);
     if (fecha !== today) return false;
     const local     = norm_(r.local     || '');
     const visitante = norm_(r.visitante || '');
-    return local.includes(q) || visitante.includes(q);
+    return searchTerms.some(t => local.includes(t) || visitante.includes(t));
   });
 
   let msg = '';
@@ -448,21 +449,76 @@ function buildHelpCommandResponse_() {
 // ─── /hoy ──────────────────────────────────────────────────────────────────────
 
 function buildTodayCommandResponse_() {
-  const date = todayChile_();
+  const date     = todayChile_();
   const partidos = getTodayFixturesForReport_(date);
 
   if (!partidos.length) return `No hay partidos registrados para hoy ${date}.`;
 
+  // Mapa de clima por fixture_id
+  const climaMap = {};
+  try {
+    readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).forEach(r => {
+      if (r.fixture_id) climaMap[String(r.fixture_id)] = r;
+    });
+  } catch (e) { /* sin clima */ }
+
+  const FINAL_STATUS = ['FT','AET','PEN'];
+  const LIVE_STATUS  = ['1H','2H','HT','ET','P','BT','INT','LIVE'];
+
+  let terminados = partidos.filter(p => FINAL_STATUS.includes(p.status));
+  let enVivo     = partidos.filter(p => LIVE_STATUS.includes(p.status));
+  let proximos   = partidos.filter(p =>
+    !FINAL_STATUS.includes(p.status) && !LIVE_STATUS.includes(p.status)
+  );
+
   let msg = `📅 <b>Partidos de hoy ${date}</b>\n`;
 
-  partidos.forEach(p => {
-    const score = (p.goles_local !== '' && p.goles_local !== null)
-      ? ` ${p.goles_local} - ${p.goles_visitante}`
-      : '';
-    msg += `\n⚽ <b>${p.local}${score} vs ${p.visitante}</b>`;
-    msg += `\n🕒 ${p.hora_chile || ''}`;
-    msg += `\n🏟️ ${p.estadio || 'Sin estadio'}\n`;
-  });
+  if (terminados.length) {
+    msg += '\n✅ <b>Resultados</b>\n';
+    terminados.forEach(p => {
+      const local = teamNameToSpanish_(p.local);
+      const visit = teamNameToSpanish_(p.visitante);
+      msg += `\n⚽ <b>${local} ${p.goles_local} - ${p.goles_visitante} ${visit}</b>`;
+      if (p.grupo) msg += ` <i>(Grupo ${p.grupo})</i>`;
+      msg += `\n🏟️ ${p.estadio}`;
+      msg += '\n';
+    });
+  }
+
+  if (enVivo.length) {
+    msg += '\n🔴 <b>En vivo</b>\n';
+    enVivo.forEach(p => {
+      const local = teamNameToSpanish_(p.local);
+      const visit = teamNameToSpanish_(p.visitante);
+      const gLocal = p.goles_local !== null && p.goles_local !== '' ? p.goles_local : '0';
+      const gVisit = p.goles_visitante !== null && p.goles_visitante !== '' ? p.goles_visitante : '0';
+      msg += `\n⚽ <b>${local} ${gLocal} - ${gVisit} ${visit}</b>`;
+      if (p.grupo) msg += ` <i>(Grupo ${p.grupo})</i>`;
+      msg += `\n🏟️ ${p.estadio}`;
+      msg += '\n';
+    });
+  }
+
+  if (proximos.length) {
+    msg += '\n🕒 <b>Próximos</b>\n';
+    proximos.forEach(p => {
+      const local = teamNameToSpanish_(p.local);
+      const visit = teamNameToSpanish_(p.visitante);
+      const fid   = String(p.fixture_id);
+      const clima = climaMap[fid] || null;
+
+      msg += `\n⚽ <b>${local} vs ${visit}</b>`;
+      if (p.grupo) msg += ` <i>(Grupo ${p.grupo})</i>`;
+      msg += `\n🕒 ${p.hora_chile || 'hora pendiente'} hrs Chile`;
+      msg += `\n🏟️ ${p.estadio}${p.ciudad ? ', ' + p.ciudad : ''}`;
+      if (clima && clima.temperatura_c !== null && clima.temperatura_c !== '') {
+        const lluvia = Number(clima.prob_lluvia) > 30
+          ? ` ☔${clima.prob_lluvia}%` : '';
+        msg += `\n🌡️ ${clima.temperatura_c}°C, ${clima.humedad}% hum${lluvia}`;
+      }
+      msg += '\n';
+    });
+  }
 
   return msg.trim();
 }
@@ -480,9 +536,19 @@ function buildYesterdayCommandResponse_() {
 
   let msg = `📊 <b>Resultados ${date}</b>\n`;
 
-  rows.forEach(r => {
-    msg += `\n${r.local} <b>${r.goles_local ?? ''} - ${r.goles_visitante ?? ''}</b> ${r.visitante}`;
-  });
+  rows.sort((a, b) => (normalizeHora_(a.hora_chile) || '').localeCompare(normalizeHora_(b.hora_chile) || ''))
+    .forEach(r => {
+      const local = teamNameToSpanish_(r.local);
+      const visit = teamNameToSpanish_(r.visitante);
+      const gl    = r.goles_local    ?? '';
+      const gv    = r.goles_visitante ?? '';
+      const grupo = r.grupo ? ` <i>(Grupo ${r.grupo})</i>` : '';
+      const hora  = normalizeHora_(r.hora_chile);
+      msg += `\n⚽ <b>${local} ${gl} - ${gv} ${visit}</b>${grupo}`;
+      if (hora) msg += ` — 🕒${hora}`;
+      msg += `\n🏟️ ${r.estadio || ''}`;
+      msg += '\n';
+    });
 
   return msg.trim();
 }
@@ -507,9 +573,13 @@ function buildUpcomingCommandResponse_() {
     if (!rows.length) return;
 
     msg += `\n<b>${date}</b>`;
-    rows.forEach(r => {
-      msg += `\n⚽ ${r.local} vs ${r.visitante} — 🕒 ${r.hora_chile || ''}`;
-    });
+    rows.sort((a, b) => (normalizeHora_(a.hora_chile) || '').localeCompare(normalizeHora_(b.hora_chile) || ''))
+      .forEach(r => {
+        const local = teamNameToSpanish_(r.local);
+        const visit = teamNameToSpanish_(r.visitante);
+        const hora  = normalizeHora_(r.hora_chile);
+        msg += `\n⚽ ${local} vs ${visit} — 🕒 ${hora || '?'} hrs`;
+      });
     msg += '\n';
     total += rows.length;
   });
@@ -524,23 +594,38 @@ function buildUpcomingCommandResponse_() {
 function buildTeamCommandResponse_(team) {
   if (!team) return 'Uso: /seleccion Brasil';
 
+  const terms = teamSearchTerms_(team);
+  const norm  = s => String(s || '').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+
   const rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => {
-    const local = String(r.local || '').toLowerCase();
-    const visitante = String(r.visitante || '').toLowerCase();
-    const q = team.toLowerCase();
-    return local.includes(q) || visitante.includes(q);
+    const local    = norm(r.local);
+    const visitante = norm(r.visitante);
+    return terms.some(t => local.includes(t) || visitante.includes(t));
   });
 
   if (!rows.length) return `No encontré partidos para: ${team}`;
 
-  let msg = `🔎 <b>Partidos de ${team}</b>\n`;
+  const displayName = teamNameToSpanish_(rows[0].local.toLowerCase().includes(
+    terms[0]) ? rows[0].local : rows[0].visitante);
 
-  rows.slice(-10).forEach(r => {
-    const score = (r.goles_local !== '' && r.goles_local !== null)
-      ? `${r.goles_local} - ${r.goles_visitante}`
-      : 'vs';
-    msg += `\n${r.fecha} — ${r.local} <b>${score}</b> ${r.visitante}`;
-  });
+  let msg = `🔎 <b>Partidos de ${displayName}</b>\n`;
+
+  rows.slice(-10)
+    .sort((a, b) => (normalizeFecha_(a.fecha) || '').localeCompare(normalizeFecha_(b.fecha) || ''))
+    .forEach(r => {
+      const local = teamNameToSpanish_(r.local);
+      const visit = teamNameToSpanish_(r.visitante);
+      const fecha = normalizeFecha_(r.fecha);
+      const hora  = normalizeHora_(r.hora_chile);
+      const hasScore = r.goles_local !== '' && r.goles_local !== null &&
+                       r.goles_local !== undefined;
+      const score = hasScore
+        ? `<b>${r.goles_local} - ${r.goles_visitante}</b>`
+        : `🕒 ${hora || '?'}`;
+      msg += `\n${fecha} — ${local} ${score} ${visit}`;
+    });
 
   return msg.trim();
 }
@@ -550,10 +635,15 @@ function buildTeamCommandResponse_(team) {
 function buildTeamStatsResponse_(team) {
   if (!team) return 'Uso: /stats Argentina';
 
-  const q = team.toLowerCase();
+  const terms = teamSearchTerms_(team);
+  const norm  = s => String(s || '').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+
   const rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => {
-    return String(r.local || '').toLowerCase().includes(q) ||
-           String(r.visitante || '').toLowerCase().includes(q);
+    const local    = norm(r.local);
+    const visitante = norm(r.visitante);
+    return terms.some(t => local.includes(t) || visitante.includes(t));
   });
 
   if (!rows.length) return `Sin partidos para: ${team}`;
@@ -562,8 +652,14 @@ function buildTeamStatsResponse_(team) {
   let posesionTotal = 0, posesionCount = 0;
   let tirosTotal = 0, tirosCount = 0;
 
+  const firstMatch = rows[0];
+  const displayName = teamNameToSpanish_(
+    norm(firstMatch.local) === terms[0] || terms.some(t => norm(firstMatch.local).includes(t))
+      ? firstMatch.local : firstMatch.visitante
+  );
+
   rows.forEach(r => {
-    const isHome = String(r.local || '').toLowerCase().includes(q);
+    const isHome = terms.some(t => norm(r.local).includes(t));
     const gl = Number(isHome ? r.goles_local : r.goles_visitante) || 0;
     const gc_ = Number(isHome ? r.goles_visitante : r.goles_local) || 0;
 
@@ -588,7 +684,7 @@ function buildTeamStatsResponse_(team) {
   const tirosAvg = tirosCount ? Math.round(tirosTotal / tirosCount) : 'N/A';
 
   let msg = [
-    `📊 <b>Estadísticas de ${team}</b>`,
+    `📊 <b>Estadísticas de ${displayName}</b>`,
     `PJ: ${pj}  PG: ${pg}  PE: ${pe}  PP: ${pp}`,
     `Goles: ${gf} favor / ${gc} contra`,
     `Posesión prom: ${posAvg}%`,

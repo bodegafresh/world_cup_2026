@@ -261,15 +261,21 @@ function buildOddsMap_() {
 function getTodayFixturesForReport_(date) {
   const rows = readAll_(CONFIG.SHEETS.PARTIDOS);
 
-  return rows.filter(r => {
-    return normalizeFecha_(r.fecha) === date;
-  }).map(r => ({
-    fixture_id: r.match_id,
-    local: r.local,
-    visitante: r.visitante,
-    hora_chile: r.hora_chile,
-    estadio: r.estadio
-  }));
+  return rows.filter(r => normalizeFecha_(r.fecha) === date)
+    .map(r => ({
+      fixture_id:     r.match_key || r.fixture_id_af || '',
+      local:          r.local        || '',
+      visitante:      r.visitante    || '',
+      hora_chile:     normalizeHora_(r.hora_chile),
+      estadio:        r.estadio      || '',
+      ciudad:         r.ciudad       || '',
+      goles_local:    r.goles_local,
+      goles_visitante: r.goles_visitante,
+      status:         String(r.status || '').toUpperCase(),
+      grupo:          r.grupo        || '',
+      ronda:          r.ronda        || ''
+    }))
+    .sort((a, b) => (a.hora_chile || '').localeCompare(b.hora_chile || ''));
 }
 
 function getTodayAiReports_() {
