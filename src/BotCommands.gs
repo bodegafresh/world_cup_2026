@@ -20,37 +20,42 @@
 
 function doPost(e) {
   try {
-    const update = JSON.parse(e.postData.contents);
+    const update = JSON.parse((e && e.postData && e.postData.contents) || '{}');
 
-    if (!update.message || !update.message.text) {
-      return ContentService.createTextOutput('ok');
+    if (update.message) {
+      handleMessage_(update.message);
     }
-
-    const msg      = update.message;
-    const chatId   = msg.chat.id;
-    const username = (msg.from && msg.from.username) ? msg.from.username : '';
-    const text     = msg.text.trim();
-
-    try { registerSubscriber_(chatId, username); } catch (e_) { console.warn('register:', e_.message); }
-
-    if (!text.startsWith('/')) {
-      return ContentService.createTextOutput('ok');
-    }
-
-    let response;
-    try {
-      response = handleTelegramCommand_(text);
-    } catch (e_) {
-      response = `Error interno: ${e_.message}`;
-    }
-
-    if (response) sendTelegramMessageToSingleChat_(chatId, response);
-
-  } catch (e_) {
-    console.error('doPost error:', e_.message);
+  } catch (err) {
+    console.error('doPost error:', err.message);
   }
 
-  return ContentService.createTextOutput('ok');
+  return ContentService.createTextOutput('ok').setMimeType(ContentService.MimeType.TEXT);
+}
+
+// Telegram verifica el endpoint con GET antes de aceptar el webhook
+function doGet(e) {
+  return ContentService.createTextOutput('ok').setMimeType(ContentService.MimeType.TEXT);
+}
+
+function handleMessage_(msg) {
+  const chatId   = msg && msg.chat && msg.chat.id ? String(msg.chat.id) : '';
+  const text     = msg && msg.text ? String(msg.text).trim() : '';
+  const username = msg && msg.from && msg.from.username ? msg.from.username : '';
+
+  if (!chatId) return;
+
+  try { registerSubscriber_(chatId, username); } catch (e_) { console.warn('register:', e_.message); }
+
+  if (!text.startsWith('/')) return;
+
+  let response;
+  try {
+    response = handleTelegramCommand_(text);
+  } catch (e_) {
+    response = `⚠️ Error: ${e_.message}`;
+  }
+
+  if (response) sendTelegramMessageToSingleChat_(chatId, response);
 }
 
 function handleTelegramCommand_(text) {

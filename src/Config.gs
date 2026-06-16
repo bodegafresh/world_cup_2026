@@ -115,24 +115,56 @@ function getWebAppUrl_() {
 }
 
 /**
+ * Valida y normaliza la URL del Web App:
+ * - Fuerza que termine en /exec
+ * - Detecta URLs de librería o /dev que causan el error 302
+ */
+function normalizeWebAppUrl_(url) {
+  url = String(url || '').trim();
+  if (!url) throw new Error('URL_WEB_APP está vacía en Script Properties');
+
+  if (url.includes('/macros/library/')) {
+    throw new Error('URL_WEB_APP apunta a /macros/library/ — debe ser /macros/s/.../exec');
+  }
+  if (url.includes('/dev')) {
+    throw new Error('URL_WEB_APP apunta a /dev — usa la URL /exec de la implementación publicada');
+  }
+
+  // Agrega /exec si falta
+  if (!/\/exec(\?.*)?$/.test(url)) {
+    url = url.replace(/\/$/, '') + '/exec';
+  }
+
+  return url;
+}
+
+/**
  * Registra el webhook de Telegram apuntando a este Web App.
- * Ejecutar UNA SOLA VEZ después de cada nueva implementación.
+ * Ejecutar UNA VEZ después de cada nueva implementación.
+ * drop_pending_updates: true limpia mensajes acumulados mientras el webhook no estaba activo.
  */
 function setupTelegramWebhook() {
   const token  = getTelegramBotToken_();
-  const webUrl = getWebAppUrl_();
+  const webUrl = normalizeWebAppUrl_(getWebAppUrl_());
 
-  const url = `https://api.telegram.org/bot${token}/setWebhook`;
+  Logger.log(`Registrando webhook en: ${webUrl}`);
 
-  const response = UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify({ url: webUrl }),
-    muteHttpExceptions: true
-  });
+  const response = UrlFetchApp.fetch(
+    `https://api.telegram.org/bot${token}/setWebhook`,
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ url: webUrl, drop_pending_updates: true }),
+      muteHttpExceptions: true
+    }
+  );
 
   const result = JSON.parse(response.getContentText());
-  Logger.log(result.ok ? `✅ Webhook registrado: ${webUrl}` : `❌ Error: ${result.description}`);
+  if (result.ok) {
+    Logger.log(`✅ Webhook registrado: ${webUrl}`);
+  } else {
+    Logger.log(`❌ Error: ${result.description}`);
+  }
   return result;
 }
 
@@ -151,12 +183,12 @@ function getTelegramWebhookInfo() {
 }
 
 /**
- * Elimina el webhook (útil para volver a polling o cambiar la URL).
+ * Elimina el webhook y limpia la cola de updates pendientes.
  */
 function deleteTelegramWebhook() {
   const token = getTelegramBotToken_();
   const response = UrlFetchApp.fetch(
-    `https://api.telegram.org/bot${token}/deleteWebhook`,
+    `https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=true`,
     { method: 'post', muteHttpExceptions: true }
   );
   const result = JSON.parse(response.getContentText());
