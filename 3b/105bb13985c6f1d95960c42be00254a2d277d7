@@ -1,0 +1,24 @@
+src/ApiFootball.gs
+  s_8d080e6df27905::t_0e0a90f090bd41 1-3,12-22,24-29,34
+src/BackfillRunner.gs
+  s_8d080e6df27905::t_cff087487d44d0 238
+  s_8d080e6df27905::t_615e2d1901579c 37-40
+  s_8d080e6df27905::t_925a9a5f44fe48 213
+  s_8d080e6df27905::t_2cf9c76eff3359 275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "3b105bb13985c6f1d95960c42be00254a2d277d7",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
