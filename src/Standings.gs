@@ -125,6 +125,45 @@ function ensureStandingsSheet_(sheetName) {
   return sheet;
 }
 
+const WC2026_GROUPS = {
+  // Grupo A
+  'México': 'Grupo A', 'Mexico': 'Grupo A', 'Sudáfrica': 'Grupo A', 'South Africa': 'Grupo A',
+  'Corea del Sur': 'Grupo A', 'Korea Republic': 'Grupo A', 'República Checa': 'Grupo A', 'Czechia': 'Grupo A',
+  // Grupo B
+  'Canadá': 'Grupo B', 'Canada': 'Grupo B', 'Bosnia': 'Grupo B', 'Bosnia and Herzegovina': 'Grupo B',
+  'Catar': 'Grupo B', 'Qatar': 'Grupo B', 'Suiza': 'Grupo B', 'Switzerland': 'Grupo B',
+  // Grupo C
+  'Brasil': 'Grupo C', 'Brazil': 'Grupo C', 'Marruecos': 'Grupo C', 'Morocco': 'Grupo C',
+  'Haití': 'Grupo C', 'Haiti': 'Grupo C', 'Escocia': 'Grupo C', 'Scotland': 'Grupo C',
+  // Grupo D
+  'EE.UU.': 'Grupo D', 'USA': 'Grupo D', 'United States': 'Grupo D',
+  'Paraguay': 'Grupo D', 'Australia': 'Grupo D', 'Turquía': 'Grupo D', 'Türkiye': 'Grupo D',
+  // Grupo E
+  'Alemania': 'Grupo E', 'Germany': 'Grupo E', 'Curazao': 'Grupo E', 'Curaçao': 'Grupo E',
+  'Costa de Marfil': 'Grupo E', "Côte d'Ivoire": 'Grupo E', 'Ecuador': 'Grupo E',
+  // Grupo F
+  'Países Bajos': 'Grupo F', 'Netherlands': 'Grupo F', 'Japón': 'Grupo F', 'Japan': 'Grupo F',
+  'Suecia': 'Grupo F', 'Sweden': 'Grupo F', 'Túnez': 'Grupo F', 'Tunisia': 'Grupo F',
+  // Grupo G
+  'Bélgica': 'Grupo G', 'Belgium': 'Grupo G', 'Egipto': 'Grupo G', 'Egypt': 'Grupo G',
+  'Irán': 'Grupo G', 'Iran': 'Grupo G', 'IR Iran': 'Grupo G', 'Nueva Zelanda': 'Grupo G', 'New Zealand': 'Grupo G',
+  // Grupo H
+  'España': 'Grupo H', 'Spain': 'Grupo H', 'Cabo Verde': 'Grupo H', 'Cape Verde': 'Grupo H', 'Cape Verde Islands': 'Grupo H',
+  'Arabia Saudita': 'Grupo H', 'Saudi Arabia': 'Grupo H', 'Uruguay': 'Grupo H',
+  // Grupo I
+  'Francia': 'Grupo I', 'France': 'Grupo I', 'Senegal': 'Grupo I',
+  'Irak': 'Grupo I', 'Iraq': 'Grupo I', 'Noruega': 'Grupo I', 'Norway': 'Grupo I',
+  // Grupo J
+  'Argentina': 'Grupo J', 'Argelia': 'Grupo J', 'Algeria': 'Grupo J',
+  'Austria': 'Grupo J', 'Jordania': 'Grupo J', 'Jordan': 'Grupo J',
+  // Grupo K
+  'Portugal': 'Grupo K', 'Congo DR': 'Grupo K', 'DR Congo': 'Grupo K',
+  'Uzbekistán': 'Grupo K', 'Uzbekistan': 'Grupo K', 'Colombia': 'Grupo K',
+  // Grupo L
+  'Inglaterra': 'Grupo L', 'England': 'Grupo L', 'Croacia': 'Grupo L', 'Croatia': 'Grupo L',
+  'Ghana': 'Grupo L', 'Panamá': 'Grupo L', 'Panama': 'Grupo L',
+};
+
 /**
  * Recalcula la tabla de posiciones directamente desde la hoja Partidos.
  * No requiere ninguna API — usa los resultados FT ya guardados.
@@ -152,9 +191,9 @@ function recalcularTablaDesdePartidos() {
   };
 
   played.forEach(r => {
-    const home  = teamNameToSpanish_(r.local     || r.home     || '');
-    const away  = teamNameToSpanish_(r.visitante || r.away     || '');
-    const grupo = r.grupo || '';
+    const home  = teamNameToSpanish_(r.local     || r.home     || '') || (r.local || r.home || '');
+    const away  = teamNameToSpanish_(r.visitante || r.away     || '') || (r.visitante || r.away || '');
+    const grupo = r.grupo || WC2026_GROUPS[home] || WC2026_GROUPS[r.local || ''] || WC2026_GROUPS[r.home || ''] || '';
     const gh    = parseInt(r.goles_local)     || 0;
     const ga    = parseInt(r.goles_visitante) || 0;
 
@@ -238,7 +277,8 @@ function buildStandingsText_() {
     msg += `\n<b>${grupo}</b>\n`;
     byGroup[grupo].forEach(r => {
       const avanza = r.descripcion && r.descripcion.toLowerCase().includes('advance') ? '✅' : '  ';
-      msg += `${avanza}${r.posicion}. ${r.equipo} — ${r.puntos} pts (GD ${r.gd > 0 ? '+' : ''}${r.gd})\n`;
+      const gd = Number(r.gd || 0);
+      msg += `${avanza}${r.posicion}. <b>${r.equipo || '?'}</b> — ${r.puntos}pts | ${r.pj}PJ ${r.pg}G ${r.pe}E ${r.pp}P | ${r.gf}:${r.gc} (${gd >= 0 ? '+' : ''}${gd})\n`;
     });
   });
 

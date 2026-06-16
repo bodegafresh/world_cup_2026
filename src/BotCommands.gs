@@ -262,7 +262,7 @@ function buildJugadoresCommandResponse_(pais) {
     const esLocal    = norm_(matchToday.local     || '').includes(q);
     const equipoNombre = esLocal ? matchToday.local : matchToday.visitante;
     const rival        = esLocal ? matchToday.visitante : matchToday.local;
-    const estado       = String(matchToday.estado || '').toUpperCase();
+    const estado       = String(matchToday.status || '').toUpperCase();
     const liveStatuses = ['1H','HT','2H','ET','BT','P','LIVE','INT','FT','AET','PEN'];
     const esVivo       = liveStatuses.includes(estado);
 
@@ -270,14 +270,46 @@ function buildJugadoresCommandResponse_(pais) {
 
     // Intentar obtener alineación (desde hoja o API si está en curso)
     const fixtureId = matchToday.fixture_id_af || matchToday.match_id;
+    let equipoLineup = null;
     if (fixtureId) {
       const fakeFixture = { fixture: { id: fixtureId, status: { short: estado } } };
       const lineups = getOrFetchLineup_(fakeFixture);
-      const equipoLineup = lineups && findTeamInLineup_(lineups, q);
+      equipoLineup = lineups && findTeamInLineup_(lineups, q);
 
       if (equipoLineup) {
         msg += buildLineupText_(equipoNombre, equipoLineup);
-      } else {
+      }
+    }
+
+    if (!fixtureId || !equipoLineup) {
+      // Fallback: buscar en ESPN por fecha + equipos
+      try {
+        const espnId = findEspnEventId_(
+          normalizeFecha_(matchToday.fecha),
+          matchToday.local,
+          matchToday.visitante
+        );
+        if (espnId) {
+          const summary  = fetchEspnSummary_(espnId);
+          const rosters  = summary.rosters || [];
+          if (rosters.length) {
+            const isHome   = searchTerms.some(t => norm_(matchToday.local || '').includes(t));
+            const side     = isHome ? 'home' : 'away';
+            const lineup   = parseEspnLineup_(rosters, side);
+            if (lineup) {
+              const scorersMap = parseEspnScorers_(summary.scoringPlays || []);
+              msg += formatEspnLineupText_(equipoNombre, lineup, scorersMap);
+            } else {
+              msg += '\n<i>Alineación aún no disponible (se publica al inicio del partido)</i>\n';
+            }
+          } else {
+            msg += '\n<i>Alineación aún no disponible (se publica al inicio del partido)</i>\n';
+          }
+        } else {
+          msg += '\n<i>Alineación aún no disponible (se publica al inicio del partido)</i>\n';
+        }
+      } catch (espnErr) {
+        console.warn('jugadores ESPN fallback:', espnErr.message);
         msg += '\n<i>Alineación aún no disponible (se publica al inicio del partido)</i>\n';
       }
     }
@@ -461,12 +493,15 @@ function buildTodayCommandResponse_() {
     if (['FT','AET','PEN'].includes(s)) return 2;
     return 1; // NS, TBD, vacío
   };
-  const normKey_ = s => String(s || '').toLowerCase()
-    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
-    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+  const toKey_hoy_ = s => {
+    const es = teamNameToSpanish_(String(s || ''));
+    return es.toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e')
+      .replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u')
+      .replace(/ñ/g,'n').replace(/[^a-z0-9]/g,'').trim();
+  };
   const deduped = new Map();
   partidos.forEach(p => {
-    const key = normKey_(p.local) + '_' + normKey_(p.visitante);
+    const key = toKey_hoy_(p.local) + '_' + toKey_hoy_(p.visitante);
     const existing = deduped.get(key);
     if (!existing || STATUS_PRIORITY(p.status) > STATUS_PRIORITY(existing.status)) {
       deduped.set(key, p);
@@ -554,12 +589,15 @@ function buildYesterdayCommandResponse_() {
   const allRows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => normalizeFecha_(r.fecha) === date);
 
   // Deduplicar por par de equipos (puede haber entradas ESPN + API-Football)
-  const norm__ = s => String(s || '').toLowerCase()
-    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
-    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+  const toKey_ayer_ = s => {
+    const es = teamNameToSpanish_(String(s || ''));
+    return es.toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e')
+      .replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u')
+      .replace(/ñ/g,'n').replace(/[^a-z0-9]/g,'').trim();
+  };
   const dedupAyer = new Map();
   allRows.forEach(r => {
-    const key = norm__(r.local) + '_' + norm__(r.visitante);
+    const key = toKey_ayer_(r.local) + '_' + toKey_ayer_(r.visitante);
     const existing = dedupAyer.get(key);
     // Preferir fila con marcador sobre fila sin marcador
     const hasScore    = r.goles_local !== '' && r.goles_local !== null && r.goles_local !== undefined;
