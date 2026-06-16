@@ -55,6 +55,11 @@ function fetchFootballDataMatchesByDate_(dateFrom, dateTo) {
   return data;
 }
 
+/**
+ * Intenta obtener partidos por ventana de fecha. Si no hay resultados
+ * (plan gratuito de football-data.org tiene límite de ventana ±10 días),
+ * cae a IDs manuales de fallback si están definidos para esa fecha.
+ */
 function fetchFootballDataMatchesByDateWithFallback_(date) {
   const dateTo = addDaysToDateString_(date, 1);
 
@@ -70,8 +75,8 @@ function fetchFootballDataMatchesByDateWithFallback_(date) {
     data.resultSet.count = matchesForDate.length;
   }
 
-  if (data.matches && data.matches.length > 0) {
-    data.source_status = 'OK_BY_DATE_WINDOW_PLUS_LOCAL_FILTER';
+  if (data.matches.length > 0) {
+    data.source_status = 'OK_BY_DATE_WINDOW';
     return data;
   }
 
@@ -91,67 +96,18 @@ function fetchFootballDataMatchesByDateWithFallback_(date) {
       competitions: CONFIG.FOOTBALL_DATA.WORLD_CUP_CODE,
       fallback: true
     },
-    resultSet: {
-      count: matches.length
-    },
+    resultSet: { count: matches.length },
     matches: matches,
     source_status: 'OK_BY_MANUAL_FALLBACK_IDS'
   };
 }
 
+/**
+ * IDs manuales de football-data.org para fechas donde la API no devuelve
+ * resultados por limitaciones del plan gratuito.
+ */
 function getFootballDataFallbackMatchIdsByDate_(date) {
   const fallback = {
-    '2026-06-12': [537328]
-  };
-
-  return fallback[date] || [];
-}
-
-function fetchFootballDataMatchesByDateWithFallback_(date) {
-  const dateTo = addDaysToDateString_(date, 1);
-
-  const data = fetchFootballDataMatchesByDate_(date, dateTo);
-
-  const matchesForWindow = data.matches || [];
-  data.matches = matchesForWindow;
-
-  if (data.resultSet) {
-    data.resultSet.count = matchesForWindow.length;
-  }
-
-  if (data.matches && data.matches.length > 0) {
-    data.source_status = 'OK_BY_DATE_WINDOW_NO_DATE_FILTER';
-    return data;
-  }
-
-  const fallbackIds = getFootballDataFallbackMatchIdsByDate_(date);
-
-  if (!fallbackIds.length) {
-    data.source_status = 'EMPTY_BY_DATE_OR_FREE_PLAN_WINDOW';
-    return data;
-  }
-
-  const matches = fallbackIds.map(id => fetchFootballDataMatch_(id));
-
-  return {
-    filters: {
-      dateFrom: date,
-      dateTo: dateTo,
-      competitions: CONFIG.FOOTBALL_DATA.WORLD_CUP_CODE,
-      fallback: true
-    },
-    resultSet: {
-      count: matches.length
-    },
-    matches: matches,
-    source_status: 'OK_BY_MANUAL_FALLBACK_IDS'
-  };
-}
-
-function getFootballDataFallbackMatchIdsByDate_(date) {
-  const fallback = {
-    // Estos IDs son opcionales y solo sirven si ya los descubriste antes.
-    // No dependas de esto para todos los partidos.
     '2026-06-12': [537328]
   };
 

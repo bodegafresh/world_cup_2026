@@ -179,8 +179,7 @@ function extractInjuryMentions_(news, homeTeam, awayTeam) {
     const hasInjuryWord = INJURY_KEYWORDS.some(kw => text.includes(kw));
     if (!hasInjuryWord) return;
 
-    const isHome = teamNameMatches_(homeTeam, homeTeam) &&
-      text.includes(homeTeam.toLowerCase().split(' ')[0]);
+    const isHome = text.includes(homeTeam.toLowerCase().split(' ')[0]);
     const isAway = text.includes(awayTeam.toLowerCase().split(' ')[0]);
 
     if (hasInjuryWord && (isHome || isAway)) {
