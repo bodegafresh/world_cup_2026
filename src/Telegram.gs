@@ -46,33 +46,83 @@ function cronMorningTelegramReport() {
 }
 
 function buildMorningTelegramMessage_(date, partidos, aiReports) {
-  let msg = `🏆 <b>Mundial 2026 - Reporte ${date}</b>\n\n`;
+  let msg = `🏆 <b>Mundial 2026 — ${date}</b>\n`;
 
   if (!partidos.length) {
-    msg += `No encontré partidos del Mundial para hoy.\n`;
+    msg += `\nNo hay partidos del Mundial para hoy.\n`;
     return msg;
   }
 
-  msg += `📅 <b>Partidos de hoy</b>\n`;
+  const weatherByFixture = buildWeatherMap_();
+  const oddsByFixture    = buildOddsMap_();
+
+  msg += `\n📅 <b>Partidos de hoy</b>\n`;
 
   partidos.forEach(p => {
-    msg += `\n⚽ ${p.local} vs ${p.visitante}`;
+    msg += `\n⚽ <b>${p.local} vs ${p.visitante}</b>`;
     msg += `\n🕒 ${p.hora_chile || 'hora pendiente'}`;
-    msg += `\n🏟️ ${p.estadio || 'estadio pendiente'}\n`;
+    msg += `\n🏟️ ${p.estadio || ''}`;
+
+    const w = weatherByFixture[String(p.fixture_id)];
+    if (w && w.temperatura_c !== null && w.temperatura_c !== '') {
+      const rainStr = w.prob_lluvia ? ` | 🌧 ${w.prob_lluvia}%` : '';
+      msg += `\n🌡 ${w.temperatura_c}°C, ${w.condicion || ''}${rainStr}`;
+    }
+
+    const odds = oddsByFixture[String(p.fixture_id)];
+    if (odds && odds.prob_local) {
+      msg += `\n📊 ${p.local} ${pct_(odds.prob_local)} | X ${pct_(odds.prob_empate)} | ${p.visitante} ${pct_(odds.prob_visitante)}`;
+    }
+
+    msg += '\n';
   });
 
   if (aiReports.length) {
-    msg += `\n🧠 <b>Lectura IA</b>\n`;
-
+    msg += `\n🧠 <b>Análisis IA</b>\n`;
     aiReports.forEach(r => {
-      msg += `\n${r.home} vs ${r.away}`;
-      msg += `\n${r.mensaje_telegram || r.resumen_previa || 'Sin resumen'}\n`;
+      const resumen = r.resumen_telegram || r.mensaje_telegram || r.resumen_previa || '';
+      if (resumen) msg += `\n${resumen}\n`;
     });
   }
 
-  msg += `\n⚠️ No es recomendación financiera ni promesa de resultado. Es análisis para diversión y aprendizaje.`;
+  msg += `\n⚠️ Análisis para diversión y aprendizaje. No es asesoría financiera.`;
 
   return msg;
+}
+
+function buildWeatherMap_() {
+  const map = {};
+  try {
+    readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).forEach(r => {
+      if (r.fixture_id) map[String(r.fixture_id)] = r;
+    });
+  } catch (e) {
+    console.warn('buildWeatherMap_:', e.message);
+  }
+  return map;
+}
+
+function buildOddsMap_() {
+  const map = {};
+  try {
+    readAll_(CONFIG.SHEETS.ODDS).forEach(r => {
+      const fid = String(r.fixture_id || '');
+      if (!fid) return;
+      if (!map[fid]) map[fid] = {};
+      const market = String(r.mercado || '');
+      const sel    = String(r.seleccion || '');
+      const prob   = Number(r.probabilidad_modelo);
+      if (market === '1X2') {
+        const key = sel.toLowerCase().includes('empate') ? 'prob_empate'
+          : sel.toLowerCase().includes('visitante') || sel === r.away ? 'prob_visitante'
+          : 'prob_local';
+        map[fid][key] = prob;
+      }
+    });
+  } catch (e) {
+    console.warn('buildOddsMap_:', e.message);
+  }
+  return map;
 }
 
 function getTodayFixturesForReport_(date) {

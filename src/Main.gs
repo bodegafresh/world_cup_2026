@@ -1,6 +1,8 @@
 function cronDailyLoadTodayStats() {
-  const date = todayChile_();
-  loadWorldCupDay_(date);
+  runWithHealthCheck_('cronDailyLoadTodayStats', () => {
+    const date = todayChile_();
+    loadWorldCupDay_(date);
+  });
 }
 
 function loadWorldCupDay_(date) {
@@ -26,6 +28,12 @@ function loadWorldCupDay_(date) {
       console.warn(`No se pudo cargar statistics fixture ${fixtureId}: ${e.message}`);
     }
 
+    try {
+      loadPlayerStatsForFixture_(fixtureId, fixture);
+    } catch (e) {
+      console.warn(`PlayerMatchStats error fixture ${fixtureId}: ${e.message}`);
+    }
+
     Utilities.sleep(800);
   });
 
@@ -37,17 +45,31 @@ function loadWorldCupDay_(date) {
 }
 
 function cronTomorrowPreview() {
-  const date = tomorrowChile_();
+  runWithHealthCheck_('cronTomorrowPreview', () => {
+    const date = tomorrowChile_();
 
-  const fixturesData = fetchWorldCupFixturesByDate_(date);
-  const fixtures = fixturesData.response || [];
+    const fixturesData = fetchWorldCupFixturesByDate_(date);
+    const fixtures = fixturesData.response || [];
 
-  saveRawJson_(`fixtures/${date}`, `tomorrow-fixtures-${date}.json`, fixturesData);
-  saveFixtures_(fixtures, `fixtures/${date}/tomorrow-fixtures-${date}.json`);
+    saveRawJson_(`fixtures/${date}`, `tomorrow-fixtures-${date}.json`, fixturesData);
+    saveFixtures_(fixtures, `fixtures/${date}/tomorrow-fixtures-${date}.json`);
 
-  fixtures.forEach(fixture => {
-    enrichTomorrowFixture_(fixture);
-    Utilities.sleep(1000);
+    fixtures.forEach(fixture => {
+      enrichTomorrowFixture_(fixture);
+      Utilities.sleep(1000);
+    });
+
+    try {
+      runSmartAlertsForTomorrow_();
+    } catch (e) {
+      console.warn('SmartAlerts error:', e.message);
+    }
+
+    try {
+      refreshDashboard();
+    } catch (e) {
+      console.warn('Dashboard refresh error:', e.message);
+    }
   });
 }
 

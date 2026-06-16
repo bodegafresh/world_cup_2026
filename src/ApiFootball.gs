@@ -65,3 +65,14 @@ function fetchSquadByTeam_(teamId) {
   });
 }
 
+function fetchPlayerStatsByFixture_(fixtureId) {
+  return apiFootballGet_('/fixtures/players', { fixture: fixtureId });
+}
+
+function fetchTopScorers_() {
+  return apiFootballGet_('/players/topscorers', {
+    league: CONFIG.API_FOOTBALL.WORLD_CUP_LEAGUE_ID,
+    season: CONFIG.API_FOOTBALL.SEASON
+  });
+}
+

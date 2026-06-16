@@ -10,32 +10,37 @@
 ### `cronDailyLoadTodayStats` — Carga diaria de estadísticas
 - **Horario:** 01:00 AM Chile (todos los días del torneo)
 - **Función:** `Main.gs → cronDailyLoadTodayStats()`
+- **Envuelto en:** `runWithHealthCheck_()` → alerta Telegram si falla
 - **Qué hace:**
   1. Fetch fixtures del día desde API-Football (`/fixtures?date=...`)
   2. Guarda raw JSON en Drive (`fixtures/{fecha}/`)
   3. Guarda eventos (goles, tarjetas, sustituciones) → `EventosLive`
   4. Genera resúmenes de jugador por partido → `ResumenJugadorPartido`
   5. Fetch statistics por fixture → Drive (`statistics/{fecha}/`)
-  6. Actualiza tabla de posiciones → `Clasificacion` *(nuevo)*
-- **API calls:** ~3-5 req por fixture (fixtures + events + statistics)
-- **Presupuesto:** ~15-20 req/día en fase de grupos (3-4 partidos/día)
+  6. Fetch estadísticas avanzadas por jugador (`/fixtures/players`) → `PlayerMatchStats`
+  7. Actualiza tabla de posiciones → `Clasificacion`
+- **API calls:** ~4-6 req por fixture (fixtures + events + statistics + players)
+- **Presupuesto:** ~20-25 req/día en fase de grupos (3-4 partidos/día)
 
 ---
 
 ### `cronTomorrowPreview` — Vista previa del día siguiente
 - **Horario:** 07:30 AM Chile (todos los días del torneo)
 - **Función:** `Main.gs → cronTomorrowPreview()`
+- **Envuelto en:** `runWithHealthCheck_()` → alerta Telegram si falla
 - **Qué hace:**
   1. Fetch fixtures de mañana
   2. Para cada fixture:
-     - Obtiene clima real con Open-Meteo → `EstadiosClima` *(mejorado)*
+     - Obtiene clima real con Open-Meteo → `EstadiosClima`
      - Fetch noticias Google News → `Noticias`
-     - Fetch cuotas reales The Odds API → `OddsApuestas` *(mejorado)*
-     - Fetch historial H2H → `HistorialH2H` *(nuevo)*
+     - Fetch cuotas reales The Odds API → `OddsApuestas` (con cache Drive 6h)
+     - Fetch historial H2H → `HistorialH2H`
      - Genera análisis IA con todo el contexto → `AnalisisIA`
-- **API calls:** ~2-4 req por fixture (H2H + stats previos)
+  3. Ejecuta `SmartAlerts`: amarillas acumuladas, clima extremo, movimiento de cuotas → Telegram
+  4. Actualiza Dashboard consolidado
+- **API calls:** ~2-4 req por fixture (H2H + fixtures)
 - **Open-Meteo:** Gratuito, sin límite
-- **The Odds API:** 1 req total (trae todos los eventos del torneo en caché)
+- **The Odds API:** 1 req total (cache 6h)
 - **Presupuesto:** ~10-15 req/día (H2H + fixtures)
 
 ---
