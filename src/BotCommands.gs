@@ -19,26 +19,36 @@
  */
 
 function doPost(e) {
-  const update = JSON.parse(e.postData.contents);
+  try {
+    const update = JSON.parse(e.postData.contents);
 
-  if (!update.message || !update.message.text) {
-    return ContentService.createTextOutput('ok');
+    if (!update.message || !update.message.text) {
+      return ContentService.createTextOutput('ok');
+    }
+
+    const msg      = update.message;
+    const chatId   = msg.chat.id;
+    const username = (msg.from && msg.from.username) ? msg.from.username : '';
+    const text     = msg.text.trim();
+
+    try { registerSubscriber_(chatId, username); } catch (e_) { console.warn('register:', e_.message); }
+
+    if (!text.startsWith('/')) {
+      return ContentService.createTextOutput('ok');
+    }
+
+    let response;
+    try {
+      response = handleTelegramCommand_(text);
+    } catch (e_) {
+      response = `Error interno: ${e_.message}`;
+    }
+
+    if (response) sendTelegramMessageToSingleChat_(chatId, response);
+
+  } catch (e_) {
+    console.error('doPost error:', e_.message);
   }
-
-  const msg = update.message;
-  const chatId = msg.chat.id;
-  const username = msg.from && msg.from.username ? msg.from.username : '';
-  const text = msg.text.trim();
-
-  // Registrar siempre, pero solo responder a comandos que empiezan con /
-  try { registerSubscriber_(chatId, username); } catch (e_) { /* silencioso */ }
-
-  if (!text.startsWith('/')) {
-    return ContentService.createTextOutput('ok');
-  }
-
-  const response = handleTelegramCommand_(text);
-  if (response) sendTelegramMessageToSingleChat_(chatId, response);
 
   return ContentService.createTextOutput('ok');
 }

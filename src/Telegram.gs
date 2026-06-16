@@ -8,8 +8,8 @@ function registerSubscriber_(chatId, username) {
   const existing = getKnownChatIds_();
   if (existing.includes(String(chatId))) return;
 
-  getOrCreateSheet_(CONFIG.SHEETS.SUSCRIPTORES, ['chat_id', 'username', 'registered_at']);
-  appendRows_(CONFIG.SHEETS.SUSCRIPTORES, [[String(chatId), username || '', nowChile_()]]);
+  const sheet = getOrCreateSheet_(CONFIG.SHEETS.SUSCRIPTORES, ['chat_id', 'username', 'registered_at']);
+  sheet.appendRow([String(chatId), username || '', nowChile_()]);
 }
 
 /**

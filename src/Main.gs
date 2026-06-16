@@ -11,7 +11,7 @@ function loadWorldCupDay_(date) {
 
   const fixtures = fixturesData.response || [];
 
-  saveFixtures_(fixtures, rawUrl);
+  upsertGoldenMatchesFromFixtures_(fixtures, date, createQuotaTracker_());
 
   fixtures.forEach(fixture => {
     const fixtureId = fixture.fixture.id;
@@ -56,7 +56,7 @@ function cronTomorrowPreview() {
     const fixtures = fixturesData.response || [];
 
     saveRawJson_(`fixtures/${date}`, `tomorrow-fixtures-${date}.json`, fixturesData);
-    saveFixtures_(fixtures, `fixtures/${date}/tomorrow-fixtures-${date}.json`);
+    upsertGoldenMatchesFromFixtures_(fixtures, date, createQuotaTracker_());
 
     fixtures.forEach(fixture => {
       gatherFixtureContext_(fixture);
