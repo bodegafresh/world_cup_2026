@@ -1,0 +1,41 @@
+src/ClassificationAlert.gs
+  s_8d080e6df27905::t_b99f737cfb0777 39
+src/Dashboard.gs
+  s_8d080e6df27905::t_7d13e37216fb38 51
+src/Telegram.gs
+  s_8d080e6df27905::t_e8ae64ba240aa3 265
+src/BotCommands.gs
+  s_8d080e6df27905::t_4d356cf9c10450 701
+  s_8d080e6df27905::t_c3bc0d1f1eddb3 251
+  s_8d080e6df27905::t_29bc6cb288709c 506
+  s_8d080e6df27905::t_6744265a90b941 477
+src/Utils.gs
+  s_8d080e6df27905::t_45c4a1d29dd022 53-66
+src/ManualTest.gs
+  s_8d080e6df27905::t_80101ba55a0c01 517
+  s_8d080e6df27905::t_fbea9fe3ec1384 332
+  s_8d080e6df27905::t_3a8bff2f8e6604 360
+src/MatchPreview.gs
+  s_8d080e6df27905::t_90f8837137cf74 276
+src/BackfillRunner.gs
+  s_8d080e6df27905::t_df2d45a49a3f41 362
+  s_8d080e6df27905::t_4af3971515ab28 457
+src/SmartAlerts.gs
+  s_8d080e6df27905::t_03a24ef6b640c4 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "8fd7513fb0f9fa2e25d70025c88d84af5d5b613c",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
