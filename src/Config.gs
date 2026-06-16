@@ -109,3 +109,57 @@ function getTelegramBotToken_() {
 function getTelegramChatId_() {
   return getProp_('TELEGRAM_CHAT_ID');
 }
+
+function getWebAppUrl_() {
+  return getProp_('URL_WEB_APP');
+}
+
+/**
+ * Registra el webhook de Telegram apuntando a este Web App.
+ * Ejecutar UNA SOLA VEZ después de cada nueva implementación.
+ */
+function setupTelegramWebhook() {
+  const token  = getTelegramBotToken_();
+  const webUrl = getWebAppUrl_();
+
+  const url = `https://api.telegram.org/bot${token}/setWebhook`;
+
+  const response = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({ url: webUrl }),
+    muteHttpExceptions: true
+  });
+
+  const result = JSON.parse(response.getContentText());
+  Logger.log(result.ok ? `✅ Webhook registrado: ${webUrl}` : `❌ Error: ${result.description}`);
+  return result;
+}
+
+/**
+ * Consulta el webhook actualmente registrado en Telegram.
+ */
+function getTelegramWebhookInfo() {
+  const token = getTelegramBotToken_();
+  const response = UrlFetchApp.fetch(
+    `https://api.telegram.org/bot${token}/getWebhookInfo`,
+    { muteHttpExceptions: true }
+  );
+  const result = JSON.parse(response.getContentText());
+  Logger.log(JSON.stringify(result.result, null, 2));
+  return result.result;
+}
+
+/**
+ * Elimina el webhook (útil para volver a polling o cambiar la URL).
+ */
+function deleteTelegramWebhook() {
+  const token = getTelegramBotToken_();
+  const response = UrlFetchApp.fetch(
+    `https://api.telegram.org/bot${token}/deleteWebhook`,
+    { method: 'post', muteHttpExceptions: true }
+  );
+  const result = JSON.parse(response.getContentText());
+  Logger.log(result.ok ? '✅ Webhook eliminado' : `❌ Error: ${result.description}`);
+  return result;
+}
