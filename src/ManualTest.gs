@@ -329,7 +329,7 @@ function test09_H2H() {
 
   const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
   const upcoming = partidos.find(r =>
-    String(r.fecha || '').substring(0, 10) >= todayChile_() &&
+    normalizeFecha_(r.fecha) >= todayChile_() &&
     ['NS', 'TBD', ''].includes(String(r.estado || 'NS').toUpperCase())
   );
 
@@ -357,7 +357,7 @@ function test09_H2H() {
 
   Logger.log(`Partidos H2H guardados: ${h2hRows.length}`);
   h2hRows.slice(0, 3).forEach(r => {
-    Logger.log(`  ${String(r.fecha || '').substring(0, 10)}: ${r.local} ${r.goles_local}-${r.goles_visitante} ${r.visitante}`);
+    Logger.log(`  ${normalizeFecha_(r.fecha)}: ${r.local} ${r.goles_local}-${r.goles_visitante} ${r.visitante}`);
   });
 
   Logger.log('✅ H2H OK');
@@ -514,7 +514,7 @@ function getFirstUpcomingFixtureFromSheet_() {
   const rows = readAll_(CONFIG.SHEETS.PARTIDOS);
 
   const upcoming = rows.find(r =>
-    String(r.fecha || '').substring(0, 10) >= todayChile_() &&
+    normalizeFecha_(r.fecha) >= todayChile_() &&
     ['NS', 'TBD', '', 'PST'].includes(String(r.estado || 'NS').toUpperCase())
   );
 

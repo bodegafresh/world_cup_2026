@@ -50,6 +50,20 @@ function buildEventId_(fixtureId, event) {
   return `${fixtureId}_${minute}_${extra}_${teamId}_${playerId}_${type}_${detail}`.replace(/\s+/g, '_');
 }
 
+/**
+ * Normaliza un valor fecha leído de Google Sheets a 'yyyy-MM-dd'.
+ * getValues() devuelve un Date object cuando la celda tiene formato fecha;
+ * también acepta strings ISO ya bien formateados.
+ */
+function normalizeFecha_(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  }
+  // String ISO "2026-06-13T..." o "2026-06-13" → tomar primeros 10 chars
+  return String(val).substring(0, 10);
+}
+
 function addDaysToDateString_(dateString, days) {
   const parts = String(dateString).split('-').map(Number);
   const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));

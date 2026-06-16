@@ -359,7 +359,7 @@ function detectFirstIncompleteDate_(dateFrom, dateTo) {
   const dates = buildDateRange_(dateFrom, dateTo);
 
   for (const date of dates) {
-    const dayRows = allPartidos.filter(r => String(r.fecha || '').substring(0, 10) === date);
+    const dayRows = allPartidos.filter(r => normalizeFecha_(r.fecha) === date);
 
     if (!dayRows.length) return date;
 
@@ -454,7 +454,7 @@ function backfillStatus() {
   let totalFaltanStats = 0;
 
   dates.forEach(date => {
-    const rows     = partidos.filter(r => String(r.fecha || '').substring(0, 10) === date);
+    const rows     = partidos.filter(r => normalizeFecha_(r.fecha) === date);
     const finished = rows.filter(r => ['FT','AET','PEN'].includes(String(r.estado||'').toUpperCase()));
     const noStats  = finished.filter(r => r.posesion_local === '' || r.posesion_local === null || r.posesion_local === undefined);
 

@@ -248,7 +248,7 @@ function buildJugadoresCommandResponse_(pais) {
   const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
 
   const matchToday = partidos.find(r => {
-    const fecha = String(r.fecha || '').substring(0, 10);
+    const fecha = normalizeFecha_(r.fecha);
     if (fecha !== today) return false;
     const local     = norm_(r.local     || '');
     const visitante = norm_(r.visitante || '');
@@ -474,7 +474,7 @@ function buildYesterdayCommandResponse_() {
   d.setDate(d.getDate() - 1);
   const date = Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd');
 
-  const rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => String(r.fecha) === date);
+  const rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => normalizeFecha_(r.fecha) === date);
 
   if (!rows.length) return `No encontré resultados para ayer ${date}.`;
 
@@ -503,7 +503,7 @@ function buildUpcomingCommandResponse_() {
   let total = 0;
 
   dates.forEach(date => {
-    const rows = allRows.filter(r => String(r.fecha) === date);
+    const rows = allRows.filter(r => normalizeFecha_(r.fecha) === date);
     if (!rows.length) return;
 
     msg += `\n<b>${date}</b>`;
@@ -698,7 +698,7 @@ function buildH2HCommandResponse_(args) {
 
     let msg = `📋 <b>Historial ${team1} vs ${team2}</b>\n`;
     rows.slice(0, 5).forEach(r => {
-      const fecha = String(r.fecha || '').substring(0, 10);
+      const fecha = normalizeFecha_(r.fecha);
       msg += `\n${fecha} — ${r.local} <b>${r.goles_local} - ${r.goles_visitante}</b> ${r.visitante} (${r.torneo || ''})`;
     });
 

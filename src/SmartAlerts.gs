@@ -24,7 +24,7 @@ const WIND_ALERT_THRESHOLD        = 45;
 function runSmartAlertsForTomorrow_() {
   const date   = tomorrowChile_();
   const allRows = readAll_(CONFIG.SHEETS.PARTIDOS);
-  const tomorrow = allRows.filter(r => String(r.fecha) === date);
+  const tomorrow = allRows.filter(r => normalizeFecha_(r.fecha) === date);
 
   if (!tomorrow.length) return;
 

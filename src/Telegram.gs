@@ -262,7 +262,7 @@ function getTodayFixturesForReport_(date) {
   const rows = readAll_(CONFIG.SHEETS.PARTIDOS);
 
   return rows.filter(r => {
-    return String(r.fecha) === String(date);
+    return normalizeFecha_(r.fecha) === date;
   }).map(r => ({
     fixture_id: r.match_id,
     local: r.local,

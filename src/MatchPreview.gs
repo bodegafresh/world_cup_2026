@@ -273,7 +273,7 @@ function buildH2HSummaryForPreview_(fixtureId, homeTeam, awayTeam) {
       else                                              wins.away++;
 
       return {
-        fecha:    String(r.fecha || '').substring(0, 10),
+        fecha:    normalizeFecha_(r.fecha),
         local:    r.local,
         visitante: r.visitante,
         resultado: `${r.goles_local}-${r.goles_visitante}`,

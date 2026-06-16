@@ -36,7 +36,7 @@ function checkClassificationAlerts_() {
 
   // Partidos de mañana en fase de grupos (con grupo asignado, no terminados)
   const tomorrowFixtures = fixtures.filter(r => {
-    const fecha  = String(r.fecha || '').substring(0, 10);
+    const fecha  = normalizeFecha_(r.fecha);
     const status = String(r.status || r.estado || '').toUpperCase();
     return fecha === tomorrow &&
            r.grupo &&

@@ -48,7 +48,7 @@ function refreshDashboard() {
 
 function writeTodayMatchesSection_(sheet, startRow) {
   const date = todayChile_();
-  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => String(r.fecha) === date);
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => normalizeFecha_(r.fecha) === date);
 
   let row = writeDashboardSection_(sheet, startRow, '📅 Partidos de hoy — ' + date, null);
 
