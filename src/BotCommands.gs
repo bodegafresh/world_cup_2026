@@ -586,7 +586,11 @@ function buildYesterdayCommandResponse_() {
   d.setDate(d.getDate() - 1);
   const date = Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd');
 
-  const allRows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => normalizeFecha_(r.fecha) === date);
+  const FT_STATUSES = ['FT','AET','PEN'];
+  const allRows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r =>
+    normalizeFecha_(r.fecha) === date &&
+    FT_STATUSES.includes(String(r.status || '').toUpperCase())
+  );
 
   // Deduplicar por par de equipos (puede haber entradas ESPN + API-Football)
   const toKey_ayer_ = s => {

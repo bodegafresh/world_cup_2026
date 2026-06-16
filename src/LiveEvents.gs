@@ -442,14 +442,43 @@ function buildLiveMatchesText_() {
   if (espnEvents.length) {
     let msg = `🔴 <b>En vivo — ${espnEvents.length} partido${espnEvents.length > 1 ? 's' : ''}</b>\n\n`;
 
-    // Mapa de clima por estadio (nombre normalizado)
-    const climaMap = {};
-    try {
-      const normV = s => String(s || '').toLowerCase().trim();
-      readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).forEach(r => {
-        if (r.estadio) climaMap[normV(r.estadio)] = r;
-      });
-    } catch (e_) { /* sin clima */ }
+    // Cache de clima por estadio — se llama Open-Meteo si no está en EstadiosClima
+    const climaCache_ = {};
+    const getClimaForVenue_ = (venueName) => {
+      if (!venueName) return null;
+      if (climaCache_[venueName] !== undefined) return climaCache_[venueName];
+      // 1. Buscar en hoja EstadiosClima por nombre de estadio
+      try {
+        const normV = s => String(s || '').toLowerCase().trim();
+        const row = readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).find(r =>
+          normV(r.estadio) === normV(venueName)
+        );
+        if (row && row.temperatura_c !== '' && row.temperatura_c !== null) {
+          climaCache_[venueName] = row;
+          return row;
+        }
+      } catch (e_) { /* ignorar */ }
+      // 2. Fallback: Open-Meteo en tiempo real usando VenueCatalog
+      try {
+        const info = getVenueInfo_(venueName, '');
+        if (info && info.lat && info.lon) {
+          const today = Utilities.formatDate(new Date(), 'UTC', 'yyyy-MM-dd');
+          const data  = callOpenMeteo_(info.lat, info.lon, today);
+          const w     = extractHourlyWeather_(data, new Date().toISOString(), null);
+          const result = {
+            estadio:      venueName,
+            temperatura_c: w.temperature_c,
+            humedad:       w.humidity,
+            prob_lluvia:   w.rain_probability,
+            condicion:     classifyCondition_(w)
+          };
+          climaCache_[venueName] = result;
+          return result;
+        }
+      } catch (e_) { console.warn('Clima ESPN fallback:', e_.message); }
+      climaCache_[venueName] = null;
+      return null;
+    };
 
     espnEvents.forEach(ev => {
       const comp   = ev.competitions[0];
@@ -471,10 +500,9 @@ function buildLiveMatchesText_() {
       if (venue) msg += ` | 🏟️ ${venue}`;
       msg += '\n';
 
-      // Clima del estadio
-      const climaKey = String(venue || '').toLowerCase().trim();
-      const clima = climaMap[climaKey];
-      if (clima && (clima.temperatura_c !== null && clima.temperatura_c !== '')) {
+      // Clima del estadio (EstadiosClima o Open-Meteo directo)
+      const clima = getClimaForVenue_(venue);
+      if (clima && clima.temperatura_c !== null && clima.temperatura_c !== '') {
         const lluvia = Number(clima.prob_lluvia) > 30 ? ` ☔${clima.prob_lluvia}%` : '';
         msg += `   🌡️ ${clima.temperatura_c}°C, ${clima.humedad}% hum${lluvia}\n`;
       }
