@@ -247,7 +247,7 @@ function buildJugadoresCommandResponse_(pais) {
   const today = todayChile_();
   const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
 
-  const searchTerms = teamSearchTerms_(args);
+  const searchTerms = teamSearchTerms_(pais);
   const matchToday = partidos.find(r => {
     const fecha = normalizeFecha_(r.fecha);
     if (fecha !== today) return false;
