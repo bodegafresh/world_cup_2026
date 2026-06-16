@@ -141,6 +141,60 @@ function parseEspnTeamForm_(lastFiveGames, espnTeamId) {
 }
 
 /**
+ * Extrae la alineación titular de un equipo desde summary.rosters de ESPN.
+ * @param {Array}  rosters   - summary.rosters
+ * @param {string} homeAway  - 'home' | 'away'
+ * @returns {{ formacion: string, titulares: Array<{numero,jugador,posicion}> } | null}
+ */
+function parseEspnLineup_(rosters, homeAway) {
+  const entry = (rosters || []).find(r => r.homeAway === homeAway);
+  if (!entry) return null;
+
+  const formation = entry.formation || '';
+  const titulares = (entry.roster || [])
+    .filter(p => p.starter)
+    .sort((a, b) => (a.order || 99) - (b.order || 99))
+    .map(p => ({
+      numero:   (p.athlete || {}).jersey || '',
+      jugador:  (p.athlete || {}).shortName || (p.athlete || {}).displayName || '',
+      posicion: ((p.position || {}).abbreviation || '').toUpperCase()
+    }));
+
+  return titulares.length ? { formacion: formation, titulares } : null;
+}
+
+/**
+ * Formatea la alineación de un equipo agrupando por línea (GK/DEF/MID/FWD).
+ */
+function formatEspnLineupText_(teamName, lineupData) {
+  if (!lineupData || !lineupData.titulares.length) return '';
+
+  const POS_ORDER = { GK: 0, G: 0, DEF: 1, D: 1, MID: 2, M: 2, FWD: 3, F: 3, ATT: 3 };
+  const POS_LABEL = { GK: 'GK', G: 'GK', DEF: 'DEF', D: 'DEF', MID: 'MID', M: 'MID', FWD: 'FWD', F: 'FWD', ATT: 'FWD' };
+
+  const groups = {};
+  lineupData.titulares.forEach(p => {
+    const label = POS_LABEL[p.posicion] || p.posicion || '?';
+    if (!groups[label]) groups[label] = [];
+    groups[label].push(`${p.numero ? p.numero + '.' : ''}${p.jugador}`);
+  });
+
+  const formacion = lineupData.formacion ? ` (${lineupData.formacion})` : '';
+  let text = `\n📋 <b>${teamName}${formacion}</b>\n`;
+  ['GK','DEF','MID','FWD'].forEach(label => {
+    if (groups[label] && groups[label].length) {
+      text += `<i>${label}:</i> ${groups[label].join(', ')}\n`;
+    }
+  });
+  // Posiciones no mapeadas
+  Object.keys(groups).filter(k => !['GK','DEF','MID','FWD'].includes(k)).forEach(k => {
+    text += `<i>${k}:</i> ${groups[k].join(', ')}\n`;
+  });
+
+  return text;
+}
+
+/**
  * Busca el ESPN event ID que corresponde a un fixture de nuestra data,
  * usando matching por nombres de equipo en la lista de eventos del día.
  *

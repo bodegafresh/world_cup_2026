@@ -442,6 +442,15 @@ function buildLiveMatchesText_() {
   if (espnEvents.length) {
     let msg = `🔴 <b>En vivo — ${espnEvents.length} partido${espnEvents.length > 1 ? 's' : ''}</b>\n\n`;
 
+    // Mapa de clima por estadio (nombre normalizado)
+    const climaMap = {};
+    try {
+      const normV = s => String(s || '').toLowerCase().trim();
+      readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).forEach(r => {
+        if (r.estadio) climaMap[normV(r.estadio)] = r;
+      });
+    } catch (e_) { /* sin clima */ }
+
     espnEvents.forEach(ev => {
       const comp   = ev.competitions[0];
       const comps  = comp.competitors || [];
@@ -459,10 +468,18 @@ function buildLiveMatchesText_() {
 
       msg += `⚽ <b>${homeNombre} ${homeScore} - ${awayScore} ${awayNombre}</b>\n`;
       msg += `   ${label}${clock ? ' ' + clock : ''}`;
-      if (venue) msg += ` | ${venue}`;
+      if (venue) msg += ` | 🏟️ ${venue}`;
       msg += '\n';
 
-      // Stats ESPN si el summary ya está disponible (espnId)
+      // Clima del estadio
+      const climaKey = String(venue || '').toLowerCase().trim();
+      const clima = climaMap[climaKey];
+      if (clima && (clima.temperatura_c !== null && clima.temperatura_c !== '')) {
+        const lluvia = Number(clima.prob_lluvia) > 30 ? ` ☔${clima.prob_lluvia}%` : '';
+        msg += `   🌡️ ${clima.temperatura_c}°C, ${clima.humedad}% hum${lluvia}\n`;
+      }
+
+      // Stats + alineaciones desde ESPN summary
       try {
         const summary = fetchEspnSummary_(ev.id);
         const bsTeams = (summary.boxscore || {}).teams || [];
@@ -470,12 +487,27 @@ function buildLiveMatchesText_() {
         const aEntry  = bsTeams.find(t => t.homeAway === 'away');
         if (hEntry && aEntry) {
           const hs = parseEspnTeamStats_(hEntry);
-          const as = parseEspnTeamStats_(aEntry);
-          msg += `   Pos: ${hs.possessionPct || '?'}%-${as.possessionPct || '?'}%`;
-          msg += ` | Tiros: ${hs.totalShots || '?'}-${as.totalShots || '?'}`;
-          msg += ` (al arco: ${hs.shotsOnTarget || '?'}-${as.shotsOnTarget || '?'})\n`;
+          const as_ = parseEspnTeamStats_(aEntry);
+          const v  = (h, a) => `${h || '?'}-${a || '?'}`;
+          msg += `   ⚽ Pos: ${v(hs.possessionPct, as_.possessionPct)}%`;
+          msg += ` | 🎯 Tiros: ${v(hs.totalShots, as_.totalShots)} (arco: ${v(hs.shotsOnTarget, as_.shotsOnTarget)})\n`;
+          msg += `   🔄 Corners: ${v(hs.cornerKicks, as_.cornerKicks)}`;
+          msg += ` | ⚠️ Faltas: ${v(hs.foulsCommitted, as_.foulsCommitted)}`;
+          msg += ` | 🟨 ${v(hs.yellowCards, as_.yellowCards)}`;
+          const hr = Number(hs.redCards || 0), ar = Number(as_.redCards || 0);
+          if (hr || ar) msg += ` | 🟥 ${v(hr, ar)}`;
+          msg += '\n';
         }
-      } catch (e_) { /* sin stats */ }
+
+        // Alineaciones titulares
+        const rosters = summary.rosters || [];
+        if (rosters.length) {
+          const hLineup = parseEspnLineup_(rosters, 'home');
+          const aLineup = parseEspnLineup_(rosters, 'away');
+          msg += formatEspnLineupText_(homeNombre, hLineup);
+          msg += formatEspnLineupText_(awayNombre, aLineup);
+        }
+      } catch (e_) { /* sin stats/alineación */ }
 
       msg += '\n';
     });

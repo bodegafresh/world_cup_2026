@@ -454,6 +454,27 @@ function buildTodayCommandResponse_() {
 
   if (!partidos.length) return `No hay partidos registrados para hoy ${date}.`;
 
+  // Deduplicar por par de equipos: si hay duplicados (ESPN + API-Football),
+  // conservar el que tenga status más informativo (en vivo > terminado > NS).
+  const STATUS_PRIORITY = s => {
+    if (['1H','2H','HT','ET','P','BT','INT','LIVE'].includes(s)) return 3;
+    if (['FT','AET','PEN'].includes(s)) return 2;
+    return 1; // NS, TBD, vacío
+  };
+  const normKey_ = s => String(s || '').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+  const deduped = new Map();
+  partidos.forEach(p => {
+    const key = normKey_(p.local) + '_' + normKey_(p.visitante);
+    const existing = deduped.get(key);
+    if (!existing || STATUS_PRIORITY(p.status) > STATUS_PRIORITY(existing.status)) {
+      deduped.set(key, p);
+    }
+  });
+  const partidosFinal = [...deduped.values()]
+    .sort((a, b) => (a.hora_chile || '').localeCompare(b.hora_chile || ''));
+
   // Mapa de clima por fixture_id
   const climaMap = {};
   try {
@@ -465,9 +486,9 @@ function buildTodayCommandResponse_() {
   const FINAL_STATUS = ['FT','AET','PEN'];
   const LIVE_STATUS  = ['1H','2H','HT','ET','P','BT','INT','LIVE'];
 
-  let terminados = partidos.filter(p => FINAL_STATUS.includes(p.status));
-  let enVivo     = partidos.filter(p => LIVE_STATUS.includes(p.status));
-  let proximos   = partidos.filter(p =>
+  let terminados = partidosFinal.filter(p => FINAL_STATUS.includes(p.status));
+  let enVivo     = partidosFinal.filter(p => LIVE_STATUS.includes(p.status));
+  let proximos   = partidosFinal.filter(p =>
     !FINAL_STATUS.includes(p.status) && !LIVE_STATUS.includes(p.status)
   );
 
