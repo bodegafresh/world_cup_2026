@@ -1,0 +1,37 @@
+src/PipelineHealth.gs
+  s_8d080e6df27905::t_a9b2c89a71b977 93-191
+src/Telegram.gs
+  s_8d080e6df27905::t_3422f7e672f7b7 49,52,56-59,62,64-77,81,83-84,88,93-125
+src/Main.gs
+  s_8d080e6df27905::t_9767069efb0ba3 48-49,51-52,54-55,57-60
+  s_8d080e6df27905::t_9cbbbf9c4da643 2-5
+  s_8d080e6df27905::t_bbb2693b870fd9 61-72
+  s_8d080e6df27905::t_7e556678fe4cad 31-36
+docs/cron-plan.md
+  s_8d080e6df27905::t_18e8e8ee355ad6 13,20-23
+  s_8d080e6df27905::t_da14fdcc313cf8 30,34,36-37,39-41,43
+src/ApiFootball.gs
+  s_8d080e6df27905::t_90215438374ca9 68-78
+src/SmartAlerts.gs
+  s_8d080e6df27905::t_768763c3b55f21 1-178
+src/Dashboard.gs
+  s_8d080e6df27905::t_b0d2f2976b7d96 1-285
+src/PlayerMatchStats.gs
+  s_8d080e6df27905::t_8a7c680750c93f 1-182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "cd7d066b8f9d478932820878f33b8c5f14b8e5f7",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
