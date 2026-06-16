@@ -27,7 +27,12 @@ const CONFIG = {
     HISTORIAL_H2H: 'HistorialH2H',
     SUSCRIPTORES: 'Suscriptores',
     ALINEACIONES: 'Alineaciones',
-    ARBITROS: 'Arbitros'
+    ARBITROS: 'Arbitros',
+
+    ELO_RATINGS:      'EloRatings',
+    EV_OPPORTUNITIES: 'EvOpportunities',
+    BETTING_HISTORY:  'BettingHistory',
+    MODEL_CALIBRATION:'ModelCalibration'
   },
 
   API_FOOTBALL: {

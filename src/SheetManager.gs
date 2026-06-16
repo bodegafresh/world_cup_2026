@@ -4,10 +4,15 @@
  * Gestión del libro de Google Sheets: limpieza, auditoría y creación de hojas.
  *
  * FUNCIONES DE ENTRADA (ejecutar manualmente en Apps Script):
- *   sheetAudit()       — lista todas las hojas y clasifica cuáles deben existir
- *   sheetCleanup()     — elimina hojas no reconocidas que estén VACÍAS
- *   sheetCleanupForce()— elimina hojas no reconocidas aunque tengan datos (⚠️ irreversible)
+ *   sheetAudit()              — lista todas las hojas y clasifica cuáles deben existir
+ *   sheetHeaderAudit()        — detecta hojas sin headers o con headers incorrectos
+ *   sheetEnsureAll()          — crea hojas faltantes (sin headers)
+ *   sheetEnsureAllWithHeaders()— crea hojas faltantes CON headers; si existe y está vacía, agrega headers
+ *   sheetCleanup()            — elimina hojas no reconocidas que estén VACÍAS
+ *   sheetCleanupForce()       — elimina hojas no reconocidas aunque tengan datos (⚠️ irreversible)
  */
+
+// ─── Registro canónico de hojas ───────────────────────────────────────────────
 
 const VALID_SHEETS = new Set([
   'README',
@@ -31,8 +36,114 @@ const VALID_SHEETS = new Set([
   'DataQualityLog',
   'PipelineRuns',
   'Clasificacion',
-  'HistorialH2H'
+  'HistorialH2H',
+  // Hojas creadas en sesiones recientes (antes no estaban en VALID_SHEETS → aparecían como "desconocidas")
+  'Suscriptores',
+  'Alineaciones',
+  'Arbitros',
+  // Hojas nuevas — Fase 1: inteligencia estadística
+  'EloRatings',
+  'EvOpportunities',
+  'BettingHistory',
+  'ModelCalibration'
 ]);
+
+/**
+ * Mapa centralizado de headers por hoja.
+ * Es la fuente única de verdad para auditoría y creación con headers.
+ * Los módulos individuales siguen usando sus propias constantes _HEADERS
+ * para mayor legibilidad local; este mapa es el respaldo de auditoría.
+ */
+const SHEET_HEADERS = {
+  Partidos: [
+    'match_key','local','visitante','fecha','hora_chile','estadio','ciudad',
+    'pais_estadio','lat','lon','timezone_estadio','resultado','goles_local',
+    'goles_visitante','status','ronda','grupo','posesion_local','posesion_visitante',
+    'tiros_local','tiros_visitante','tiros_al_arco_local','tiros_al_arco_visitante',
+    'corners_local','corners_visitante','faltas_local','faltas_visitante',
+    'amarillas_local','amarillas_visitante','rojas_local','rojas_visitante',
+    'fixture_id_af','fixture_id_fd','sources_count','conflict_detail','updated_at'
+  ],
+  PlayerMatchStats: [
+    'fixture_id','player_id','player_name','team_id','team_name',
+    'minutes_played','rating','goals_scored','assists',
+    'yellow_cards','red_cards','passes_total','passes_accuracy',
+    'tackles_total','interceptions','duels_total','duels_won',
+    'dribbles_attempts','dribbles_success','shots_total','shots_on','updated_at'
+  ],
+  ResumenJugadorPartido: [
+    'fixture_id','jugador_id','jugador','equipo_id','equipo',
+    'goles','asistencias','amarillas','rojas','minutos','updated_at'
+  ],
+  EventosLive: [
+    'event_id','fixture_id','minuto','minuto_extra','tipo','detalle',
+    'equipo_id','equipo','jugador_id','jugador','asistente_id','asistente','updated_at'
+  ],
+  Alineaciones: [
+    'fixture_id','equipo','equipo_id','rol','numero',
+    'jugador','jugador_id','posicion','grid','updated_at'
+  ],
+  Arbitros: [
+    'arbitro_id','nombre','nacionalidad','confederacion',
+    'fixture_id','fecha','equipo_local','equipo_visitante','ronda',
+    'amarillas','rojas','penales','updated_at'
+  ],
+  OddsApuestas: [
+    'fixture_id','fuente','mercado','seleccion','cuota',
+    'probabilidad_modelo','ev','timestamp','confianza','razon'
+  ],
+  EstadiosClima: [
+    'fixture_id','estadio','ciudad','lat','lon','temperatura_c','sensacion_termica',
+    'humedad','viento_kmh','prob_lluvia','precipitacion_mm','condicion',
+    'hora_partido_utc','updated_at'
+  ],
+  Noticias: [
+    'id_hash','fixture_id','titulo','descripcion','fuente',
+    'url','pubDate','equipos_mencionados','updated_at'
+  ],
+  HistorialH2H: [
+    'fixture_ref_id','fecha','local','visitante','goles_local',
+    'goles_visitante','resultado','torneo','updated_at'
+  ],
+  Clasificacion: [
+    'grupo','posicion','equipo','equipo_id','pj','pg','pe','pp',
+    'gf','gc','gd','puntos','forma','descripcion','updated_at'
+  ],
+  AnalisisIA: [
+    'fixture_id','equipo_local','equipo_visitante','fecha_hora_chile',
+    'prob_local','prob_empate','prob_visitante','over_2_5','btts',
+    'confianza','resumen_previa','mensaje_telegram',
+    'factores_clave','bajas_suspensiones','jugadores_forma',
+    'contexto_grupo','alertas','updated_at','fuente'
+  ],
+  Alertas: [
+    'timestamp','tipo','prioridad','fixture_id','mensaje','enviado_telegram'
+  ],
+  PipelineRuns: [
+    'run_id','job_name','started_at','finished_at',
+    'status','records_processed','errors','error_msg'
+  ],
+  Suscriptores: [
+    'chat_id','username','fecha_registro','activo'
+  ],
+  // ── Hojas nuevas — Fase 1 ──────────────────────────────────────────────────
+  EloRatings: [
+    'equipo','elo_actual','elo_anterior','partidos',
+    'victorias','empates','derrotas','updated_at'
+  ],
+  EvOpportunities: [
+    'fixture_id','timestamp','mercado','seleccion','cuota',
+    'prob_modelo','ev','edge','kelly','ev_positivo','confianza'
+  ],
+  BettingHistory: [
+    'bet_id','fixture_id','fecha','equipo_local','equipo_visitante',
+    'mercado','seleccion','cuota','prob_modelo','ev',
+    'kelly_fraction','stake','resultado','profit_loss','roi_acum','notas'
+  ],
+  ModelCalibration: [
+    'fecha','partidos_evaluados','accuracy','brier_score','interpretacion','updated_at'
+  ]
+};
 
 // ─── Auditoría ─────────────────────────────────────────────────────────────────
 
@@ -164,4 +275,107 @@ function sheetEnsureAll() {
   }
 
   return { created };
+}
+
+/**
+ * Versión mejorada de sheetEnsureAll:
+ * - Si la hoja no existe → la crea CON headers.
+ * - Si la hoja existe pero la fila 1 está vacía → escribe los headers sin tocar datos.
+ * - Si la hoja existe y ya tiene headers → no hace nada.
+ * Nunca borra ni modifica filas de datos (fila 2 en adelante).
+ *
+ * Ejecutar al inicializar el sistema o después de agregar nuevas hojas.
+ */
+function sheetEnsureAllWithHeaders() {
+  const ss      = SpreadsheetApp.openById(getSpreadsheetId_());
+  const created = [];
+  const fixed   = [];
+  const skipped = [];
+
+  VALID_SHEETS.forEach(name => {
+    const headers = SHEET_HEADERS[name];
+    let sheet = ss.getSheetByName(name);
+
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+      if (headers && headers.length) {
+        sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      }
+      created.push(name);
+      Logger.log(`➕ Creada con headers: "${name}"`);
+      return;
+    }
+
+    // La hoja existe — verificar si fila 1 está vacía o sin contenido
+    if (!headers || !headers.length) {
+      skipped.push(name);
+      Logger.log(`⏭️  Sin headers definidos: "${name}"`);
+      return;
+    }
+
+    const firstRow = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    const isEmpty  = firstRow.every(cell => cell === '' || cell === null);
+
+    if (isEmpty) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      fixed.push(name);
+      Logger.log(`🔧 Headers agregados: "${name}"`);
+    } else {
+      skipped.push(name);
+    }
+  });
+
+  Logger.log(`\nCreadas: ${created.length} | Headers agregados: ${fixed.length} | Sin cambios: ${skipped.length}`);
+  return { created, fixed, skipped };
+}
+
+// ─── Auditoría de headers ──────────────────────────────────────────────────────
+
+/**
+ * Detecta hojas que existen pero tienen headers incorrectos o ausentes.
+ * No modifica nada. Ejecutar para revisar estado de integridad.
+ */
+function sheetHeaderAudit() {
+  const ss     = SpreadsheetApp.openById(getSpreadsheetId_());
+  const report = { ok: [], missing: [], wrong: [], no_definition: [] };
+
+  Logger.log('=== AUDITORÍA DE HEADERS ===');
+
+  VALID_SHEETS.forEach(name => {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) return; // sheetAudit ya reporta las que no existen
+
+    const expected = SHEET_HEADERS[name];
+    if (!expected || !expected.length) {
+      report.no_definition.push(name);
+      Logger.log(`ℹ️  Sin definición: "${name}"`);
+      return;
+    }
+
+    const lastCol  = Math.max(sheet.getLastColumn(), expected.length);
+    const firstRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const isEmpty  = firstRow.every(cell => cell === '' || cell === null);
+
+    if (isEmpty) {
+      report.missing.push(name);
+      Logger.log(`❌ HEADERS AUSENTES: "${name}" — esperaba: [${expected.join(', ')}]`);
+      return;
+    }
+
+    const actual  = firstRow.slice(0, expected.length).map(String);
+    const matches = expected.every((h, i) => actual[i] === h);
+
+    if (matches) {
+      report.ok.push(name);
+      Logger.log(`✅ OK: "${name}"`);
+    } else {
+      report.wrong.push({ name, expected, actual });
+      Logger.log(`⚠️  HEADERS DISTINTOS: "${name}"`);
+      Logger.log(`   Esperado: [${expected.slice(0, 5).join(', ')}...]`);
+      Logger.log(`   Actual:   [${actual.slice(0, 5).join(', ')}...]`);
+    }
+  });
+
+  Logger.log(`\nOK: ${report.ok.length} | Ausentes: ${report.missing.length} | Distintos: ${report.wrong.length} | Sin def: ${report.no_definition.length}`);
+  return report;
 }

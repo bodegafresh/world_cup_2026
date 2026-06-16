@@ -99,6 +99,10 @@ function handleTelegramCommand_(text) {
     case '/paises':     return buildPaisesCommandResponse_();
     case '/jugadores':  return buildJugadoresCommandResponse_(args);
     case '/arbitros':   return buildArbitrosResumenText_();
+    case '/ev':         return buildEvSummaryText_();
+    case '/elo':        return buildEloRankingText_();
+    case '/historial':  return buildBettingHistoryText_();
+    case '/calibrar':   return buildCalibrationText_();
     case '/ayuda':      return buildHelpCommandResponse_();
     default:            return null;
   }
@@ -294,6 +298,13 @@ function buildHelpCommandResponse_() {
     '/prediccion Argentina — Predicción IA del próximo partido',
     '/noticias Brasil — Últimas noticias del equipo',
     '/arbitros — Árbitros del torneo con estadísticas',
+    '',
+    '📊 <b>Análisis estadístico</b>',
+    '/ev — Oportunidades EV+ actuales',
+    '/elo — Ranking ELO de equipos',
+    '/historial — P&L de apuestas registradas',
+    '/calibrar — Precisión del modelo predictivo',
+    '',
     '/ayuda — Ver este menú'
   ].join('\n');
 }

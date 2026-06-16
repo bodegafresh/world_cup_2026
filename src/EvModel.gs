@@ -1,0 +1,243 @@
+/**
+ * EvModel.gs
+ *
+ * Calcula Expected Value (EV) y Kelly Criterion para cada mercado de un partido.
+ *
+ * Lee cuotas y probabilidades ya guardadas en OddsApuestas (no llama APIs externas).
+ * Las probabilidades en OddsApuestas vienen de The Odds API con vig removal aplicado.
+ *
+ * Fórmulas:
+ *   EV   = (prob_modelo × cuota_decimal) − 1
+ *          > 0 = apuesta de valor positivo
+ *   Edge = prob_modelo − prob_implicita_mercado
+ *          = ventaja real vs lo que paga el mercado
+ *   Kelly_raw = (prob × cuota − 1) / (cuota − 1)
+ *   Kelly     = max(0, min(Kelly_raw / KELLY_DIVISOR, KELLY_MAX_FRACTION))
+ *          Fracción del bankroll a apostar (Kelly fraccionario conservador)
+ *
+ * Uso:
+ *   - calculateEvForFixture_(fixture) → array de oportunidades
+ *   - saveAndAlertEvOpportunities_(fixture, opportunities) → guarda + alerta Telegram
+ *   - buildEvSummaryText_() → texto para /ev
+ */
+
+const EV_POSITIVE_THRESHOLD  = 0.05;  // EV > 5% = oportunidad
+const EDGE_MIN_THRESHOLD     = 0.03;  // Edge mínimo para alertar (3%)
+const KELLY_MAX_FRACTION     = 0.10;  // Nunca más del 10% del bankroll
+const KELLY_DIVISOR          = 4;     // Fractional Kelly conservador (Kelly/4)
+
+// ─── Cálculo de EV ────────────────────────────────────────────────────────────
+
+/**
+ * Calcula EV y Kelly para todos los mercados de un fixture.
+ * Solo procesa cuotas reales (fuente THE_ODDS_API) — ignora MODELO_INTERNO.
+ *
+ * @param {Object} fixture  Objeto fixture de API-Football o mínimo {fixture:{id:N}, teams:{home:{name}, away:{name}}}
+ * @returns {Array} Oportunidades ordenadas por EV desc
+ */
+function calculateEvForFixture_(fixture) {
+  const fixtureId = String(fixture.fixture.id);
+
+  let oddsRows;
+  try {
+    oddsRows = readAll_(CONFIG.SHEETS.ODDS)
+      .filter(r => String(r.fixture_id) === fixtureId
+                && String(r.fuente || '') === 'THE_ODDS_API');
+  } catch (e) {
+    console.warn(`calculateEvForFixture_ ${fixtureId}: ${e.message}`);
+    return [];
+  }
+
+  if (!oddsRows.length) return [];
+
+  const opportunities = [];
+
+  oddsRows.forEach(row => {
+    const cuota = Number(row.cuota);
+    const prob  = Number(row.probabilidad_modelo);
+    if (!cuota || cuota < 1.01 || !prob || prob <= 0 || prob >= 1) return;
+
+    const probImplicita = 1 / cuota;
+    const ev            = (prob * cuota) - 1;
+    const edge          = prob - probImplicita;
+
+    const kellyRaw = (prob * cuota - 1) / (cuota - 1);
+    const kelly    = Math.max(0, Math.min(kellyRaw / KELLY_DIVISOR, KELLY_MAX_FRACTION));
+
+    opportunities.push({
+      fixture_id:      fixtureId,
+      equipo_local:    fixture.teams.home.name,
+      equipo_visitante: fixture.teams.away.name,
+      mercado:         String(row.mercado    || ''),
+      seleccion:       String(row.seleccion  || ''),
+      cuota,
+      prob_modelo:     prob,
+      prob_implicita:  probImplicita,
+      ev,
+      edge,
+      kelly,
+      confianza:       String(row.confianza  || 'BAJA'),
+      es_positivo:     ev > EV_POSITIVE_THRESHOLD && edge > EDGE_MIN_THRESHOLD
+    });
+  });
+
+  return opportunities.sort((a, b) => b.ev - a.ev);
+}
+
+// ─── Guardado y alertas ───────────────────────────────────────────────────────
+
+/**
+ * Guarda oportunidades EV en la hoja EvOpportunities y envía alerta si hay EV+.
+ * Hace upsert por fixture_id (elimina filas previas del mismo fixture antes de insertar).
+ */
+function saveAndAlertEvOpportunities_(fixture, opportunities) {
+  if (!opportunities || !opportunities.length) return;
+
+  const fixtureId = String(fixture.fixture.id);
+
+  // Dedup: eliminar filas existentes para este fixture
+  try {
+    const ss    = SpreadsheetApp.openById(getSpreadsheetId_());
+    const sheet = ss.getSheetByName(CONFIG.SHEETS.EV_OPPORTUNITIES);
+    if (sheet && sheet.getLastRow() > 1) {
+      const vals   = sheet.getDataRange().getValues();
+      const fidIdx = vals[0].indexOf('fixture_id');
+      if (fidIdx !== -1) {
+        for (let i = vals.length - 1; i >= 1; i--) {
+          if (String(vals[i][fidIdx]) === fixtureId) sheet.deleteRow(i + 1);
+        }
+      }
+    }
+  } catch (e) { /* hoja no existe aún, se crea abajo */ }
+
+  getOrCreateSheet_(CONFIG.SHEETS.EV_OPPORTUNITIES, [
+    'fixture_id','timestamp','mercado','seleccion','cuota',
+    'prob_modelo','ev','edge','kelly','ev_positivo','confianza'
+  ]);
+
+  const rows = opportunities.map(o => [
+    fixtureId,
+    nowChile_(),
+    o.mercado,
+    o.seleccion,
+    o.cuota,
+    o.prob_modelo,
+    Math.round(o.ev    * 10000) / 10000,
+    Math.round(o.edge  * 10000) / 10000,
+    Math.round(o.kelly * 10000) / 10000,
+    o.es_positivo ? 'SI' : 'NO',
+    o.confianza
+  ]);
+
+  appendRows_(CONFIG.SHEETS.EV_OPPORTUNITIES, rows);
+
+  // Alerta solo si hay EV+ con datos de mercado real
+  const positivas = opportunities.filter(o => o.es_positivo && o.confianza !== 'BAJA');
+  if (positivas.length) {
+    try { sendEvAlert_(fixture, positivas); } catch (e) { console.warn('EV alert:', e.message); }
+  }
+}
+
+/**
+ * Envía alerta de EV+ por Telegram a todos los suscriptores.
+ */
+function sendEvAlert_(fixture, positivas) {
+  const label = `${fixture.teams.home.name} vs ${fixture.teams.away.name}`;
+  const fecha  = toChileDateTime_(fixture.fixture.date || '').substring(0, 16);
+
+  let msg = `📊 <b>Oportunidad EV+ detectada</b>\n`;
+  msg    += `⚽ ${label}\n`;
+  if (fecha) msg += `🕐 ${fecha}\n`;
+  msg    += '\n';
+
+  positivas.slice(0, 3).forEach(o => {
+    const evPct    = (o.ev    * 100).toFixed(1);
+    const edgePct  = (o.edge  * 100).toFixed(1);
+    const kellyPct = (o.kelly * 100).toFixed(1);
+    const emoji    = o.ev > 0.15 ? '🔥' : o.ev > 0.08 ? '✅' : '⚠️';
+
+    msg += `${emoji} <b>${o.seleccion}</b> (${o.mercado})\n`;
+    msg += `  Cuota: <code>${o.cuota.toFixed(2)}</code>  `;
+    msg += `EV: <code>+${evPct}%</code>  `;
+    msg += `Edge: <code>+${edgePct}%</code>\n`;
+    msg += `  Prob modelo: <code>${pct_(o.prob_modelo)}</code>  `;
+    msg += `Kelly: <code>${kellyPct}%</code>\n\n`;
+  });
+
+  msg += `<i>⚠️ Análisis informativo. Apuesta responsablemente.</i>`;
+
+  broadcastTelegramMessage_(msg);
+}
+
+// ─── Texto para bot ───────────────────────────────────────────────────────────
+
+/**
+ * Resumen de oportunidades EV+ para el comando /ev.
+ */
+function buildEvSummaryText_() {
+  let rows;
+  try {
+    rows = readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES)
+      .filter(r => String(r.ev_positivo) === 'SI')
+      .sort((a, b) => Number(b.ev || 0) - Number(a.ev || 0));
+  } catch (e) {
+    return '📊 Sin datos de EV. Ejecuta cronEvCalculation o cronTomorrowPreview primero.';
+  }
+
+  if (!rows.length) {
+    return '📊 Sin oportunidades EV+ detectadas para los próximos partidos.\n\n<i>Las cuotas de mercado no muestran valor estadístico en este momento.</i>';
+  }
+
+  // Agrupar por fixture (un fixture puede tener múltiples mercados EV+)
+  const byFixture = {};
+  rows.forEach(r => {
+    const k = String(r.fixture_id);
+    if (!byFixture[k]) byFixture[k] = { rows: [] };
+    byFixture[k].rows.push(r);
+  });
+
+  let msg = `📊 <b>Oportunidades EV+ — Mundial 2026</b>\n`;
+  msg    += `<i>Actualizado: ${rows[0].timestamp || ''}</i>\n\n`;
+
+  Object.values(byFixture).slice(0, 6).forEach(group => {
+    const first = group.rows[0];
+    msg += `⚽ Fixture ${first.fixture_id}\n`;
+
+    group.rows.slice(0, 3).forEach(o => {
+      const evPct    = (Number(o.ev)    * 100).toFixed(1);
+      const kellyPct = (Number(o.kelly) * 100).toFixed(1);
+      const emoji    = Number(o.ev) > 0.12 ? '🔥' : '✅';
+      msg += `  ${emoji} ${o.seleccion} @ ${Number(o.cuota).toFixed(2)} — EV +${evPct}% | Kelly ${kellyPct}%\n`;
+    });
+
+    msg += '\n';
+  });
+
+  msg += `<i>⚠️ Solo informativo. Apuesta responsablemente.</i>`;
+  return msg.trim();
+}
+
+// ─── Helper para SmartAlerts ──────────────────────────────────────────────────
+
+/**
+ * Construye un objeto fixture mínimo a partir de una fila de la hoja Partidos.
+ * Necesario porque SmartAlerts trabaja con filas planas, no objetos API-Football.
+ *
+ * @param {Object} row  Fila de readAll_(CONFIG.SHEETS.PARTIDOS)
+ * @returns {Object}    Objeto compatible con calculateEvForFixture_
+ */
+function buildFixtureFromSheetRow_(row) {
+  return {
+    fixture: {
+      id:   row.fixture_id_af || row.match_key || '',
+      date: row.fecha          || '',
+      status: { short: row.status || '' }
+    },
+    teams: {
+      home: { name: row.local      || '' },
+      away: { name: row.visitante  || '' }
+    },
+    league: { round: row.ronda || '' },
+    goals:  { home: row.goles_local || null, away: row.goles_visitante || null }
+  };
+}

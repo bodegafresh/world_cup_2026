@@ -84,6 +84,11 @@ function buildFallbackOddsSignals_(fixture) {
   const homeTeam = fixture.teams.home.name;
   const awayTeam = fixture.teams.away.name;
 
+  // Usar ELO en lugar de probabilidades uniformes (0.33/0.33/0.33)
+  // getEloProbabilities_ devuelve probabilidades calibradas según diferencia de ELO
+  const eloProbs = getEloProbabilities_(homeTeam, awayTeam);
+  const reason   = `ELO model: ${homeTeam}=${eloProbs.elo_home} vs ${awayTeam}=${eloProbs.elo_away}`;
+
   return {
     fixture_id: fixture.fixture.id,
     home: homeTeam,
@@ -93,25 +98,25 @@ function buildFallbackOddsSignals_(fixture) {
         market: '1X2',
         selection: homeTeam,
         odd: null,
-        model_probability: 0.33,
-        confidence: 'BAJA',
-        reason: 'Modelo base inicial sin datos de mercado'
+        model_probability: eloProbs.home_win,
+        confidence: 'MEDIA',
+        reason
       },
       {
         market: '1X2',
         selection: 'Empate',
         odd: null,
-        model_probability: 0.34,
-        confidence: 'BAJA',
-        reason: 'Modelo base inicial sin datos de mercado'
+        model_probability: eloProbs.draw,
+        confidence: 'MEDIA',
+        reason
       },
       {
         market: '1X2',
         selection: awayTeam,
         odd: null,
-        model_probability: 0.33,
-        confidence: 'BAJA',
-        reason: 'Modelo base inicial sin datos de mercado'
+        model_probability: eloProbs.away_win,
+        confidence: 'MEDIA',
+        reason
       },
       {
         market: 'Over/Under 2.5',
@@ -119,7 +124,7 @@ function buildFallbackOddsSignals_(fixture) {
         odd: null,
         model_probability: 0.50,
         confidence: 'BAJA',
-        reason: 'Sin datos suficientes'
+        reason: 'Sin datos de totals en mercado'
       },
       {
         market: 'Ambos anotan',
@@ -127,7 +132,7 @@ function buildFallbackOddsSignals_(fixture) {
         odd: null,
         model_probability: 0.50,
         confidence: 'BAJA',
-        reason: 'Sin datos suficientes'
+        reason: 'Sin datos de btts en mercado'
       }
     ]
   };

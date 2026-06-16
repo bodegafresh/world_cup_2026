@@ -42,6 +42,9 @@ function loadWorldCupDay_(date) {
       console.warn(`Lineups error fixture ${fixtureId}: ${e.message}`);
     }
 
+    // Actualizar ELO solo si el partido ya terminó (FT/AET/PEN)
+    try { updateEloAfterMatch_(fixture); } catch (e) { console.warn(`ELO fixture ${fixtureId}:`, e.message); }
+
     Utilities.sleep(800);
   });
 
@@ -96,6 +99,38 @@ function cronMatchDayAnalysis() {
       analyzeAndSaveFixture_(fixture);
       Utilities.sleep(2000);
     });
+  });
+}
+
+/**
+ * CRON 08:00 AM — Calcula Expected Value para los partidos de mañana.
+ * Requiere que cronTomorrowPreview ya haya corrido (cuotas cargadas).
+ * Guarda en EvOpportunities y envía alerta Telegram si hay EV+.
+ */
+function cronEvCalculation() {
+  runWithHealthCheck_('cronEvCalculation', () => {
+    const date = tomorrowChile_();
+    const fixturesData = fetchWorldCupFixturesByDate_(date);
+    const fixtures = fixturesData.response || [];
+
+    if (!fixtures.length) {
+      Logger.log('cronEvCalculation: sin partidos mañana.');
+      return;
+    }
+
+    fixtures.forEach(fixture => {
+      try {
+        const opportunities = calculateEvForFixture_(fixture);
+        if (opportunities.length) {
+          saveAndAlertEvOpportunities_(fixture, opportunities);
+        }
+      } catch (e) {
+        console.warn(`EV fixture ${fixture.fixture.id}: ${e.message}`);
+      }
+      Utilities.sleep(500);
+    });
+
+    Logger.log(`cronEvCalculation completado: ${fixtures.length} fixtures procesados.`);
   });
 }
 

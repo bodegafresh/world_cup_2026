@@ -53,6 +53,23 @@ function runSmartAlertsForTomorrow_() {
       alertMessages.push(`📈 <b>Movimiento de cuotas (${label})</b>`);
       alertMessages.push(`  • ${oddsAlert}`);
     }
+
+    // EV+ — requiere cuotas reales ya cargadas en OddsApuestas
+    try {
+      const fixtureObj = buildFixtureFromSheetRow_(fixture);
+      if (fixtureObj.fixture.id) {
+        const evOpps    = calculateEvForFixture_(fixtureObj);
+        const positivas = evOpps.filter(o => o.es_positivo && o.confianza !== 'BAJA');
+        if (positivas.length) {
+          alertMessages.push(`📊 <b>EV+ detectado (${label})</b>`);
+          positivas.slice(0, 2).forEach(o =>
+            alertMessages.push(
+              `  • ${o.seleccion} @ ${o.cuota.toFixed(2)} — EV +${(o.ev * 100).toFixed(1)}% | Kelly ${(o.kelly * 100).toFixed(1)}%`
+            )
+          );
+        }
+      }
+    } catch (e_) { console.warn(`EV check ${label}:`, e_.message); }
   });
 
   if (alertMessages.length) {
