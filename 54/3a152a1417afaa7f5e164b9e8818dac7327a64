@@ -1,0 +1,31 @@
+src/Standings.gs
+  s_8d080e6df27905::t_a8943f0900f8e8 250-292
+  s_8d080e6df27905::t_96f88534f5de35 196
+  s_8d080e6df27905::t_77d8684ccbef55 322-337
+src/LiveEvents.gs
+  s_8d080e6df27905::t_7c61e27539f473 503-511
+  s_8d080e6df27905::t_23ab89fd16ca20 542
+src/EspnApi.gs
+  s_8d080e6df27905::t_352cdfc2841d42 149-152,154-156,158-159,161-164,166-168,175-182
+src/BotCommands.gs
+  s_8d080e6df27905::t_e1f07379a46ebc 578-586
+  s_8d080e6df27905::t_8a02238688fdba 300
+  s_8d080e6df27905::t_6e5992e407e9a6 541-558
+  s_8d080e6df27905::t_ecfdbf6d86c2f9 302-312
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "543a152a1417afaa7f5e164b9e8818dac7327a64",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
