@@ -1,0 +1,38 @@
+src/Wather.gs
+  s_8d080e6df27905::t_a9812beef4cc9d 1-19,22-91,93-153,162-163,167-169,186
+src/Standings.gs
+  s_8d080e6df27905::t_9190b65e469bf8 1-162
+src/OddsModel.gs
+  s_8d080e6df27905::t_7767d2e49d5e76 1-8,10-29,32-33,37-95,98,103,106,110-111,114,119,127,139,142-143,151-156
+src/Main.gs
+  s_8d080e6df27905::t_cec9557670d61d 31-36
+  s_8d080e6df27905::t_8fac4b2e633d0d 66-71
+src/BotCommands.gs
+  s_8d080e6df27905::t_fcd53f4348ed26 1-20,40-56,64-78,82-83,86,88-99,103-104,109,114-118,122,125-126,139,142,145-178,180,194-197,200-461
+src/OddsApi.gs
+  s_8d080e6df27905::t_94540cf51fead2 1-342
+docs/sheets-schema.md
+  s_8d080e6df27905::t_a79bf2fa1b260e 1-314
+docs/cron-plan.md
+  s_8d080e6df27905::t_d090432e81502c 1-122
+src/Config.gs
+  s_8d080e6df27905::t_52d6a5819b89b9 24-27
+src/HeadToHead.gs
+  s_8d080e6df27905::t_34deccff4f455a 1-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "602df7d399fa3d094ccab657aa84be8186d5b1a7",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
