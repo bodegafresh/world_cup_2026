@@ -1,0 +1,24 @@
+src/BotCommands.gs
+  s_8d080e6df27905::t_cf5aa56316f2cd 22-23,25-27,29-32,34,36-45,47-50
+src/Main.gs
+  s_8d080e6df27905::t_4efc4b46807624 59
+  s_8d080e6df27905::t_710669c82c9efb 14
+src/Telegram.gs
+  s_8d080e6df27905::t_35a6127536c25c 11-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "1dfb53b3c25f1df3d4c00d7f92d08bca1d599a27",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
