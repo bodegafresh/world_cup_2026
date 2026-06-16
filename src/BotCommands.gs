@@ -30,12 +30,15 @@ function doPost(e) {
   const username = msg.from && msg.from.username ? msg.from.username : '';
   const text = msg.text.trim();
 
-  // Registrar el chat_id para que los broadcasts lleguen a este usuario
+  // Registrar siempre, pero solo responder a comandos que empiezan con /
   try { registerSubscriber_(chatId, username); } catch (e_) { /* silencioso */ }
 
-  const response = handleTelegramCommand_(text);
+  if (!text.startsWith('/')) {
+    return ContentService.createTextOutput('ok');
+  }
 
-  sendTelegramMessageToSingleChat_(chatId, response);
+  const response = handleTelegramCommand_(text);
+  if (response) sendTelegramMessageToSingleChat_(chatId, response);
 
   return ContentService.createTextOutput('ok');
 }
@@ -58,7 +61,7 @@ function handleTelegramCommand_(text) {
     case '/prediccion': return buildPredictionResponse_(args);
     case '/noticias':   return buildNewsResponse_(args);
     case '/ayuda':      return buildHelpCommandResponse_();
-    default:            return 'Comando no reconocido. Usa /ayuda para ver los comandos disponibles.';
+    default:            return null;
   }
 }
 
