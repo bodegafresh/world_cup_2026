@@ -1,0 +1,23 @@
+src/News.gs
+  s_8d080e6df27905::t_931f764f9ce3f8 68-94,96
+src/Wather.gs
+  s_8d080e6df27905::t_7c33125073a307 190-191,194-225
+src/OddsModel.gs
+  s_8d080e6df27905::t_1d25093f76f966 137-154,156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "c9d340684c577bbe065659c96acad3fc4e34c080",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
