@@ -96,11 +96,49 @@ function handleTelegramCommand_(text) {
     case '/h2h':        return buildH2HCommandResponse_(args);
     case '/prediccion': return buildPredictionResponse_(args);
     case '/noticias':   return buildNewsResponse_(args);
+    case '/paises':     return buildPaisesCommandResponse_();
     case '/ayuda':      return buildHelpCommandResponse_();
     default:            return null;
   }
 }
 
+
+// ─── /paises ───────────────────────────────────────────────────────────────────
+
+function buildPaisesCommandResponse_() {
+  // Leer equipos desde Partidos (siempre tiene datos si hay backfill)
+  const rows = readAll_(CONFIG.SHEETS.PARTIDOS);
+
+  const nombres = new Set();
+  rows.forEach(r => {
+    if (r.local)     nombres.add(String(r.local).trim());
+    if (r.visitante) nombres.add(String(r.visitante).trim());
+  });
+
+  if (!nombres.size) {
+    return 'Aún no hay equipos cargados. Ejecuta el backfill primero.';
+  }
+
+  const lista = [...nombres].sort((a, b) => a.localeCompare(b));
+
+  // Agrupar de a 4 por línea para que sea más compacto
+  const lineas = [];
+  for (let i = 0; i < lista.length; i += 4) {
+    lineas.push(lista.slice(i, i + 4).join('  |  '));
+  }
+
+  return [
+    `🌍 <b>Selecciones en el torneo (${lista.length})</b>`,
+    '',
+    lineas.join('\n'),
+    '',
+    '<i>Usa el nombre exacto (o parte de él) en los comandos:</i>',
+    '/noticias Argentina',
+    '/stats Morocco',
+    '/seleccion United States',
+    '/prediccion Brazil'
+  ].join('\n');
+}
 
 // ─── /ayuda ────────────────────────────────────────────────────────────────────
 
@@ -111,6 +149,7 @@ function buildHelpCommandResponse_() {
     '/hoy — Partidos de hoy',
     '/ayer — Resultados de ayer',
     '/proximos — Próximos 3 días',
+    '/paises — Ver todas las selecciones del torneo',
     '/seleccion Brasil — Historial de un equipo',
     '/tabla — Tabla de posiciones por grupo',
     '/stats Argentina — Estadísticas del equipo',
