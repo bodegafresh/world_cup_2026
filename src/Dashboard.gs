@@ -29,6 +29,12 @@ function refreshDashboard() {
   row++;
   row = writeTopScorersSection_(sheet, row);
   row++;
+  row = writeEvOpportunitiesSection_(sheet, row);
+  row++;
+  row = writeEloRankingsSection_(sheet, row);
+  row++;
+  row = writeModelCalibrationSection_(sheet, row);
+  row++;
   row = writeLatestAlertsSection_(sheet, row);
   row++;
   row = writePipelineStatusSection_(sheet, row);
@@ -51,29 +57,41 @@ function writeTodayMatchesSection_(sheet, startRow) {
     return row + 1;
   }
 
-  const headers = ['Hora (Chile)', 'Local', 'Goles', '', 'Visitante', 'Estadio', 'Estado'];
+  const headers = ['Hora (Chile)', 'Local', 'Goles', '', 'Visitante', 'Estadio', 'Estado', 'Prob L/E/V', 'EV+'];
   sheet.getRange(row, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
   row++;
 
-  const weatherMap = buildWeatherMapForDashboard_();
+  const weatherMap  = buildWeatherMapForDashboard_();
+  const probMap     = buildAiProbMapForDashboard_();
+  const evMap       = buildEvMapForDashboard_();
 
   partidos.forEach(p => {
     const goles = (p.goles_local !== '' && p.goles_local !== null)
       ? `${p.goles_local} - ${p.goles_visitante}`
       : 'vs';
 
-    const w = weatherMap[String(p.fixture_id_af || '')];
+    const fid = String(p.fixture_id_af || p.match_id || '');
+    const w   = weatherMap[fid];
     const climaStr = w && w.temperatura_c !== null
       ? `${w.temperatura_c}°C ${w.condicion || ''}` : '';
 
-    sheet.getRange(row, 1, 1, 7).setValues([[
+    const probs = probMap[fid];
+    const probStr = probs
+      ? `${Math.round(probs.h * 100)}/${Math.round(probs.d * 100)}/${Math.round(probs.a * 100)}`
+      : '';
+
+    const evFlag = evMap[fid] ? '🔥' : '';
+
+    sheet.getRange(row, 1, 1, 9).setValues([[
       p.hora_chile || '',
       p.local || '',
       goles,
       '',
       p.visitante || '',
       `${p.estadio || ''} ${climaStr}`.trim(),
-      p.estado || ''
+      p.estado || '',
+      probStr,
+      evFlag
     ]]);
     row++;
   });
@@ -250,6 +268,124 @@ function writePipelineStatusSection_(sheet, startRow) {
   return row;
 }
 
+// ─── Secciones Fase 1 (EV / ELO / Calibración) ────────────────────────────────
+
+function writeEvOpportunitiesSection_(sheet, startRow) {
+  let row = writeDashboardSection_(sheet, startRow, '🎯 Oportunidades EV+', null);
+
+  try {
+    const rows = readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES)
+      .filter(r => String(r.es_positivo || '').toUpperCase() === 'SI' || r.ev > 0)
+      .sort((a, b) => Number(b.ev || 0) - Number(a.ev || 0))
+      .slice(0, 8);
+
+    if (!rows.length) {
+      sheet.getRange(row, 1).setValue('Sin oportunidades EV+ activas');
+      return row + 1;
+    }
+
+    const headers = ['Fixture', 'Mercado', 'Selección', 'Cuota', 'EV%', 'Kelly%', 'Confianza'];
+    sheet.getRange(row, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+    row++;
+
+    rows.forEach(r => {
+      const ev    = Number(r.ev    || 0);
+      const kelly = Number(r.kelly || 0);
+      sheet.getRange(row, 1, 1, 7).setValues([[
+        String(r.fixture_id || '').substring(0, 20),
+        r.mercado    || '',
+        r.seleccion  || '',
+        Number(r.cuota || 0).toFixed(2),
+        `${(ev * 100).toFixed(1)}%`,
+        `${(kelly * 100).toFixed(1)}%`,
+        r.confianza  || ''
+      ]]);
+      row++;
+    });
+  } catch (e) {
+    sheet.getRange(row, 1).setValue(`Error: ${e.message}`);
+    row++;
+  }
+
+  return row;
+}
+
+function writeEloRankingsSection_(sheet, startRow) {
+  let row = writeDashboardSection_(sheet, startRow, '⚡ Ranking ELO — Top 16', null);
+
+  try {
+    const rows = readAll_(CONFIG.SHEETS.ELO_RATINGS)
+      .sort((a, b) => Number(b.elo_actual || 0) - Number(a.elo_actual || 0))
+      .slice(0, 16);
+
+    if (!rows.length) {
+      sheet.getRange(row, 1).setValue('Sin datos ELO. Ejecuta initializeEloRatings().');
+      return row + 1;
+    }
+
+    const headers = ['Pos', 'Equipo', 'ELO', 'Δ ELO', 'PJ', 'V', 'E', 'D'];
+    sheet.getRange(row, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+    row++;
+
+    rows.forEach((r, i) => {
+      const delta = Number(r.elo_actual || 0) - Number(r.elo_anterior || r.elo_actual || 0);
+      sheet.getRange(row, 1, 1, 8).setValues([[
+        i + 1,
+        r.equipo      || '',
+        Number(r.elo_actual || 0).toFixed(0),
+        delta >= 0 ? `+${delta.toFixed(0)}` : delta.toFixed(0),
+        Number(r.partidos_jugados || 0),
+        Number(r.victorias  || 0),
+        Number(r.empates    || 0),
+        Number(r.derrotas   || 0)
+      ]]);
+      row++;
+    });
+  } catch (e) {
+    sheet.getRange(row, 1).setValue(`Error: ${e.message}`);
+    row++;
+  }
+
+  return row;
+}
+
+function writeModelCalibrationSection_(sheet, startRow) {
+  let row = writeDashboardSection_(sheet, startRow, '🎯 Calibración del Modelo', null);
+
+  try {
+    const rows = readAll_(CONFIG.SHEETS.MODEL_CALIBRATION);
+    if (!rows.length) {
+      sheet.getRange(row, 1).setValue('Sin datos. Ejecuta calculateModelCalibration().');
+      return row + 1;
+    }
+
+    const latest = rows[rows.length - 1];
+    const bs     = Number(latest.brier_score || 0);
+    const acc    = Number(latest.accuracy    || 0);
+    const n      = Number(latest.partidos_evaluados || latest.n || 0);
+
+    const headers = ['Partidos evaluados', 'Accuracy', 'Brier Score', 'Baseline (random)', 'Interpretación', 'Calculado'];
+    sheet.getRange(row, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+    row++;
+
+    const interp = bs < 0.15 ? 'Excelente' : bs < 0.20 ? 'Bueno' : bs < 0.222 ? 'Sobre baseline' : 'Bajo baseline';
+    sheet.getRange(row, 1, 1, 6).setValues([[
+      n,
+      `${(acc * 100).toFixed(1)}%`,
+      bs.toFixed(4),
+      '0.2222',
+      interp,
+      String(latest.calculado_at || latest.fecha || '').substring(0, 16)
+    ]]);
+    row++;
+  } catch (e) {
+    sheet.getRange(row, 1).setValue(`Error: ${e.message}`);
+    row++;
+  }
+
+  return row;
+}
+
 // ─── Utilidades ────────────────────────────────────────────────────────────────
 
 function writeDashboardSection_(sheet, row, title, _unused) {
@@ -272,6 +408,30 @@ function formatDashboard_(sheet) {
   sheet.setColumnWidth(4, 80);
   sheet.setColumnWidth(5, 180);
   sheet.setColumnWidth(6, 200);
+}
+
+function buildAiProbMapForDashboard_() {
+  const map = {};
+  try {
+    readAll_(CONFIG.SHEETS.AI_ANALYSIS).forEach(r => {
+      const fid = String(r.fixture_id || r.match_id || '');
+      if (!fid) return;
+      if (r.prob_local && r.prob_empate && r.prob_visitante) {
+        map[fid] = { h: Number(r.prob_local), d: Number(r.prob_empate), a: Number(r.prob_visitante) };
+      }
+    });
+  } catch (e) {}
+  return map;
+}
+
+function buildEvMapForDashboard_() {
+  const map = {};
+  try {
+    readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES)
+      .filter(r => String(r.es_positivo || '').toUpperCase() === 'SI')
+      .forEach(r => { if (r.fixture_id) map[String(r.fixture_id)] = true; });
+  } catch (e) {}
+  return map;
 }
 
 function buildWeatherMapForDashboard_() {

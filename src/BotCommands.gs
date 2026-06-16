@@ -69,6 +69,18 @@ function handleMessage_(msg) {
 
   if (!text.startsWith('/')) return;
 
+  // Comandos que envían imágenes — manejar aquí porque necesitan chatId
+  const parts_ = text.split(' ');
+  const cmd_   = parts_[0].toLowerCase().split('@')[0];
+  const args_  = parts_.slice(1).join(' ').trim();
+
+  if (cmd_ === '/grafico') {
+    try { handleGraficoCommand_(chatId, args_); } catch (e_) {
+      sendTelegramMessageToSingleChat_(chatId, `⚠️ Error en /grafico: ${e_.message}`);
+    }
+    return;
+  }
+
   let response;
   try {
     response = handleTelegramCommand_(text);
@@ -103,9 +115,108 @@ function handleTelegramCommand_(text) {
     case '/elo':        return buildEloRankingText_();
     case '/historial':  return buildBettingHistoryText_();
     case '/calibrar':   return buildCalibrationText_();
+    case '/en_vivo':    return buildLiveMatchesText_();
+    case '/grafico':    return null; // manejado antes del switch (necesita chatId)
     case '/ayuda':      return buildHelpCommandResponse_();
     default:            return null;
   }
+}
+
+// ─── /grafico ──────────────────────────────────────────────────────────────────
+
+/**
+ * Envía imágenes de probabilidades y ELO para el próximo partido del equipo.
+ * Se llama directamente desde handleMessage_ (no pasa por el switch).
+ *
+ * @param {string} chatId
+ * @param {string} args    Nombre del equipo (ej: "Argentina")
+ */
+function handleGraficoCommand_(chatId, args) {
+  if (!args) {
+    sendTelegramMessageToSingleChat_(chatId, 'Uso: /grafico Argentina\n\nEscribe el nombre del equipo.');
+    return;
+  }
+
+  const q = args.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+  // Buscar próximo partido (NS = Not Started)
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
+  const fixture  = partidos.find(r => {
+    const local     = norm_(r.local     || '');
+    const visitante = norm_(r.visitante || '');
+    const esEquipo  = local.includes(q) || visitante.includes(q);
+    const estado    = String(r.status || r.estado || '').toUpperCase();
+    return esEquipo && ['NS', 'TBD', '1H', 'HT', '2H', 'ET', 'BT', 'P', 'LIVE', 'INT'].includes(estado);
+  });
+
+  if (!fixture) {
+    sendTelegramMessageToSingleChat_(chatId,
+      `No encontré un próximo partido para: ${args}\n\n` +
+      `Puede que el equipo ya no tenga partidos pendientes o el nombre no coincide.\n` +
+      `Prueba con /paises para ver los nombres exactos.`
+    );
+    return;
+  }
+
+  const home = fixture.local     || '';
+  const away = fixture.visitante || '';
+  const fixtureId = fixture.fixture_id_af || fixture.match_id;
+
+  // Obtener probabilidades desde AI Analysis (cache)
+  let probHome = 0.33, probDraw = 0.34, probAway = 0.33;
+  let probSource = 'ELO';
+  try {
+    const aiRows = readAll_(CONFIG.SHEETS.AI_ANALYSIS).filter(r =>
+      norm_(r.local || r.home || '').includes(norm_(home)) ||
+      norm_(r.visitante || r.away || '').includes(norm_(away))
+    );
+    if (aiRows.length) {
+      const latest = aiRows[aiRows.length - 1];
+      if (latest.prob_local && latest.prob_empate && latest.prob_visitante) {
+        probHome = Number(latest.prob_local);
+        probDraw = Number(latest.prob_empate);
+        probAway = Number(latest.prob_visitante);
+        probSource = 'IA';
+      }
+    }
+  } catch (e_) { /* usar ELO */ }
+
+  // Fallback ELO si no hay AI
+  if (probSource === 'ELO') {
+    try {
+      const eloProbs = getEloProbabilities_(home, away);
+      if (eloProbs) { probHome = eloProbs.home; probDraw = eloProbs.draw; probAway = eloProbs.away; }
+    } catch (e_) { /* mantener defaults */ }
+  }
+
+  // 1. Gráfico de probabilidades
+  const probUrl = buildProbabilityChartUrl_(home, away, probHome, probDraw, probAway);
+  const caption1 = [
+    `📊 <b>${home} vs ${away}</b>`,
+    `${home}: ${Math.round(probHome * 100)}% | Empate: ${Math.round(probDraw * 100)}% | ${away}: ${Math.round(probAway * 100)}%`,
+    `<i>Fuente: ${probSource} | ${fixture.fecha || ''} ${fixture.hora_chile || ''}</i>`
+  ].join('\n').substring(0, 1024);
+
+  sendPhotoToSingleChat_(chatId, probUrl, caption1);
+  Utilities.sleep(400);
+
+  // 2. Gráfico de comparación ELO
+  try {
+    const eloHome = getTeamElo_(home);
+    const eloAway = getTeamElo_(away);
+    const eloUrl  = buildEloComparisonChartUrl_(home, away, eloHome, eloAway);
+    const caption2 = `⚡ ELO: ${home} ${eloHome} vs ${away} ${eloAway} (Δ ${eloHome - eloAway > 0 ? '+' : ''}${eloHome - eloAway})`;
+    sendPhotoToSingleChat_(chatId, eloUrl, caption2.substring(0, 1024));
+    Utilities.sleep(400);
+  } catch (e_) { console.warn('handleGraficoCommand_ ELO chart:', e_.message); }
+
+  // 3. Evolución de cuotas (solo si hay suficientes datos)
+  try {
+    const oddsUrl = buildOddsEvolutionChartUrl_(fixtureId, home);
+    if (oddsUrl) {
+      sendPhotoToSingleChat_(chatId, oddsUrl, `📈 Evolución de cuotas — ${home} (1X2)`);
+    }
+  } catch (e_) { /* sin datos suficientes */ }
 }
 
 
@@ -304,6 +415,10 @@ function buildHelpCommandResponse_() {
     '/elo — Ranking ELO de equipos',
     '/historial — P&L de apuestas registradas',
     '/calibrar — Precisión del modelo predictivo',
+    '',
+    '📸 <b>Gráficos e imágenes</b>',
+    '/grafico Argentina — Probabilidades + ELO en imagen',
+    '/en_vivo — Marcadores y estadísticas en tiempo real',
     '',
     '/ayuda — Ver este menú'
   ].join('\n');

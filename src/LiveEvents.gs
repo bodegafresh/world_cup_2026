@@ -126,7 +126,7 @@ function cronLiveEventsMonitor() {
       const fixtureId = fixture.match_id || fixture.fixture_id;
 
       const eventsData = fetchEventsByFixture_(fixtureId);
-      const events = eventsData.response || [];
+      const events     = eventsData.response || [];
 
       const newImportantEvents = detectNewImportantEvents_(fixtureId, events);
 
@@ -134,8 +134,30 @@ function cronLiveEventsMonitor() {
         saveEvents_(fixtureId, events, 'API-Football fixtures/events live');
 
         newImportantEvents.forEach(event => {
-          sendTelegramMessage_(formatImportantEventMessage_(fixture, event));
+          const score    = getLiveScore_(fixtureId, events);
+          const textMsg  = formatImportantEventMessage_(fixture, event, score);
+          sendTelegramMessage_(textMsg);
           markEventAsAlerted_(fixtureId, event);
+
+          // Enviar imagen de stats solo en goles y rojas (los eventos de mayor impacto)
+          if (event.type === 'Goal' || (event.type === 'Card' && event.detail === 'Red Card')) {
+            try {
+              const liveStats = fetchLiveStatistics_(fixtureId);
+              if (liveStats) {
+                const minute   = event.time ? event.time.elapsed : null;
+                // Construir objeto fixture mínimo para buildLiveScoreChartUrl_
+                const fxObj    = buildFixtureFromSheetRow_(fixture);
+                if (score) { fxObj.goals = { home: score.home, away: score.away }; }
+                const chartUrl = buildLiveScoreChartUrl_(fxObj, liveStats, minute);
+                if (chartUrl) {
+                  const caption = `${fixture.local || ''} ${score ? score.home + '-' + score.away : ''} ${fixture.visitante || ''}`;
+                  broadcastTelegramPhoto_(chartUrl, caption);
+                }
+              }
+            } catch (imgErr) {
+              console.warn(`Live chart ${fixtureId}:`, imgErr.message);
+            }
+          }
         });
       }
 
@@ -209,24 +231,234 @@ function markEventAsAlerted_(fixtureId, event) {
   ]]);
 }
 
-function formatImportantEventMessage_(fixture, event) {
-  const minute = event.time.extra
+function formatImportantEventMessage_(fixture, event, score) {
+  const minute = event.time && event.time.extra
     ? `${event.time.elapsed}+${event.time.extra}`
-    : `${event.time.elapsed}`;
+    : String(event.time ? event.time.elapsed : '?');
+
+  const home = fixture.local || '';
+  const away = fixture.visitante || '';
+  const scoreStr = score ? `  ${home} <b>${score.home} - ${score.away}</b> ${away}` : `${home} vs ${away}`;
 
   if (event.type === 'Goal') {
-    return `⚽ <b>GOL</b> ${minute}'\n${event.team.name}\n${event.player.name}\nAsistencia: ${safe_(event.assist && event.assist.name)}`;
+    const assist = event.assist && event.assist.name ? `\n👟 Asistencia: ${event.assist.name}` : '';
+    return [
+      `⚽ <b>GOL! ${minute}'</b>`,
+      scoreStr,
+      `📌 ${safe_(event.team && event.team.name)} — ${safe_(event.player && event.player.name)}${assist}`
+    ].join('\n');
   }
 
   if (event.type === 'Card' && event.detail === 'Red Card') {
-    return `🟥 <b>ROJA</b> ${minute}'\n${event.team.name}\n${event.player.name}`;
+    return [
+      `🟥 <b>TARJETA ROJA ${minute}'</b>`,
+      scoreStr,
+      `📌 ${safe_(event.team && event.team.name)} — ${safe_(event.player && event.player.name)}`
+    ].join('\n');
+  }
+
+  if (event.type === 'Card' && event.detail === 'Second Yellow card') {
+    return [
+      `🟨🟥 <b>SEGUNDA AMARILLA (= ROJA) ${minute}'</b>`,
+      scoreStr,
+      `📌 ${safe_(event.team && event.team.name)} — ${safe_(event.player && event.player.name)}`
+    ].join('\n');
   }
 
   if (event.type === 'Card' && event.detail === 'Yellow Card') {
-    return `🟨 Amarilla ${minute}'\n${event.team.name}\n${event.player.name}`;
+    return [
+      `🟨 Amarilla ${minute}'`,
+      `${safe_(event.team && event.team.name)} — ${safe_(event.player && event.player.name)}`
+    ].join('\n');
   }
 
-  return `📌 Evento ${minute}'\n${safe_(event.type)} - ${safe_(event.detail)}\n${safe_(event.team && event.team.name)}\n${safe_(event.player && event.player.name)}`;
+  if (event.type === 'Var') {
+    return [
+      `📺 <b>VAR ${minute}'</b>`,
+      scoreStr,
+      `${safe_(event.detail)} — ${safe_(event.team && event.team.name)}`
+    ].join('\n');
+  }
+
+  if (event.type === 'subst') {
+    return [
+      `🔄 Cambio ${minute}'`,
+      `${safe_(event.team && event.team.name)}`,
+      `⬆️ ${safe_(event.assist && event.assist.name)} ⬇️ ${safe_(event.player && event.player.name)}`
+    ].join('\n');
+  }
+
+  return `📌 ${safe_(event.type)} ${minute}'\n${safe_(event.detail)}\n${safe_(event.team && event.team.name)}`;
+}
+
+// ─── Estadísticas en vivo ─────────────────────────────────────────────────────
+
+/**
+ * Obtiene las estadísticas en vivo del partido desde API-Football.
+ * Retorna un objeto { home: {...}, away: {...} } o null si no hay datos.
+ *
+ * @param {string|number} fixtureId
+ * @returns {Object|null}
+ */
+function fetchLiveStatistics_(fixtureId) {
+  try {
+    const data  = fetchStatisticsByFixture_(fixtureId);
+    const stats = data.response || [];
+    if (!stats.length) return null;
+
+    const extract = teamStats => {
+      const find  = type => {
+        const item = (teamStats.statistics || []).find(s => s.type === type);
+        return item ? (Number(String(item.value || '0').replace('%', '')) || 0) : 0;
+      };
+      return {
+        posesion:  find('Ball Possession'),
+        tiros:     find('Total Shots'),
+        tirosArco: find('Shots on Goal'),
+        corners:   find('Corner Kicks'),
+        faltas:    find('Fouls'),
+        amarillas: find('Yellow Cards'),
+        rojas:     find('Red Cards')
+      };
+    };
+
+    return {
+      home: extract(stats[0] || {}),
+      away: extract(stats[1] || {})
+    };
+  } catch (e) {
+    console.warn(`fetchLiveStatistics_ ${fixtureId}:`, e.message);
+    return null;
+  }
+}
+
+/**
+ * Calcula el marcador actual leyendo los goles de EVENTOS_LIVE.
+ * Más confiable que el objeto fixture durante el partido.
+ *
+ * @param {string|number} fixtureId
+ * @param {Array}         [events]  Si ya se tienen los eventos del API, usarlos directamente
+ * @returns {{ home: number, away: number }|null}
+ */
+function getLiveScore_(fixtureId, events) {
+  try {
+    // Si se pasaron los eventos del API (durante cronLiveEventsMonitor), usarlos
+    if (events && events.length) {
+      // Los eventos del API no tienen info de cuál es local/visitante fácilmente
+      // Leer de EVENTOS_LIVE que tiene scoreHome/scoreAway calculados
+    }
+
+    const allEvents = readAll_(CONFIG.SHEETS.EVENTOS_LIVE)
+      .filter(r => String(r.fixture_id || r.event_id || '').includes(String(fixtureId)))
+      .filter(r => r.tipo === 'Goal');
+
+    if (!allEvents.length) return { home: 0, away: 0 };
+
+    // scoreHome y scoreAway se calculan de forma acumulada en saveEvents_
+    // Tomar el último valor guardado
+    const last = allEvents[allEvents.length - 1];
+    return {
+      home: Number(last.score_home || 0),
+      away: Number(last.score_away || 0)
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Formatea estadísticas en vivo en texto HTML para el comando /en_vivo.
+ *
+ * @param {Object} fixture   Fila de Partidos (con local, visitante, hora_chile, status)
+ * @param {Object} stats     Resultado de fetchLiveStatistics_
+ * @param {Object} [score]   { home, away }
+ * @returns {string}
+ */
+function formatLiveStatsMessage_(fixture, stats, score) {
+  const home = fixture.local || '';
+  const away = fixture.visitante || '';
+  const scoreStr = score ? `${score.home} - ${score.away}` : '? - ?';
+
+  let msg = `🔴 <b>EN VIVO: ${home} ${scoreStr} ${away}</b>\n`;
+  if (fixture.minuto) msg += `⏱️ Minuto ${fixture.minuto}'\n`;
+  msg += '\n';
+
+  if (!stats) return msg + '<i>Estadísticas no disponibles</i>';
+
+  const row = (label, h, a, suffix) => {
+    const hs = String(h) + (suffix || '');
+    const as = String(a) + (suffix || '');
+    return `${label}: <code>${hs}</code> vs <code>${as}</code>`;
+  };
+
+  msg += row('⚽ Posesión',   stats.home.posesion,  stats.away.posesion,  '%') + '\n';
+  msg += row('🎯 Tiros',      stats.home.tiros,     stats.away.tiros      ) + '\n';
+  msg += row('✅ Al arco',    stats.home.tirosArco, stats.away.tirosArco  ) + '\n';
+  msg += row('🔄 Corners',    stats.home.corners,   stats.away.corners    ) + '\n';
+  msg += row('⚠️ Faltas',     stats.home.faltas,    stats.away.faltas     ) + '\n';
+  msg += row('🟨 Amarillas',  stats.home.amarillas, stats.away.amarillas  ) + '\n';
+
+  msg += `\n<i>${home} (local) vs ${away} (visitante)</i>`;
+  return msg;
+}
+
+// ─── Texto para /en_vivo ──────────────────────────────────────────────────────
+
+/**
+ * Resumen de todos los partidos que están en curso ahora mismo.
+ * Usado por el comando /en_vivo del bot.
+ */
+function buildLiveMatchesText_() {
+  const liveStatuses = ['1H', 'HT', '2H', 'ET', 'BT', 'P', 'LIVE', 'INT'];
+
+  let rows;
+  try {
+    rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r =>
+      liveStatuses.includes(String(r.status || '').toUpperCase())
+    );
+  } catch (e) { rows = []; }
+
+  if (!rows.length) {
+    return [
+      '⚽ <b>En vivo ahora</b>',
+      '',
+      'No hay partidos en curso en este momento.',
+      '',
+      '<i>Usa /hoy para ver el horario de los partidos de hoy.</i>'
+    ].join('\n');
+  }
+
+  let msg = `🔴 <b>Partidos en vivo — ${rows.length} partido${rows.length > 1 ? 's' : ''}</b>\n\n`;
+
+  rows.forEach(fixture => {
+    const fixtureId = fixture.fixture_id_af || fixture.match_id;
+    const home = fixture.local     || '?';
+    const away = fixture.visitante || '?';
+    const statusLabel = {
+      '1H': '1° Tiempo', 'HT': 'Descanso', '2H': '2° Tiempo',
+      'ET': 'Prórroga', 'BT': 'Descanso Prórroga', 'P': 'Penales',
+      'LIVE': 'En curso', 'INT': 'Interrumpido'
+    }[String(fixture.status || '').toUpperCase()] || fixture.status;
+
+    const score = getLiveScore_(fixtureId);
+    const scoreStr = score ? `<b>${score.home} - ${score.away}</b>` : '<b>? - ?</b>';
+
+    msg += `⚽ ${home} ${scoreStr} ${away}\n`;
+    msg += `   ${statusLabel} | ${fixture.estadio || fixture.ciudad || ''}\n`;
+
+    // Mini stats si disponibles
+    try {
+      const stats = fetchLiveStatistics_(fixtureId);
+      if (stats) {
+        msg += `   Pos: ${stats.home.posesion}%-${stats.away.posesion}% | `;
+        msg += `Tiros: ${stats.home.tiros}-${stats.away.tiros}\n`;
+      }
+    } catch (e_) { /* sin stats */ }
+
+    msg += '\n';
+  });
+
+  return msg.trim();
 }
 
 function saveEvents_(fixtureId, events, rawUrl, homeTeamId, awayTeamId) {

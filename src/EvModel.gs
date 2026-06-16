@@ -167,6 +167,18 @@ function sendEvAlert_(fixture, positivas) {
   msg += `<i>⚠️ Análisis informativo. Apuesta responsablemente.</i>`;
 
   broadcastTelegramMessage_(msg);
+
+  // Adjuntar imagen de probabilidades si disponible
+  try {
+    const home = fixture.teams.home.name;
+    const away = fixture.teams.away.name;
+    const probs = getEloProbabilities_(home, away);
+    if (probs) {
+      const chartUrl = buildProbabilityChartUrl_(home, away, probs.home, probs.draw, probs.away);
+      const caption  = `📊 ELO: ${home} ${Math.round(probs.home * 100)}% | Empate ${Math.round(probs.draw * 100)}% | ${away} ${Math.round(probs.away * 100)}%`;
+      broadcastTelegramPhoto_(chartUrl, caption);
+    }
+  } catch (e_) { console.warn('sendEvAlert_ chart:', e_.message); }
 }
 
 // ─── Texto para bot ───────────────────────────────────────────────────────────

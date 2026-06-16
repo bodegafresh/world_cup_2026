@@ -233,3 +233,60 @@ function getTodayAiReports_() {
 
   return rows.filter(r => String(r.fecha_hora_chile || '').startsWith(today));
 }
+
+// ─── Envío de imágenes (Telegram sendPhoto) ────────────────────────────────────
+
+/**
+ * Envía una imagen a un chat específico.
+ * `photoUrl` puede ser una URL pública (QuickChart.io) o un file_id de Telegram.
+ * Caption máximo: 1024 chars (límite Telegram para fotos).
+ *
+ * @param {string} chatId
+ * @param {string} photoUrl   URL pública de la imagen
+ * @param {string} [caption]  Texto bajo la imagen (HTML admitido)
+ */
+function sendPhotoToSingleChat_(chatId, photoUrl, caption) {
+  if (!chatId || !photoUrl) return;
+
+  const token = getTelegramBotToken_();
+  const url   = `${CONFIG.TELEGRAM.BASE_URL}${token}/sendPhoto`;
+
+  const payload = { chat_id: String(chatId), photo: photoUrl };
+  if (caption) {
+    payload.caption    = String(caption).substring(0, 1024);
+    payload.parse_mode = 'HTML';
+  }
+
+  try {
+    const resp = UrlFetchApp.fetch(url, {
+      method:            'post',
+      contentType:       'application/json',
+      payload:           JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+
+    const code = resp.getResponseCode();
+    if (code < 200 || code >= 300) {
+      console.warn(`sendPhotoToSingleChat_ ${chatId}: HTTP ${code} — ${resp.getContentText().substring(0, 200)}`);
+    }
+  } catch (e) {
+    console.warn(`sendPhotoToSingleChat_ ${chatId}:`, e.message);
+  }
+}
+
+/**
+ * Envía una imagen a TODOS los suscriptores registrados.
+ * Agrega un pequeño delay entre envíos para no saturar la Telegram Bot API.
+ *
+ * @param {string} photoUrl   URL pública de la imagen
+ * @param {string} [caption]  Texto bajo la imagen (HTML admitido)
+ */
+function broadcastTelegramPhoto_(photoUrl, caption) {
+  if (!photoUrl) return;
+
+  const chatIds = getKnownChatIds_();
+  chatIds.forEach((chatId, i) => {
+    sendPhotoToSingleChat_(chatId, photoUrl, caption);
+    if (i < chatIds.length - 1) Utilities.sleep(350); // respetar rate limit Telegram
+  });
+}
