@@ -91,6 +91,28 @@
 
 ---
 
+---
+
+### `cronTodayPreviewRefresh` — Previa enriquecida del día *(nuevo)*
+- **Horario:** 09:00 AM Chile (días con partidos)
+- **Función:** `Main.gs → cronTodayPreviewRefresh()`
+- **Qué hace:**
+  1. Fetch fixtures de HOY (no de mañana)
+  2. Para cada fixture construye contexto completo con `buildEnrichedPreviewInput_`:
+     - Clima real a la hora del partido (Open-Meteo)
+     - Noticias Google News
+     - Cuotas reales The Odds API
+     - Estado del grupo + qué se juega cada equipo (Clasificacion sheet)
+     - Jugadores en riesgo de suspensión (ResumenJugadorPartido)
+     - Menciones de lesión en noticias
+     - Jugadores en forma (PlayerMatchStats ratings)
+     - H2H del partido (HistorialH2H)
+  3. Genera análisis IA con toda la data → `AnalisisIA` (upsert)
+  4. Refresca Dashboard
+- **Diferencia con cronTomorrowPreview:** Corre el día del partido con datos más frescos
+
+---
+
 ## Jobs pendientes de implementar
 
 ### `cronMorningTelegramReport` — Reporte matutino completo

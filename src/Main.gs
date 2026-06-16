@@ -73,6 +73,26 @@ function cronTomorrowPreview() {
   });
 }
 
+/**
+ * Regenera las previas para los partidos de HOY si ya están en Partidos
+ * pero el análisis IA no tiene los datos enriquecidos (suspensiones, grupo, etc.).
+ * Ejecutar: 09:00 AM Chile los días con partido.
+ */
+function cronTodayPreviewRefresh() {
+  runWithHealthCheck_('cronTodayPreviewRefresh', () => {
+    const date = todayChile_();
+    const fixturesData = fetchWorldCupFixturesByDate_(date);
+    const fixtures = fixturesData.response || [];
+
+    fixtures.forEach(fixture => {
+      enrichTomorrowFixture_(fixture);
+      Utilities.sleep(1500);
+    });
+
+    try { refreshDashboard(); } catch (e) { console.warn('Dashboard:', e.message); }
+  });
+}
+
 function enrichTomorrowFixture_(fixture) {
   const fixtureId = fixture.fixture.id;
 

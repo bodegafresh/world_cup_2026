@@ -80,14 +80,37 @@ function buildMorningTelegramMessage_(date, partidos, aiReports) {
   if (aiReports.length) {
     msg += `\n🧠 <b>Análisis IA</b>\n`;
     aiReports.forEach(r => {
+      const home = r.local || r.home || '';
+      const away = r.visitante || r.away || '';
+      if (home || away) msg += `\n<b>${home} vs ${away}</b>\n`;
+
       const resumen = r.resumen_telegram || r.mensaje_telegram || r.resumen_previa || '';
-      if (resumen) msg += `\n${resumen}\n`;
+      if (resumen) msg += `${resumen}\n`;
+
+      const bajas = parseSafeJson_(r.bajas_suspensiones || r.bajas_y_suspensiones, []);
+      const altas = bajas.filter(b =>
+        b.tipo === 'suspension_confirmada' || b.tipo === 'riesgo_suspension'
+      );
+      if (altas.length) {
+        msg += `🟨 <i>Riesgo suspensión: ${altas.map(b => `${b.jugador} (${b.equipo})`).join(', ')}</i>\n`;
+      }
+
+      const ctx = parseSafeJson_(r.contexto_grupo, {});
+      if (ctx.que_se_juega_home || ctx.que_se_juega_away) {
+        msg += `📌 ${home}: ${ctx.que_se_juega_home || '—'} | ${away}: ${ctx.que_se_juega_away || '—'}\n`;
+      }
     });
   }
 
   msg += `\n⚠️ Análisis para diversión y aprendizaje. No es asesoría financiera.`;
 
   return msg;
+}
+
+function parseSafeJson_(value, fallback) {
+  if (!value) return fallback;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch (e) { return fallback; }
 }
 
 function buildWeatherMap_() {
