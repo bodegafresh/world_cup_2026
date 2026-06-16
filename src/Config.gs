@@ -25,7 +25,8 @@ const CONFIG = {
 
     CLASIFICACION: 'Clasificacion',
     HISTORIAL_H2H: 'HistorialH2H',
-    SUSCRIPTORES: 'Suscriptores'
+    SUSCRIPTORES: 'Suscriptores',
+    ALINEACIONES: 'Alineaciones'
   },
 
   API_FOOTBALL: {

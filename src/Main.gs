@@ -34,6 +34,12 @@ function loadWorldCupDay_(date) {
       console.warn(`PlayerMatchStats error fixture ${fixtureId}: ${e.message}`);
     }
 
+    try {
+      loadLineupsForFixture_(fixture);
+    } catch (e) {
+      console.warn(`Lineups error fixture ${fixtureId}: ${e.message}`);
+    }
+
     Utilities.sleep(800);
   });
 

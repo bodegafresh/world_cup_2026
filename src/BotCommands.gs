@@ -97,11 +97,144 @@ function handleTelegramCommand_(text) {
     case '/prediccion': return buildPredictionResponse_(args);
     case '/noticias':   return buildNewsResponse_(args);
     case '/paises':     return buildPaisesCommandResponse_();
+    case '/jugadores':  return buildJugadoresCommandResponse_(args);
     case '/ayuda':      return buildHelpCommandResponse_();
     default:            return null;
   }
 }
 
+
+// ─── /jugadores ────────────────────────────────────────────────────────────────
+
+function buildJugadoresCommandResponse_(pais) {
+  if (!pais) return 'Uso: /jugadores Argentina\n\nVer todos los países con /paises';
+
+  const q = pais.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+  // 1. Buscar si hay un partido en curso o reciente de este equipo
+  const today = todayChile_();
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
+
+  const matchToday = partidos.find(r => {
+    const fecha = String(r.fecha || '').substring(0, 10);
+    if (fecha !== today) return false;
+    const local     = norm_(r.local     || '');
+    const visitante = norm_(r.visitante || '');
+    return local.includes(q) || visitante.includes(q);
+  });
+
+  let msg = '';
+
+  if (matchToday) {
+    const esLocal    = norm_(matchToday.local     || '').includes(q);
+    const equipoNombre = esLocal ? matchToday.local : matchToday.visitante;
+    const rival        = esLocal ? matchToday.visitante : matchToday.local;
+    const estado       = String(matchToday.estado || '').toUpperCase();
+    const liveStatuses = ['1H','HT','2H','ET','BT','P','LIVE','INT','FT','AET','PEN'];
+    const esVivo       = liveStatuses.includes(estado);
+
+    msg += `⚽ <b>${equipoNombre} vs ${rival}</b> — ${esVivo ? '🔴 EN VIVO' : estado}\n`;
+
+    // Intentar obtener alineación (desde hoja o API si está en curso)
+    const fixtureId = matchToday.fixture_id_af || matchToday.match_id;
+    if (fixtureId) {
+      const fakeFixture = { fixture: { id: fixtureId, status: { short: estado } } };
+      const lineups = getOrFetchLineup_(fakeFixture);
+      const equipoLineup = lineups && findTeamInLineup_(lineups, q);
+
+      if (equipoLineup) {
+        msg += buildLineupText_(equipoNombre, equipoLineup);
+      } else {
+        msg += '\n<i>Alineación aún no disponible (se publica al inicio del partido)</i>\n';
+      }
+    }
+
+    // Lesiones/molestias mencionadas en noticias
+    const lesiones = getLesionesEquipo_(equipoNombre, q);
+    if (lesiones.length) {
+      msg += '\n🩹 <b>Posibles molestias/lesiones:</b>\n';
+      lesiones.forEach(l => msg += `  • ${l}\n`);
+    }
+
+    msg += '\n';
+  }
+
+  // 2. Plantel completo desde la hoja Planteles
+  const plantel = readAll_(CONFIG.SHEETS.PLANTELES).filter(r =>
+    norm_(r.equipo || '').includes(q)
+  );
+
+  if (!plantel.length && !msg) {
+    return `No encontré jugadores para: ${pais}\n\nVer todos los países con /paises`;
+  }
+
+  if (plantel.length) {
+    const equipoNombre = plantel[0].equipo || pais;
+    if (!matchToday) msg += `👕 <b>Plantel — ${equipoNombre}</b>\n\n`;
+    else             msg += `👕 <b>Plantel completo — ${equipoNombre}</b>\n`;
+
+    // Agrupar por posición
+    const porPosicion = {};
+    plantel.forEach(p => {
+      const pos = String(p.posicion || 'Sin posición');
+      if (!porPosicion[pos]) porPosicion[pos] = [];
+      porPosicion[pos].push(`${p.numero ? p.numero + '. ' : ''}${p.jugador || p.nombre || ''}`);
+    });
+
+    const orden = ['Goalkeeper', 'Defender', 'Midfielder', 'Attacker', 'Sin posición'];
+    const labels = { Goalkeeper: '🧤 Porteros', Defender: '🛡 Defensas', Midfielder: '⚙️ Mediocampistas', Attacker: '⚡ Delanteros', 'Sin posición': '— Otros' };
+
+    orden.forEach(pos => {
+      if (!porPosicion[pos]) return;
+      msg += `\n<b>${labels[pos] || pos}:</b>\n`;
+      msg += porPosicion[pos].join('\n') + '\n';
+    });
+
+    // Posiciones que no están en el orden predefinido
+    Object.keys(porPosicion).forEach(pos => {
+      if (orden.includes(pos)) return;
+      msg += `\n<b>${pos}:</b>\n${porPosicion[pos].join('\n')}\n`;
+    });
+  }
+
+  if (!matchToday && !plantel.length) {
+    msg += '\n<i>Sin datos de plantel. Ejecuta loadSquadsForKnownTeams() para cargarlos.</i>';
+  }
+
+  return msg.trim();
+}
+
+function findTeamInLineup_(lineups, query) {
+  const key = Object.keys(lineups).find(k => norm_(k).includes(query));
+  return key ? lineups[key] : null;
+}
+
+function getLesionesEquipo_(equipoNombre, query) {
+  try {
+    const noticias = readAll_(CONFIG.SHEETS.NOTICIAS).filter(r => {
+      const titulo = String(r.titulo || r.title || '').toLowerCase();
+      const eq1 = norm_(r.equipo_local || r.home || '').includes(query);
+      const eq2 = norm_(r.equipo_visitante || r.away || '').includes(query);
+      const mencion = norm_(titulo).includes(query);
+      return (eq1 || eq2 || mencion);
+    });
+
+    const INJURY_KW = ['lesion','lesionado','baja','duda','injury','injured','doubt','ankle','knee','muscle','hamstring'];
+    return noticias
+      .filter(r => {
+        const t = String(r.titulo || r.title || '').toLowerCase();
+        return INJURY_KW.some(kw => t.includes(kw));
+      })
+      .slice(0, 3)
+      .map(r => String(r.titulo || r.title || '').substring(0, 80));
+  } catch (e) {
+    return [];
+  }
+}
+
+function norm_(str) {
+  return String(str || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
 
 // ─── /paises ───────────────────────────────────────────────────────────────────
 
@@ -150,6 +283,7 @@ function buildHelpCommandResponse_() {
     '/ayer — Resultados de ayer',
     '/proximos — Próximos 3 días',
     '/paises — Ver todas las selecciones del torneo',
+    '/jugadores Argentina — Plantel + alineación si hay partido',
     '/seleccion Brasil — Historial de un equipo',
     '/tabla — Tabla de posiciones por grupo',
     '/stats Argentina — Estadísticas del equipo',
