@@ -120,12 +120,18 @@ function loadFullWorldCupCalendarFromEspn() {
 
       const homeNorm = normName(ev.home_team);
       const awayNorm = normName(ev.away_team);
-      const matchKey = `${date}_${homeNorm}_${awayNorm}`;
+      // matchKey usa fechaChile (calculada abajo), se asigna después de horaChile/fechaChile
 
       // Convertir hora UTC a Chile
-      const horaChile = ev.hora_utc
-        ? Utilities.formatDate(new Date(ev.hora_utc), CONFIG.TIMEZONE, 'HH:mm')
+      // La fecha Chile puede diferir de la fecha UTC del query ESPN
+      // (ej: partido a las 22:00 CHL del domingo = 01:00 UTC del lunes)
+      const kickoffDate = ev.hora_utc ? new Date(ev.hora_utc) : null;
+      const horaChile   = kickoffDate
+        ? Utilities.formatDate(kickoffDate, CONFIG.TIMEZONE, 'HH:mm')
         : '';
+      const fechaChile  = kickoffDate
+        ? Utilities.formatDate(kickoffDate, CONFIG.TIMEZONE, 'yyyy-MM-dd')
+        : date;
 
       // Mapear status ESPN → nuestro formato
       const statusMap = {
@@ -147,10 +153,11 @@ function loadFullWorldCupCalendarFromEspn() {
 
       // Construir fila con las columnas de Partidos (orden del header)
       const rowData = {};
+      const matchKey = `${fechaChile}_${homeNorm}_${awayNorm}`;
       rowData['match_key']       = matchKey;
       rowData['local']           = ev.home_team;
       rowData['visitante']       = ev.away_team;
-      rowData['fecha']           = date;
+      rowData['fecha']           = fechaChile;
       rowData['hora_chile']      = horaChile;
       rowData['estadio']         = ev.estadio || '';
       rowData['ciudad']          = ev.ciudad  || '';

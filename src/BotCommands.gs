@@ -551,7 +551,22 @@ function buildYesterdayCommandResponse_() {
   d.setDate(d.getDate() - 1);
   const date = Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd');
 
-  const rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => normalizeFecha_(r.fecha) === date);
+  const allRows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => normalizeFecha_(r.fecha) === date);
+
+  // Deduplicar por par de equipos (puede haber entradas ESPN + API-Football)
+  const norm__ = s => String(s || '').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+  const dedupAyer = new Map();
+  allRows.forEach(r => {
+    const key = norm__(r.local) + '_' + norm__(r.visitante);
+    const existing = dedupAyer.get(key);
+    // Preferir fila con marcador sobre fila sin marcador
+    const hasScore    = r.goles_local !== '' && r.goles_local !== null && r.goles_local !== undefined;
+    const prevHasScore = existing && (existing.goles_local !== '' && existing.goles_local !== null && existing.goles_local !== undefined);
+    if (!existing || (hasScore && !prevHasScore)) dedupAyer.set(key, r);
+  });
+  const rows = [...dedupAyer.values()];
 
   if (!rows.length) return `No encontré resultados para ayer ${date}.`;
 

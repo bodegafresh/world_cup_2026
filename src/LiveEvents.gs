@@ -499,13 +499,14 @@ function buildLiveMatchesText_() {
           msg += '\n';
         }
 
-        // Alineaciones titulares
+        // Alineaciones titulares con goleadores marcados
         const rosters = summary.rosters || [];
         if (rosters.length) {
+          const scorersMap = parseEspnScorers_(summary.scoringPlays || []);
           const hLineup = parseEspnLineup_(rosters, 'home');
           const aLineup = parseEspnLineup_(rosters, 'away');
-          msg += formatEspnLineupText_(homeNombre, hLineup);
-          msg += formatEspnLineupText_(awayNombre, aLineup);
+          msg += formatEspnLineupText_(homeNombre, hLineup, scorersMap);
+          msg += formatEspnLineupText_(awayNombre, aLineup, scorersMap);
         }
       } catch (e_) { /* sin stats/alineación */ }
 

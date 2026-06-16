@@ -141,42 +141,99 @@ function parseEspnTeamForm_(lastFiveGames, espnTeamId) {
 }
 
 /**
+ * Extrae goleadores desde summary.scoringPlays de ESPN.
+ * Devuelve un Map: teamId → [{ shortName, minute, ownGoal, penaltyKick }]
+ * @param {Array} scoringPlays - summary.scoringPlays
+ * @returns {Map<string, Array>}
+ */
+function parseEspnScorers_(scoringPlays) {
+  const map = new Map(); // teamId → array de goles
+  (scoringPlays || []).forEach(play => {
+    const teamId   = String((play.team || {}).id || '');
+    const athletes = play.athlete || play.athletes || [];
+    const clock    = (play.clock || {}).displayValue || '';
+    const ownGoal  = !!play.ownGoal;
+    const penalty  = !!play.penaltyKick;
+
+    (Array.isArray(athletes) ? athletes : [athletes]).forEach(a => {
+      if (!a || !a.id) return;
+      const entry = {
+        athleteId:  String(a.id),
+        shortName:  a.shortName || a.displayName || '',
+        minute:     clock,
+        ownGoal,
+        penalty
+      };
+      if (!map.has(teamId)) map.set(teamId, []);
+      map.get(teamId).push(entry);
+    });
+  });
+  return map;
+}
+
+/**
  * Extrae la alineación titular de un equipo desde summary.rosters de ESPN.
  * @param {Array}  rosters   - summary.rosters
  * @param {string} homeAway  - 'home' | 'away'
- * @returns {{ formacion: string, titulares: Array<{numero,jugador,posicion}> } | null}
+ * @returns {{ formacion: string, teamId: string, titulares: Array<{numero,jugador,posicion,athleteId}> } | null}
  */
 function parseEspnLineup_(rosters, homeAway) {
   const entry = (rosters || []).find(r => r.homeAway === homeAway);
   if (!entry) return null;
 
+  const teamId   = String((entry.team || {}).id || '');
   const formation = entry.formation || '';
   const titulares = (entry.roster || [])
     .filter(p => p.starter)
     .sort((a, b) => (a.order || 99) - (b.order || 99))
     .map(p => ({
-      numero:   (p.athlete || {}).jersey || '',
-      jugador:  (p.athlete || {}).shortName || (p.athlete || {}).displayName || '',
-      posicion: ((p.position || {}).abbreviation || '').toUpperCase()
+      athleteId: String((p.athlete || {}).id || ''),
+      numero:    (p.athlete || {}).jersey || '',
+      jugador:   (p.athlete || {}).shortName || (p.athlete || {}).displayName || '',
+      posicion:  ((p.position || {}).abbreviation || '').toUpperCase()
     }));
 
-  return titulares.length ? { formacion: formation, titulares } : null;
+  return titulares.length ? { formacion: formation, teamId, titulares } : null;
 }
 
 /**
  * Formatea la alineación de un equipo agrupando por línea (GK/DEF/MID/FWD).
+ * @param {string} teamName
+ * @param {{ formacion, teamId, titulares }} lineupData
+ * @param {Map}    [scorersMap]  - resultado de parseEspnScorers_(), para marcar goleadores
  */
-function formatEspnLineupText_(teamName, lineupData) {
+function formatEspnLineupText_(teamName, lineupData, scorersMap) {
   if (!lineupData || !lineupData.titulares.length) return '';
 
-  const POS_ORDER = { GK: 0, G: 0, DEF: 1, D: 1, MID: 2, M: 2, FWD: 3, F: 3, ATT: 3 };
   const POS_LABEL = { GK: 'GK', G: 'GK', DEF: 'DEF', D: 'DEF', MID: 'MID', M: 'MID', FWD: 'FWD', F: 'FWD', ATT: 'FWD' };
+
+  // Construir mapa athleteId → minutos de gol (puede marcar múltiples)
+  const goalMap = {}; // athleteId → [{ minute, ownGoal, penalty }]
+  if (scorersMap && lineupData.teamId) {
+    const teamGoals = scorersMap.get(lineupData.teamId) || [];
+    teamGoals.forEach(g => {
+      if (!goalMap[g.athleteId]) goalMap[g.athleteId] = [];
+      goalMap[g.athleteId].push(g);
+    });
+  }
 
   const groups = {};
   lineupData.titulares.forEach(p => {
     const label = POS_LABEL[p.posicion] || p.posicion || '?';
     if (!groups[label]) groups[label] = [];
-    groups[label].push(`${p.numero ? p.numero + '.' : ''}${p.jugador}`);
+
+    let nombre = `${p.numero ? p.numero + '.' : ''}${p.jugador}`;
+    const goles = goalMap[p.athleteId] || [];
+    if (goles.length) {
+      const tags = goles.map(g => {
+        const min = g.minute ? ` ${g.minute}` : '';
+        if (g.ownGoal) return `🔴${min}`;  // autogol
+        if (g.penalty) return `⚽(P)${min}`;
+        return `⚽${min}`;
+      });
+      nombre += ' ' + tags.join(' ');
+    }
+    groups[label].push(nombre);
   });
 
   const formacion = lineupData.formacion ? ` (${lineupData.formacion})` : '';
@@ -186,7 +243,6 @@ function formatEspnLineupText_(teamName, lineupData) {
       text += `<i>${label}:</i> ${groups[label].join(', ')}\n`;
     }
   });
-  // Posiciones no mapeadas
   Object.keys(groups).filter(k => !['GK','DEF','MID','FWD'].includes(k)).forEach(k => {
     text += `<i>${k}:</i> ${groups[k].join(', ')}\n`;
   });
