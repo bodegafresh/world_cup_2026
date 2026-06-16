@@ -86,3 +86,16 @@ function fetchTopScorers_() {
   });
 }
 
+/**
+ * Trae TODOS los partidos del Mundial 2026 en una sola llamada a la API.
+ * Útil para pre-cargar el calendario completo sin iterar por fecha.
+ * Consume 1 request de cuota.
+ */
+function fetchAllWorldCupFixtures_() {
+  const data = apiFootballGet_('/fixtures', {
+    league: CONFIG.API_FOOTBALL.WORLD_CUP_LEAGUE_ID,
+    season: CONFIG.API_FOOTBALL.SEASON
+  });
+  return data;
+}
+

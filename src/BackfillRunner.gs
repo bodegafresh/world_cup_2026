@@ -57,6 +57,56 @@ function backfillWorldCupOpeningWeek() {
 }
 
 /**
+ * Carga el calendario completo del Mundial 2026 en Partidos.
+ * Usa una sola llamada a la API (league + season) en vez de iterar por fecha.
+ * Solo guarda fixture_id, equipos, fecha, hora, estadio, ronda y grupo.
+ * NO carga stats, eventos ni lineups (esos requieren una llamada por partido).
+ *
+ * Ideal para pre-cargar todos los partidos futuros de forma eficiente.
+ * Ejecutar UNA VEZ al inicio del torneo o cuando Partidos esté desactualizado.
+ */
+function loadFullWorldCupCalendar() {
+  Logger.log('=== CARGANDO CALENDARIO COMPLETO DEL MUNDIAL 2026 ===');
+
+  const data = fetchAllWorldCupFixtures_();
+  const fixtures = (data.response || []).filter(isWorldCupFixture_);
+
+  if (!fixtures.length) {
+    Logger.log('❌ No se recibieron fixtures. Revisar API key y cuota.');
+    return;
+  }
+
+  Logger.log(`✅ API devolvió ${fixtures.length} partidos del Mundial`);
+
+  const quota = createQuotaTracker_();
+
+  // Agrupa por fecha para llamar upsertGoldenMatchesFromFixtures_ correctamente
+  const byDate = {};
+  fixtures.forEach(fx => {
+    const date = String(fx.fixture.date || '').substring(0, 10);
+    if (!date) return;
+    if (!byDate[date]) byDate[date] = [];
+    byDate[date].push(fx);
+  });
+
+  const dates = Object.keys(byDate).sort();
+  Logger.log(`Fechas a cargar: ${dates.join(', ')}`);
+
+  dates.forEach(date => {
+    Logger.log(`  → ${date}: ${byDate[date].length} partidos`);
+    try {
+      upsertGoldenMatchesFromFixtures_(byDate[date], date, quota);
+    } catch (e) {
+      Logger.log(`  ⚠️ Error en ${date}: ${e.message}`);
+    }
+  });
+
+  Logger.log(`\nCalendario cargado: ${fixtures.length} partidos en ${dates.length} fechas`);
+  Logger.log('Nota: stats, eventos y lineups se cargan automáticamente cuando cada partido finalice.');
+  Logger.log('=== FIN ===');
+}
+
+/**
  * Carga un rango de fechas personalizado.
  * @param {string} dateFrom - 'yyyy-MM-dd'
  * @param {string} dateTo   - 'yyyy-MM-dd'
