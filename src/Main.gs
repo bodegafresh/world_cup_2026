@@ -45,6 +45,9 @@ function loadWorldCupDay_(date) {
     // Actualizar ELO solo si el partido ya terminó (FT/AET/PEN)
     try { updateEloAfterMatch_(fixture); } catch (e) { console.warn(`ELO fixture ${fixtureId}:`, e.message); }
 
+    // Auto-liquidar apuestas pendientes de este fixture
+    try { autoSettleBetsForFixture_(fixture); } catch (e) { console.warn(`AutoSettle fixture ${fixtureId}:`, e.message); }
+
     Utilities.sleep(800);
   });
 
@@ -74,8 +77,9 @@ function cronTomorrowPreview() {
       Utilities.sleep(1000);
     });
 
-    try { runSmartAlertsForTomorrow_(); } catch (e) { console.warn('SmartAlerts:', e.message); }
-    try { refreshDashboard(); }           catch (e) { console.warn('Dashboard:', e.message); }
+    try { runSmartAlertsForTomorrow_();    } catch (e) { console.warn('SmartAlerts:', e.message); }
+    try { checkClassificationAlerts_();   } catch (e) { console.warn('ClassifAlert:', e.message); }
+    try { refreshDashboard(); }             catch (e) { console.warn('Dashboard:', e.message); }
   });
 }
 
@@ -131,6 +135,9 @@ function cronEvCalculation() {
     });
 
     Logger.log(`cronEvCalculation completado: ${fixtures.length} fixtures procesados.`);
+
+    // Actualizar simulación de grupos (usa datos de Clasificacion ya cargados)
+    try { runGroupSimulation(); } catch (e) { console.warn('GroupSim:', e.message); }
   });
 }
 

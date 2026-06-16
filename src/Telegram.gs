@@ -94,12 +94,57 @@ function splitTelegramMessage_(text, maxLen) {
 function cronMorningTelegramReport() {
   const date = todayChile_();
 
-  const partidos = getTodayFixturesForReport_(date);
+  const partidos  = getTodayFixturesForReport_(date);
   const aiReports = getTodayAiReports_();
 
   const message = buildMorningTelegramMessage_(date, partidos, aiReports);
-
   broadcastTelegramMessage_(message);
+
+  // Imagen de probabilidades por cada partido del día
+  if (partidos.length) {
+    Utilities.sleep(800);
+    partidos.forEach((p, i) => {
+      try {
+        const home = p.local     || '';
+        const away = p.visitante || '';
+        if (!home || !away) return;
+
+        // Preferir probs de AI Analysis; fallback a ELO
+        const aiRows = readAll_(CONFIG.SHEETS.AI_ANALYSIS).filter(r =>
+          String(r.local || r.home || '').toLowerCase().includes(home.toLowerCase().substring(0, 4)) ||
+          String(r.visitante || r.away || '').toLowerCase().includes(away.toLowerCase().substring(0, 4))
+        );
+
+        let probHome = 0.33, probDraw = 0.34, probAway = 0.33;
+        if (aiRows.length) {
+          const lat = aiRows[aiRows.length - 1];
+          if (lat.prob_local && lat.prob_empate && lat.prob_visitante) {
+            probHome = Number(lat.prob_local);
+            probDraw = Number(lat.prob_empate);
+            probAway = Number(lat.prob_visitante);
+          } else {
+            const eloP = getEloProbabilities_(home, away);
+            if (eloP) { probHome = eloP.home; probDraw = eloP.draw; probAway = eloP.away; }
+          }
+        } else {
+          const eloP = getEloProbabilities_(home, away);
+          if (eloP) { probHome = eloP.home; probDraw = eloP.draw; probAway = eloP.away; }
+        }
+
+        const chartUrl = buildProbabilityChartUrl_(home, away, probHome, probDraw, probAway);
+        const caption  = [
+          `📊 ${home} vs ${away}`,
+          `${home}: ${Math.round(probHome * 100)}% | Empate: ${Math.round(probDraw * 100)}% | ${away}: ${Math.round(probAway * 100)}%`,
+          p.hora_chile ? `🕒 ${p.hora_chile}` : ''
+        ].filter(Boolean).join('\n').substring(0, 1024);
+
+        broadcastTelegramPhoto_(chartUrl, caption);
+        if (i < partidos.length - 1) Utilities.sleep(600);
+      } catch (e_) {
+        console.warn(`cronMorningTelegramReport photo [${p.local}]:`, e_.message);
+      }
+    });
+  }
 
   appendRows_(CONFIG.SHEETS.MORNING_REPORTS, [[
     hash_(date + message),

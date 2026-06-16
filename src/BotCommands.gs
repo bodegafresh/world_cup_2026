@@ -117,6 +117,9 @@ function handleTelegramCommand_(text) {
     case '/calibrar':   return buildCalibrationText_();
     case '/en_vivo':    return buildLiveMatchesText_();
     case '/grafico':    return null; // manejado antes del switch (necesita chatId)
+    case '/portafolio': return buildPortfolioText_();
+    case '/upsets':     return buildUpsetRankingText_();
+    case '/grupos':     return buildGroupSimText_(args);
     case '/ayuda':      return buildHelpCommandResponse_();
     default:            return null;
   }
@@ -419,6 +422,11 @@ function buildHelpCommandResponse_() {
     '📸 <b>Gráficos e imágenes</b>',
     '/grafico Argentina — Probabilidades + ELO en imagen',
     '/en_vivo — Marcadores y estadísticas en tiempo real',
+    '',
+    '🧮 <b>Apuestas</b>',
+    '/portafolio — P&L realizado + posiciones abiertas',
+    '/upsets — Divergencias ELO vs cuotas de mercado',
+    '/grupos A — Probabilidad de clasificación por grupo',
     '',
     '/ayuda — Ver este menú'
   ].join('\n');

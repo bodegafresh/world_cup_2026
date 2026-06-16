@@ -45,7 +45,9 @@ const VALID_SHEETS = new Set([
   'EloRatings',
   'EvOpportunities',
   'BettingHistory',
-  'ModelCalibration'
+  'ModelCalibration',
+  // Hoja nueva — Fase 4: simulación de grupos
+  'SimulacionGrupos'
 ]);
 
 /**
@@ -142,6 +144,9 @@ const SHEET_HEADERS = {
   ],
   ModelCalibration: [
     'fecha','partidos_evaluados','accuracy','brier_score','interpretacion','updated_at'
+  ],
+  SimulacionGrupos: [
+    'grupo','equipo','prob_clasificar','partidos_restantes','updated_at'
   ]
 };
 

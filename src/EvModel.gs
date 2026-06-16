@@ -134,8 +134,68 @@ function saveAndAlertEvOpportunities_(fixture, opportunities) {
   // Alerta solo si hay EV+ con datos de mercado real
   const positivas = opportunities.filter(o => o.es_positivo && o.confianza !== 'BAJA');
   if (positivas.length) {
-    try { sendEvAlert_(fixture, positivas); } catch (e) { console.warn('EV alert:', e.message); }
+    try { sendEvAlert_(fixture, positivas);      } catch (e) { console.warn('EV alert:', e.message); }
+    try { autoRegisterBets_(fixture, positivas); } catch (e) { console.warn('AutoBet:', e.message); }
   }
+}
+
+// ─── F5.2 — Auto-registro de apuestas EV+ ────────────────────────────────────
+
+/**
+ * Registra automáticamente las oportunidades EV+ que superan el threshold.
+ * Solo actúa si Script Property AUTO_BET_BASE_STAKE está configurada (> 0).
+ * Máximo 2 bets por fixture para evitar sobreexposición.
+ * Flag 'AUTO' en notas para distinguirlas de apuestas manuales.
+ */
+function autoRegisterBets_(fixture, opportunities) {
+  const baseStake = Number(
+    PropertiesService.getScriptProperties().getProperty('AUTO_BET_BASE_STAKE') || '0'
+  );
+  if (baseStake <= 0) return; // auto-bets desactivadas si la property no está configurada
+
+  const threshold = Number(
+    PropertiesService.getScriptProperties().getProperty('AUTO_BET_EV_THRESHOLD') || '0.08'
+  );
+
+  const candidates = opportunities
+    .filter(o => o.ev > threshold && o.kelly > 0)
+    .sort((a, b) => b.ev - a.ev)
+    .slice(0, 2); // máx 2 por fixture
+
+  if (!candidates.length) return;
+
+  const fid = String(fixture.fixture.id);
+
+  // Cargar existentes para dedup
+  let existing;
+  try { existing = readAll_(CONFIG.SHEETS.BETTING_HISTORY); } catch (e) { existing = []; }
+
+  candidates.forEach(o => {
+    const already = existing.some(b =>
+      String(b.fixture_id) === fid &&
+      b.mercado    === o.mercado &&
+      b.seleccion  === o.seleccion &&
+      String(b.notas || '').includes('AUTO')
+    );
+    if (already) return;
+
+    const stake = Math.round(baseStake * o.kelly * 0.5 * 100) / 100;
+    if (stake < 0.01) return; // stake demasiado pequeño para registrar
+
+    try {
+      const betId = registerBet_(
+        fid,
+        o.mercado,
+        o.seleccion,
+        o.cuota,
+        stake,
+        `AUTO|ev=${o.ev.toFixed(4)}|threshold=${threshold}`
+      );
+      Logger.log(`Auto-bet: ${betId} — ${o.seleccion} @ ${o.cuota} EV=${(o.ev*100).toFixed(1)}%`);
+    } catch (e) {
+      console.warn(`autoRegisterBets_ ${o.seleccion}:`, e.message);
+    }
+  });
 }
 
 /**

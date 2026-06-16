@@ -32,7 +32,8 @@ const CONFIG = {
     ELO_RATINGS:      'EloRatings',
     EV_OPPORTUNITIES: 'EvOpportunities',
     BETTING_HISTORY:  'BettingHistory',
-    MODEL_CALIBRATION:'ModelCalibration'
+    MODEL_CALIBRATION:'ModelCalibration',
+    SIM_GRUPOS:       'SimulacionGrupos'
   },
 
   API_FOOTBALL: {

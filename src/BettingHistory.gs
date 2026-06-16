@@ -357,3 +357,231 @@ function buildCalibrationText_() {
 
   return msg;
 }
+
+// ─── F5.1 — Auto-liquidación de apuestas ─────────────────────────────────────
+
+/**
+ * Busca apuestas PENDIENTES para un fixture terminado y las liquida automáticamente.
+ * Llamar desde loadWorldCupDay_() después de updateEloAfterMatch_.
+ *
+ * @param {Object} fixture  Objeto fixture API-Football (fixture.fixture.id, fixture.goals)
+ */
+function autoSettleBetsForFixture_(fixture) {
+  const fid    = String(fixture.fixture.id || '');
+  const status = String((fixture.fixture.status || {}).short || '');
+  if (!fid || !['FT','AET','PEN'].includes(status)) return;
+
+  const goalsH = fixture.goals ? Number(fixture.goals.home ?? -1) : -1;
+  const goalsA = fixture.goals ? Number(fixture.goals.away ?? -1) : -1;
+  if (goalsH < 0 || goalsA < 0) return;
+
+  let rows;
+  try { rows = readAll_(CONFIG.SHEETS.BETTING_HISTORY); } catch (e) { return; }
+
+  const pending = rows.filter(r =>
+    String(r.fixture_id) === fid && String(r.resultado || '').toUpperCase() === 'PENDIENTE'
+  );
+  if (!pending.length) return;
+
+  pending.forEach(bet => {
+    try {
+      const resultado = resolveBetOutcome_(bet, goalsH, goalsA);
+      if (resultado) {
+        settleBet_(bet.bet_id, resultado);
+        Logger.log(`Auto-settled ${bet.bet_id}: ${resultado} (${goalsH}-${goalsA})`);
+      }
+    } catch (e) {
+      console.warn(`autoSettleBetsForFixture_ ${bet.bet_id}:`, e.message);
+    }
+  });
+}
+
+/**
+ * Determina si una apuesta se ganó o perdió según el resultado real.
+ * Soporta mercados: 1X2, Over/Under 2.5, BTTS (Ambos Anotan).
+ * Retorna null si el mercado no es reconocido (no auto-resolver).
+ *
+ * @param {Object} bet     Fila de BettingHistory
+ * @param {number} goalsH  Goles del equipo local
+ * @param {number} goalsA  Goles del equipo visitante
+ * @returns {'GANADA'|'PERDIDA'|null}
+ */
+function resolveBetOutcome_(bet, goalsH, goalsA) {
+  const mercado   = String(bet.mercado   || '').toUpperCase();
+  const seleccion = String(bet.seleccion || '').toLowerCase();
+  const totalGols = goalsH + goalsA;
+
+  // 1X2
+  if (mercado === '1X2' || mercado.includes('MATCH WINNER') || mercado.includes('RESULTADO')) {
+    const homeTeam = String(bet.equipo_local     || '').toLowerCase();
+    const awayTeam = String(bet.equipo_visitante || '').toLowerCase();
+
+    const isHomeWin = goalsH > goalsA;
+    const isAwayWin = goalsA > goalsH;
+    const isDraw    = goalsH === goalsA;
+
+    const selIsHome = homeTeam && seleccion.includes(homeTeam.substring(0, 4));
+    const selIsAway = awayTeam && seleccion.includes(awayTeam.substring(0, 4));
+    const selIsDraw = seleccion.includes('empate') || seleccion.includes('draw') || seleccion === 'x';
+
+    if (selIsDraw) return isDraw    ? 'GANADA' : 'PERDIDA';
+    if (selIsHome) return isHomeWin ? 'GANADA' : 'PERDIDA';
+    if (selIsAway) return isAwayWin ? 'GANADA' : 'PERDIDA';
+  }
+
+  // Over/Under 2.5
+  if (mercado.includes('OVER') || mercado.includes('UNDER') ||
+      mercado.includes('2.5')  || mercado.includes('GOLES')) {
+    const isOver = seleccion.includes('over')  || seleccion.includes('más')  || seleccion.includes('+2.5');
+    const isUnder= seleccion.includes('under') || seleccion.includes('menos')|| seleccion.includes('-2.5');
+    if (isOver)  return totalGols > 2.5 ? 'GANADA' : 'PERDIDA';
+    if (isUnder) return totalGols < 2.5 ? 'GANADA' : 'PERDIDA';
+  }
+
+  // BTTS — Ambos Anotan
+  if (mercado.includes('BTTS') || mercado.includes('AMBOS') || mercado.includes('BOTH')) {
+    const bothScored = goalsH > 0 && goalsA > 0;
+    const selYes = seleccion.includes('sí') || seleccion.includes('si') || seleccion.includes('yes');
+    const selNo  = seleccion.includes('no');
+    if (selYes) return bothScored  ? 'GANADA' : 'PERDIDA';
+    if (selNo)  return !bothScored ? 'GANADA' : 'PERDIDA';
+  }
+
+  return null; // mercado no reconocido — no auto-resolver
+}
+
+// ─── F5.3 — Reporte semanal de rendimiento ────────────────────────────────────
+
+/**
+ * Reporte semanal de rendimiento: ROI, Brier Score, picks de la semana.
+ * Configurar trigger semanal: domingo 20:00.
+ */
+function cronWeeklyPerformanceReport() {
+  const today   = new Date();
+  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const weekStr = Utilities.formatDate(weekAgo, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+
+  let bets;
+  try { bets = readAll_(CONFIG.SHEETS.BETTING_HISTORY); } catch (e) { bets = []; }
+
+  const weekBets = bets.filter(r => String(r.fecha || '') >= weekStr);
+  const settled  = weekBets.filter(r => r.resultado === 'GANADA' || r.resultado === 'PERDIDA');
+  const ganadas  = settled.filter(r => r.resultado === 'GANADA');
+
+  const plSemana   = settled.reduce((s, r) => s + Number(r.profit_loss || 0), 0);
+  const stakeSem   = settled.reduce((s, r) => s + Number(r.stake       || 0), 0);
+  const roiSemana  = stakeSem > 0 ? (plSemana / stakeSem * 100).toFixed(1) : '0.0';
+
+  const autoBets   = weekBets.filter(r => String(r.notas || '').includes('AUTO'));
+  const evProy     = settled.reduce((s, r) => s + Number(r.ev || 0), 0);
+  const evRealiz   = stakeSem > 0 ? plSemana / stakeSem : 0;
+
+  const roiEmoji = Number(roiSemana) > 0 ? '📈' : Number(roiSemana) < 0 ? '📉' : '➡️';
+  const plSign   = plSemana >= 0 ? '+' : '';
+
+  let msg = `📊 <b>Reporte Semanal — Mundial 2026</b>\n`;
+  msg    += `<i>${weekStr} → ${todayChile_()}</i>\n\n`;
+  msg    += `${roiEmoji} <b>ROI semana: ${roiSemana}%</b>  P&L: ${plSign}${plSemana.toFixed(2)}\n`;
+  msg    += `✅ ${ganadas.length}/${settled.length} apuestas cerradas\n`;
+  if (autoBets.length) msg += `🤖 Auto-bets semana: ${autoBets.length}\n`;
+
+  if (settled.length > 0) {
+    msg += `\n📐 EV proyectado (media): <code>${(evProy / settled.length * 100).toFixed(1)}%</code>\n`;
+    msg += `📐 EV realizado: <code>${(evRealiz * 100).toFixed(1)}%</code>\n`;
+  }
+
+  // Calibración del modelo
+  try {
+    const calib = calculateModelCalibration_();
+    if (calib && calib.brier_score) {
+      const biasEmoji = calib.interpretacion === 'Excelente' ? '🟢' : calib.interpretacion === 'Bueno' ? '🟡' : '🔴';
+      msg += `\n🎯 <b>Modelo esta semana</b>\n`;
+      msg += `  ${biasEmoji} Brier Score: <code>${calib.brier_score}</code> (${calib.interpretacion})\n`;
+      msg += `  Accuracy: <code>${calib.accuracy}</code>\n`;
+    }
+  } catch (e_) { /* omitir */ }
+
+  // Mejor pick de la semana
+  const topPick = [...ganadas].sort((a, b) =>
+    Number(b.profit_loss || 0) - Number(a.profit_loss || 0)
+  )[0];
+  if (topPick) {
+    msg += `\n⭐ <b>Mejor pick:</b> ${topPick.seleccion} @ ${topPick.cuota}`;
+    msg += ` → +${Number(topPick.profit_loss).toFixed(2)}\n`;
+  }
+
+  if (!settled.length) {
+    msg += '\n<i>Sin apuestas cerradas esta semana.</i>\n';
+  }
+
+  msg += `\n<i>⚠️ Análisis informativo. Apuesta responsablemente.</i>`;
+
+  broadcastTelegramMessage_(msg);
+}
+
+// ─── F5.4 — Comando /portafolio ───────────────────────────────────────────────
+
+/**
+ * Posición actual del portafolio de apuestas.
+ * Muestra: posiciones abiertas, P&L realizado, ROI, Brier Score.
+ */
+function buildPortfolioText_() {
+  let bets;
+  try { bets = readAll_(CONFIG.SHEETS.BETTING_HISTORY); } catch (e) { bets = []; }
+
+  const pendientes  = bets.filter(r => String(r.resultado || '').toUpperCase() === 'PENDIENTE');
+  const completadas = bets.filter(r => r.resultado === 'GANADA' || r.resultado === 'PERDIDA');
+  const ganadas     = completadas.filter(r => r.resultado === 'GANADA');
+
+  const plReal    = completadas.reduce((s, r) => s + Number(r.profit_loss || 0), 0);
+  const stakeReal = completadas.reduce((s, r) => s + Number(r.stake       || 0), 0);
+  const roiReal   = stakeReal > 0 ? (plReal / stakeReal * 100).toFixed(1) : '0.0';
+
+  const stakeEnRiesgo = pendientes.reduce((s, r) => s + Number(r.stake || 0), 0);
+  const plEsperado    = pendientes.reduce((s, r) => {
+    return s + (Number(r.stake || 0) * Number(r.ev || 0));
+  }, 0);
+
+  const roiEmoji = Number(roiReal) > 0 ? '📈' : Number(roiReal) < 0 ? '📉' : '➡️';
+  const plSign   = plReal >= 0 ? '+' : '';
+
+  let msg = `💼 <b>Portafolio de Apuestas — Mundial 2026</b>\n\n`;
+
+  msg += `${roiEmoji} <b>P&L realizado: ${plSign}${plReal.toFixed(2)}</b>`;
+  msg += `  ROI: <code>${roiReal}%</code>\n`;
+  msg += `📊 ${ganadas.length}/${completadas.length} ganadas (${completadas.length ? Math.round(ganadas.length / completadas.length * 100) : 0}%)\n\n`;
+
+  if (pendientes.length) {
+    msg += `⏳ <b>Posiciones abiertas (${pendientes.length})</b>\n`;
+    msg += `  Stake en riesgo: <code>${stakeEnRiesgo.toFixed(2)}</code>\n`;
+    const epSign = plEsperado >= 0 ? '+' : '';
+    msg += `  P&L esperado: <code>${epSign}${plEsperado.toFixed(2)}</code>\n\n`;
+
+    pendientes.slice(0, 6).forEach(r => {
+      const evStr  = r.ev     ? ` EV${(Number(r.ev) * 100).toFixed(0)}%` : '';
+      const autoTag= String(r.notas || '').includes('AUTO') ? ' 🤖' : '';
+      msg += `  • ${r.seleccion} @ ${r.cuota} (×${r.stake}${evStr}${autoTag})\n`;
+    });
+    if (pendientes.length > 6) msg += `  <i>...y ${pendientes.length - 6} más</i>\n`;
+  } else {
+    msg += `✅ Sin posiciones abiertas\n`;
+  }
+
+  // Calibración
+  try {
+    const calRows = readAll_(CONFIG.SHEETS.MODEL_CALIBRATION);
+    if (calRows.length) {
+      const last = calRows[calRows.length - 1];
+      const biasEmoji = last.interpretacion === 'Excelente' ? '🟢' : last.interpretacion === 'Bueno' ? '🟡' : '🔴';
+      msg += `\n🎯 Brier Score: ${biasEmoji} <code>${last.brier_score}</code> (${last.interpretacion})`;
+      if (last.partidos_evaluados) msg += ` — ${last.partidos_evaluados} partidos`;
+      msg += '\n';
+    }
+  } catch (e_) { /* omitir */ }
+
+  if (!bets.length) {
+    msg += '\n<i>No hay apuestas registradas aún.\nUsa registerBet_() para agregar la primera.</i>';
+  }
+
+  return msg.trim();
+}
