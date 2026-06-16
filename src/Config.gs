@@ -33,7 +33,9 @@ const CONFIG = {
     EV_OPPORTUNITIES: 'EvOpportunities',
     BETTING_HISTORY:  'BettingHistory',
     MODEL_CALIBRATION:'ModelCalibration',
-    SIM_GRUPOS:       'SimulacionGrupos'
+    SIM_GRUPOS:       'SimulacionGrupos',
+    ESPN_STATS:       'EspnStats',
+    FORMA_EQUIPOS:    'FormaEquipos'
   },
 
   API_FOOTBALL: {
@@ -53,7 +55,8 @@ const CONFIG = {
     SPORT_KEY: 'soccer_fifa_world_cup',
     REGIONS: 'us,uk,eu',
     MARKETS: 'h2h,totals,btts',
-    ODDS_FORMAT: 'decimal'
+    ODDS_FORMAT: 'decimal',
+    PINNACLE_BOOKMAKER: 'pinnacle'
   },
 
   OPENAI: {

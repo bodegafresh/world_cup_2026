@@ -28,7 +28,8 @@ function fetchOddsForMatch_(homeTeam, awayTeam) {
 
   if (!event) return null;
 
-  return parseOddsEvent_(event);
+  // Usa versión enriquecida que también extrae Pinnacle como línea de referencia
+  return parseOddsEventWithPinnacle_(event);
 }
 
 /**
@@ -254,6 +255,71 @@ function extractBttsOdds_(bookmakers) {
   return {
     yes: parseFloat((1 / avgYes / (total || 1)).toFixed(4)),
     no:  avgNo ? parseFloat((1 / avgNo / total).toFixed(4)) : null
+  };
+}
+
+/**
+ * Extrae las cuotas de Pinnacle (bookmaker de referencia, menor margen del mercado).
+ * Pinnacle es la fuente más precisa para estimar probabilidades "reales" implícitas.
+ * Si Pinnacle no está disponible en la respuesta, devuelve null.
+ *
+ * @param {Array} bookmakers  - array de bookmakers del evento (The Odds API)
+ * @returns {Object|null} { prob_local, prob_empate, prob_visitante, vig } o null
+ */
+function extractPinnacleOdds_(bookmakers) {
+  const pinnacle = (bookmakers || []).find(bk =>
+    String(bk.key || '').toLowerCase().includes('pinnacle') ||
+    String(bk.title || '').toLowerCase().includes('pinnacle')
+  );
+
+  if (!pinnacle) return null;
+
+  const h2h = (pinnacle.markets || []).find(m => m.key === 'h2h');
+  if (!h2h) return null;
+
+  const outcomes  = h2h.outcomes || [];
+  const drawEntry = outcomes.find(o => o.name === 'Draw');
+  const nonDraw   = outcomes.filter(o => o.name !== 'Draw');
+
+  if (nonDraw.length < 2) return null;
+
+  const homeOdd = Number(nonDraw[0].price);
+  const awayOdd = Number(nonDraw[1].price);
+  const drawOdd = drawEntry ? Number(drawEntry.price) : null;
+
+  const probs = vigRemoval_(homeOdd, drawOdd, awayOdd);
+  if (!probs) return null;
+
+  const vig = (1 / homeOdd + 1 / awayOdd + (drawOdd ? 1 / drawOdd : 0)) - 1;
+
+  return {
+    prob_local:     probs.home,
+    prob_empate:    probs.draw,
+    prob_visitante: probs.away,
+    odd_local:      homeOdd,
+    odd_empate:     drawOdd,
+    odd_visitante:  awayOdd,
+    vig:            parseFloat(vig.toFixed(4))
+  };
+}
+
+/**
+ * Versión enriquecida de parseOddsEvent_ que también extrae Pinnacle como línea de referencia.
+ * Si Pinnacle no está disponible, los campos pinnacle_* quedan en null.
+ */
+function parseOddsEventWithPinnacle_(event) {
+  const base = parseOddsEvent_(event);
+  if (!base) return null;
+
+  const pinnacle = extractPinnacleOdds_(event.bookmakers || []);
+
+  return {
+    ...base,
+    pinnacle_prob_local:     pinnacle ? pinnacle.prob_local     : null,
+    pinnacle_prob_empate:    pinnacle ? pinnacle.prob_empate    : null,
+    pinnacle_prob_visitante: pinnacle ? pinnacle.prob_visitante : null,
+    pinnacle_vig:            pinnacle ? pinnacle.vig            : null,
+    tiene_pinnacle:          !!pinnacle
   };
 }
 

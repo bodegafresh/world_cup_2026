@@ -52,6 +52,16 @@ function buildEnrichedPreviewInput_(fixture, weather, news, baseOdds) {
   base.standings_stakes  = buildStandingsStakes_(homeTeam, awayTeam);
   base.referee           = getRefereeContextForFixture_(fixture);
 
+  // ESPN: forma reciente (últimos 5 partidos por equipo)
+  try {
+    base.recent_form = {
+      home: formatTeamFormText_(homeTeam) || null,
+      away: formatTeamFormText_(awayTeam) || null
+    };
+  } catch (e) {
+    base.recent_form = null;
+  }
+
   return base;
 }
 

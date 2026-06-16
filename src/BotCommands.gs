@@ -587,13 +587,21 @@ function buildTeamStatsResponse_(team) {
   const posAvg = posesionCount ? Math.round(posesionTotal / posesionCount) : 'N/A';
   const tirosAvg = tirosCount ? Math.round(tirosTotal / tirosCount) : 'N/A';
 
-  return [
+  let msg = [
     `📊 <b>Estadísticas de ${team}</b>`,
     `PJ: ${pj}  PG: ${pg}  PE: ${pe}  PP: ${pp}`,
     `Goles: ${gf} favor / ${gc} contra`,
     `Posesión prom: ${posAvg}%`,
     `Tiros prom: ${tirosAvg}`
   ].join('\n');
+
+  // ESPN: forma reciente
+  try {
+    const formaText = formatTeamFormText_(team);
+    if (formaText) msg += `\n\n🔄 <b>Forma reciente</b>\n${formaText}`;
+  } catch (e) { /* ESPN no disponible */ }
+
+  return msg;
 }
 
 // ─── /jugador ──────────────────────────────────────────────────────────────────

@@ -47,7 +47,10 @@ const VALID_SHEETS = new Set([
   'BettingHistory',
   'ModelCalibration',
   // Hoja nueva — Fase 4: simulación de grupos
-  'SimulacionGrupos'
+  'SimulacionGrupos',
+  // Hojas nuevas — fuentes adicionales
+  'EspnStats',
+  'FormaEquipos'
 ]);
 
 /**
@@ -147,6 +150,33 @@ const SHEET_HEADERS = {
   ],
   SimulacionGrupos: [
     'grupo','equipo','prob_clasificar','partidos_restantes','updated_at'
+  ],
+  EspnStats: [
+    'fixture_id','espn_event_id','fecha','local','visitante',
+    'posesion_local','posesion_visitante',
+    'tiros_local','tiros_visitante',
+    'tiros_arco_local','tiros_arco_visitante',
+    'corners_local','corners_visitante',
+    'faltas_local','faltas_visitante',
+    'amarillas_local','amarillas_visitante',
+    'rojas_local','rojas_visitante',
+    'offsides_local','offsides_visitante',
+    'saves_local','saves_visitante',
+    'pases_local','pases_visitante',
+    'pases_precisos_local','pases_precisos_visitante',
+    'centros_local','centros_visitante',
+    'centros_precisos_local','centros_precisos_visitante',
+    'tackles_local','tackles_visitante',
+    'tackles_efectivos_local','tackles_efectivos_visitante',
+    'intercepciones_local','intercepciones_visitante',
+    'despejes_local','despejes_visitante',
+    'tiros_bloqueados_local','tiros_bloqueados_visitante',
+    'asistencia','updated_at'
+  ],
+  FormaEquipos: [
+    'equipo','espn_team_id',
+    'ultimos_5_resultados','ultimos_5_rivales','ultimos_5_marcadores',
+    'updated_at'
   ]
 };
 

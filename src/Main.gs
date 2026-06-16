@@ -48,6 +48,9 @@ function loadWorldCupDay_(date) {
     // Auto-liquidar apuestas pendientes de este fixture
     try { autoSettleBetsForFixture_(fixture); } catch (e) { console.warn(`AutoSettle fixture ${fixtureId}:`, e.message); }
 
+    // ESPN: stats avanzadas post-partido (pases, tackles, despejes, asistencia)
+    try { saveEspnDataForFixture_(fixture, date); } catch (e) { console.warn(`ESPN fixture ${fixtureId}:`, e.message); }
+
     Utilities.sleep(800);
   });
 
@@ -164,6 +167,7 @@ function cronTodayPreviewRefresh() {
  */
 function gatherFixtureContext_(fixture) {
   const fixtureId = fixture.fixture.id;
+  const date      = String(fixture.fixture.date || '').substring(0, 10);
 
   const weather = fetchWeatherForFixture_(fixture);
   if (weather.source !== 'cache') saveWeatherForFixture_(fixture, weather);
@@ -175,6 +179,10 @@ function gatherFixtureContext_(fixture) {
 
   try { loadHeadToHeadForFixture_(fixture); }
   catch (e) { console.warn(`H2H fixture ${fixtureId}: ${e.message}`); }
+
+  // ESPN: stats avanzadas + forma (no bloquea el pipeline si falla)
+  try { saveEspnDataForFixture_(fixture, date); }
+  catch (e) { console.warn(`ESPN fixture ${fixtureId}: ${e.message}`); }
 }
 
 /**
