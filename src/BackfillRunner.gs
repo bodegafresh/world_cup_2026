@@ -34,9 +34,10 @@
 // ─── Configuración del backfill ────────────────────────────────────────────────
 
 const BACKFILL_CONFIG = {
-  SLEEP_BETWEEN_FIXTURES_MS: 1500,
-  SLEEP_BETWEEN_DATES_MS:    2000,
-  API_FOOTBALL_DAILY_BUDGET: 90,
+  SLEEP_BETWEEN_FIXTURES_MS: 4000,
+  SLEEP_BETWEEN_DATES_MS:    3000,
+  SLEEP_BETWEEN_CALLS_MS:    2500,
+  API_FOOTBALL_DAILY_BUDGET: 85,
   ENABLE_PLAYER_STATS:       true,
   ENABLE_STANDINGS:          true,
   ENABLE_TEAMS_SQUADS:       false,
@@ -209,6 +210,7 @@ function backfillFixture_(fixture, date, quota) {
     } else {
       try {
         quota.use(1);
+        Utilities.sleep(BACKFILL_CONFIG.SLEEP_BETWEEN_CALLS_MS);
         eventsData = fetchEventsByFixture_(fixtureId);
         saveRawJson_(`raw/api-football/events/${date}`, `events-${fixtureId}.json`, eventsData);
         Logger.log(`    events: ${(eventsData.response || []).length} eventos`);
@@ -233,6 +235,7 @@ function backfillFixture_(fixture, date, quota) {
     if (!statsCheck.exists) {
       try {
         quota.use(1);
+        Utilities.sleep(BACKFILL_CONFIG.SLEEP_BETWEEN_CALLS_MS);
         const statsData = fetchStatisticsByFixture_(fixtureId);
         saveRawJson_(`raw/api-football/statistics/${fixtureId}`, `api-football-statistics-${fixtureId}.json`, statsData);
         Logger.log(`    statistics: guardado`);
@@ -269,6 +272,7 @@ function backfillFixture_(fixture, date, quota) {
     if (!psCheck.exists) {
       try {
         quota.use(1);
+        Utilities.sleep(BACKFILL_CONFIG.SLEEP_BETWEEN_CALLS_MS);
         loadPlayerStatsForFixture_(fixtureId, fixture);
         Logger.log(`    player-stats: guardado`);
       } catch (e) {

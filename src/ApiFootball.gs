@@ -1,3 +1,6 @@
+const API_FOOTBALL_MAX_RETRIES = 4;
+const API_FOOTBALL_RETRY_BASE_MS = 15000;
+
 function apiFootballGet_(path, params) {
   const query = Object.keys(params || {})
     .filter(k => params[k] !== undefined && params[k] !== null && params[k] !== '')
@@ -6,22 +9,29 @@ function apiFootballGet_(path, params) {
 
   const url = `${CONFIG.API_FOOTBALL.BASE_URL}${path}${query ? '?' + query : ''}`;
 
-  const response = UrlFetchApp.fetch(url, {
-    method: 'get',
-    headers: {
-      'x-apisports-key': getApiFootballKey_()
-    },
-    muteHttpExceptions: true
-  });
+  for (let attempt = 1; attempt <= API_FOOTBALL_MAX_RETRIES; attempt++) {
+    const response = UrlFetchApp.fetch(url, {
+      method: 'get',
+      headers: { 'x-apisports-key': getApiFootballKey_() },
+      muteHttpExceptions: true
+    });
 
-  const status = response.getResponseCode();
-  const text = response.getContentText();
+    const status = response.getResponseCode();
+    const text   = response.getContentText();
 
-  if (status < 200 || status >= 300) {
+    if (status === 200) return JSON.parse(text);
+
+    if (status === 429) {
+      const waitMs = API_FOOTBALL_RETRY_BASE_MS * attempt;
+      Logger.log(`API-Football 429 rate limit (intento ${attempt}/${API_FOOTBALL_MAX_RETRIES}). Esperando ${waitMs / 1000}s...`);
+      Utilities.sleep(waitMs);
+      continue;
+    }
+
     throw new Error(`API-Football error ${status}: ${text}`);
   }
 
-  return JSON.parse(text);
+  throw new Error(`API-Football: superado el límite de reintentos (${API_FOOTBALL_MAX_RETRIES}) por rate limit 429`);
 }
 
 function fetchFixturesByDate_(date) {
