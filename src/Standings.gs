@@ -126,6 +126,90 @@ function ensureStandingsSheet_(sheetName) {
 }
 
 /**
+ * Recalcula la tabla de posiciones directamente desde la hoja Partidos.
+ * No requiere ninguna API — usa los resultados FT ya guardados.
+ * Ejecutar manualmente después de loadFullWorldCupCalendarFromEspn().
+ */
+function recalcularTablaDesdePartidos() {
+  const rows = readAll_(CONFIG.SHEETS.PARTIDOS);
+
+  const FT_STATUS = ['FT', 'AET', 'PEN'];
+  const played = rows.filter(r =>
+    FT_STATUS.includes(String(r.status || '').toUpperCase()) &&
+    r.goles_local !== '' && r.goles_local !== null && r.goles_local !== undefined &&
+    r.goles_visitante !== '' && r.goles_visitante !== null && r.goles_visitante !== undefined
+  );
+
+  if (!played.length) {
+    Logger.log('No hay partidos terminados en la hoja Partidos.');
+    return;
+  }
+
+  // acumular stats por equipo
+  const stats = {}; // equipo → { grupo, pj, pg, pe, pp, gf, gc }
+  const ensure = (equipo, grupo) => {
+    if (!stats[equipo]) stats[equipo] = { grupo: grupo || '', pj:0, pg:0, pe:0, pp:0, gf:0, gc:0 };
+  };
+
+  played.forEach(r => {
+    const home  = teamNameToSpanish_(r.local     || r.home     || '');
+    const away  = teamNameToSpanish_(r.visitante || r.away     || '');
+    const grupo = r.grupo || '';
+    const gh    = parseInt(r.goles_local)     || 0;
+    const ga    = parseInt(r.goles_visitante) || 0;
+
+    ensure(home, grupo);
+    ensure(away, grupo);
+
+    stats[home].pj++; stats[away].pj++;
+    stats[home].gf += gh; stats[home].gc += ga;
+    stats[away].gf += ga; stats[away].gc += gh;
+
+    if (gh > ga)      { stats[home].pg++; stats[away].pp++; }
+    else if (gh < ga) { stats[away].pg++; stats[home].pp++; }
+    else              { stats[home].pe++; stats[away].pe++; }
+  });
+
+  // Construir filas con puntos y GD, ordenadas por grupo
+  const grupos = {};
+  Object.entries(stats).forEach(([equipo, s]) => {
+    const puntos = s.pg * 3 + s.pe;
+    const gd     = s.gf - s.gc;
+    const g      = s.grupo || 'Sin grupo';
+    if (!grupos[g]) grupos[g] = [];
+    grupos[g].push({ equipo, puntos, gd, ...s });
+  });
+
+  const groupRows = [];
+  Object.keys(grupos).sort().forEach(grupo => {
+    const equipos = grupos[grupo]
+      .sort((a, b) => b.puntos - a.puntos || b.gd - a.gd || b.gf - a.gf);
+    equipos.forEach((e, i) => {
+      groupRows.push({
+        grupo,
+        posicion:    i + 1,
+        equipo_id:   '',
+        equipo:      e.equipo,
+        pj:          e.pj,
+        pg:          e.pg,
+        pe:          e.pe,
+        pp:          e.pp,
+        gf:          e.gf,
+        gc:          e.gc,
+        gd:          e.gf - e.gc,
+        puntos:      e.puntos,
+        forma:       '',
+        descripcion: '',
+        updated_at:  nowChile_()
+      });
+    });
+  });
+
+  upsertStandings_(groupRows);
+  Logger.log(`✅ Tabla recalculada: ${groupRows.length} equipos en ${Object.keys(grupos).length} grupos.`);
+}
+
+/**
  * Devuelve los standings como texto formateado para Telegram.
  * Agrupa por grupo y muestra posición, equipo, puntos y GD.
  */
