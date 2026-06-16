@@ -1,4 +1,21 @@
 function fetchNewsForFixture_(fixture) {
+  // Chequear si ya hay noticias en la hoja para este fixture
+  const fixtureId = String(fixture.fixture.id || '');
+  if (fixtureId) {
+    const existing = readAll_(CONFIG.SHEETS.NOTICIAS).filter(r =>
+      String(r.fixture_id || '') === fixtureId
+    );
+    if (existing.length >= 3) {
+      return existing.map(r => ({
+        query:   r.query   || '',
+        title:   r.titulo  || r.title || '',
+        link:    r.link    || r.url   || '',
+        pubDate: r.fecha   || r.published_at || '',
+        source:  r.fuente  || r.source || 'cache'
+      }));
+    }
+  }
+
   const home = fixture.teams.home.name;
   const away = fixture.teams.away.name;
 

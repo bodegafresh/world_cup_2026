@@ -1,29 +1,94 @@
-function sendTelegramMessage_(message) {
-  const token = getTelegramBotToken_();
-  const chatId = getTelegramChatId_();
+// ─── Suscriptores multi-usuario ───────────────────────────────────────────────
 
-  const url = `${CONFIG.TELEGRAM.BASE_URL}${token}/sendMessage`;
+/**
+ * Registra un chat_id la primera vez que el usuario escribe al bot.
+ * Guarda en la hoja Suscriptores (chat_id único).
+ */
+function registerSubscriber_(chatId, username) {
+  const existing = getKnownChatIds_();
+  if (existing.includes(String(chatId))) return;
 
-  const payload = {
-    chat_id: chatId,
-    text: message,
-    parse_mode: 'HTML',
-    disable_web_page_preview: true
-  };
+  getOrCreateSheet_(CONFIG.SHEETS.SUSCRIPTORES, ['chat_id', 'username', 'registered_at']);
+  appendRows_(CONFIG.SHEETS.SUSCRIPTORES, [[String(chatId), username || '', nowChile_()]]);
+}
 
-  const response = UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  });
-
-  const status = response.getResponseCode();
-  if (status < 200 || status >= 300) {
-    throw new Error(`Telegram error ${status}: ${response.getContentText()}`);
+/**
+ * Devuelve todos los chat_ids registrados.
+ * Fallback: TELEGRAM_CHAT_ID en Script Properties si la hoja está vacía.
+ */
+function getKnownChatIds_() {
+  try {
+    const ss = SpreadsheetApp.openById(getSpreadsheetId_());
+    const sheet = ss.getSheetByName(CONFIG.SHEETS.SUSCRIPTORES);
+    if (sheet && sheet.getLastRow() > 1) {
+      const rows = readAll_(CONFIG.SHEETS.SUSCRIPTORES);
+      const ids = rows.map(r => String(r.chat_id)).filter(Boolean);
+      if (ids.length) return ids;
+    }
+  } catch (e) {
+    console.warn('getKnownChatIds_:', e.message);
   }
+  const fallback = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
+  return fallback ? [fallback] : [];
+}
 
-  return JSON.parse(response.getContentText());
+/**
+ * Envía un mensaje a TODOS los suscriptores.
+ * Usar en crons y reportes matutinos.
+ */
+function broadcastTelegramMessage_(message) {
+  const chatIds = getKnownChatIds_();
+  if (!chatIds.length) {
+    console.warn('broadcastTelegramMessage_: sin suscriptores registrados');
+    return;
+  }
+  chatIds.forEach(id => sendTelegramMessageToSingleChat_(id, message));
+}
+
+/**
+ * Envía un mensaje a un chat específico.
+ */
+function sendTelegramMessageToSingleChat_(chatId, message) {
+  const token = getTelegramBotToken_();
+  const url = `${CONFIG.TELEGRAM.BASE_URL}${token}/sendMessage`;
+  const chunks = splitTelegramMessage_(message, 4096);
+
+  chunks.forEach(chunk => {
+    UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        chat_id: chatId,
+        text: chunk,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+      }),
+      muteHttpExceptions: true
+    });
+  });
+}
+
+/**
+ * Alias para compatibilidad hacia atrás — envía broadcast.
+ */
+function sendTelegramMessage_(message) {
+  broadcastTelegramMessage_(message);
+}
+
+function splitTelegramMessage_(text, maxLen) {
+  if (text.length <= maxLen) return [text];
+  const chunks = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = start + maxLen;
+    if (end < text.length) {
+      const lastNewline = text.lastIndexOf('\n', end);
+      if (lastNewline > start) end = lastNewline;
+    }
+    chunks.push(text.substring(start, end));
+    start = end;
+  }
+  return chunks;
 }
 
 function cronMorningTelegramReport() {
@@ -34,7 +99,7 @@ function cronMorningTelegramReport() {
 
   const message = buildMorningTelegramMessage_(date, partidos, aiReports);
 
-  sendTelegramMessage_(message);
+  broadcastTelegramMessage_(message);
 
   appendRows_(CONFIG.SHEETS.MORNING_REPORTS, [[
     hash_(date + message),

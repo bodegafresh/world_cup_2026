@@ -18,6 +18,28 @@ const OPEN_METEO_BASE_URL = 'https://api.open-meteo.com/v1/forecast';
  * @returns {Object} weather con campos normalizados
  */
 function fetchWeatherForFixture_(fixture) {
+  // Chequear cache en EstadiosClima antes de llamar a Open-Meteo
+  const fixtureId = fixture.fixture.id;
+  if (fixtureId) {
+    const cached = readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).find(r =>
+      String(r.fixture_id) === String(fixtureId) &&
+      r.temperatura_c !== '' && r.temperatura_c !== null && r.temperatura_c !== undefined
+    );
+    if (cached) {
+      return {
+        fixture_id:       fixtureId,
+        stadium:          cached.estadio || cached.stadium || '',
+        city:             cached.ciudad || cached.city || '',
+        temperature_c:    cached.temperatura_c !== undefined ? cached.temperatura_c : cached.temperature_c,
+        humidity:         cached.humedad !== undefined ? cached.humedad : cached.humidity,
+        wind_kmh:         cached.viento_kmh !== undefined ? cached.viento_kmh : cached.wind_kmh,
+        rain_probability: cached.prob_lluvia !== undefined ? cached.prob_lluvia : cached.rain_probability,
+        condition:        cached.condicion || cached.condition || 'DESCONOCIDO',
+        source:           'cache'
+      };
+    }
+  }
+
   const venue = fixture.fixture.venue || {};
   const venueName = venue.name || '';
   const city = venue.city || '';

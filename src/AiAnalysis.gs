@@ -10,7 +10,43 @@ function buildAiPreviewInput_(fixture, weather, news, baseOdds) {
   return buildEnrichedPreviewInput_(fixture, weather, news, baseOdds);
 }
 
+function getAiAnalysisFromCache_(fixtureId) {
+  if (!fixtureId) return null;
+  const rows = readAll_(CONFIG.SHEETS.AI_ANALYSIS);
+  const row = rows.find(r => String(r.fixture_id) === String(fixtureId));
+  if (!row || !row.resumen_previa) return null;
+
+  const probs = parseSafeJson_(row.prob_local ? JSON.stringify({
+    home_win: row.prob_local, draw: row.prob_empate, away_win: row.prob_visitante,
+    over_2_5: row.over_2_5, btts_yes: row.btts
+  }) : '{}', {});
+
+  return {
+    probabilidades:        probs,
+    probabilidades_basicas: probs,
+    confianza_modelo:      row.confianza      || '',
+    resumen_previa:        row.resumen_previa || '',
+    mensaje_telegram:      row.mensaje_telegram || '',
+    factores_clave:        parseSafeJson_(row.factores_clave, []),
+    bajas_y_suspensiones:  parseSafeJson_(row.bajas_suspensiones || row.bajas_y_suspensiones, []),
+    jugadores_en_forma:    parseSafeJson_(row.jugadores_forma || row.jugadores_en_forma, []),
+    contexto_grupo:        parseSafeJson_(row.contexto_grupo, {}),
+    alertas:               parseSafeJson_(row.alertas, []),
+    _from_cache:           true
+  };
+}
+
 function analyzeFixtureWithAi_(input) {
+  // Retornar análisis guardado si existe — no volver a llamar a OpenAI
+  const fixtureId = input.fixture_id || (input.match && input.match.fixture_id);
+  if (fixtureId) {
+    const cached = getAiAnalysisFromCache_(fixtureId);
+    if (cached) {
+      Logger.log(`AnalisisIA: usando cache para fixture ${fixtureId}`);
+      return cached;
+    }
+  }
+
   const prompt = buildFixturePreviewPrompt_(input);
 
   const payload = {

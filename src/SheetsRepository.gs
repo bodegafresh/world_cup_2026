@@ -7,6 +7,21 @@ function getSheet_(name) {
   return sheet;
 }
 
+/**
+ * Retorna la hoja o la crea con los headers dados si no existe.
+ */
+function getOrCreateSheet_(name, headers) {
+  const ss = SpreadsheetApp.openById(getSpreadsheetId_());
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    if (headers && headers.length) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    }
+  }
+  return sheet;
+}
+
 function appendRows_(sheetName, rows) {
   if (!rows || rows.length === 0) return;
 

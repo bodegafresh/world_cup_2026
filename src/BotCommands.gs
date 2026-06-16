@@ -25,12 +25,17 @@ function doPost(e) {
     return ContentService.createTextOutput('ok');
   }
 
-  const chatId = update.message.chat.id;
-  const text = update.message.text.trim();
+  const msg = update.message;
+  const chatId = msg.chat.id;
+  const username = msg.from && msg.from.username ? msg.from.username : '';
+  const text = msg.text.trim();
+
+  // Registrar el chat_id para que los broadcasts lleguen a este usuario
+  try { registerSubscriber_(chatId, username); } catch (e_) { /* silencioso */ }
 
   const response = handleTelegramCommand_(text);
 
-  sendTelegramMessageToChat_(chatId, response);
+  sendTelegramMessageToSingleChat_(chatId, response);
 
   return ContentService.createTextOutput('ok');
 }
@@ -57,27 +62,6 @@ function handleTelegramCommand_(text) {
   }
 }
 
-function sendTelegramMessageToChat_(chatId, message) {
-  const token = getTelegramBotToken_();
-  const url = `${CONFIG.TELEGRAM.BASE_URL}${token}/sendMessage`;
-
-  const maxLen = 4096;
-  const chunks = splitMessage_(message, maxLen);
-
-  chunks.forEach(chunk => {
-    UrlFetchApp.fetch(url, {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify({
-        chat_id: chatId,
-        text: chunk,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true
-      }),
-      muteHttpExceptions: true
-    });
-  });
-}
 
 // ─── /ayuda ────────────────────────────────────────────────────────────────────
 

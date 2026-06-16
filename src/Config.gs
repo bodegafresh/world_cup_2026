@@ -24,7 +24,8 @@ const CONFIG = {
     PIPELINE_RUNS: 'PipelineRuns',
 
     CLASIFICACION: 'Clasificacion',
-    HISTORIAL_H2H: 'HistorialH2H'
+    HISTORIAL_H2H: 'HistorialH2H',
+    SUSCRIPTORES: 'Suscriptores'
   },
 
   API_FOOTBALL: {
