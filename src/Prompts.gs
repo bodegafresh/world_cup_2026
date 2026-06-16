@@ -42,9 +42,16 @@ JSON esperado:
       "descripcion": string
     }
   ],
+  "arbitro": {
+    "nombre": string | null,
+    "nacionalidad": string | null,
+    "tendencia": "ESTRICTO | NORMAL | PERMISIVO | sin_datos",
+    "amarillas_por_partido": number | null,
+    "impacto_esperado": string
+  },
   "factores_clave": [
     {
-      "categoria": "forma | clima | suspension | lesion | h2h | tactica | motivacion | mercado | grupo",
+      "categoria": "forma | clima | suspension | lesion | h2h | tactica | motivacion | mercado | grupo | arbitro",
       "descripcion": string,
       "impacto": "bajo | medio | alto",
       "favorece": "home | away | neutral | sin_datos"
@@ -90,6 +97,13 @@ INSTRUCCIONES ESPECIALES:
 
 6. mensaje_telegram: Máximo 250 caracteres. Debe incluir el resultado más relevante
    del análisis (quién tiene ventaja y por qué) en un tono informativo y directo.
+
+7. ÁRBITRO: Si se conoce el árbitro (referee.nombre), considera su tendencia para el campo "arbitro" del JSON:
+   - ESTRICTO (≥4.5 amarillas/partido): aumenta el riesgo de suspensión para jugadores con 1+ amarilla acumulada,
+     mayor probabilidad de penales, incluir en factores_clave con categoría "arbitro".
+   - PERMISIVO (≤2.5 amarillas/partido): baja el riesgo de tarjetas, menos penales probables.
+   - NORMAL: sin ajuste significativo.
+   Si no hay datos del torneo (stats_torneo null), usar solo la información del catálogo (nacionalidad, confederacion).
 
 Datos de entrada:
 

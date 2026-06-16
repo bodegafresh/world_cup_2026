@@ -50,6 +50,7 @@ function buildEnrichedPreviewInput_(fixture, weather, news, baseOdds) {
   base.player_form       = buildPlayerFormContext_(homeTeam, awayTeam);
   base.h2h_summary       = buildH2HSummaryForPreview_(fixtureId, homeTeam, awayTeam);
   base.standings_stakes  = buildStandingsStakes_(homeTeam, awayTeam);
+  base.referee           = getRefereeContextForFixture_(fixture);
 
   return base;
 }

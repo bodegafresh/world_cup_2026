@@ -98,6 +98,7 @@ function handleTelegramCommand_(text) {
     case '/noticias':   return buildNewsResponse_(args);
     case '/paises':     return buildPaisesCommandResponse_();
     case '/jugadores':  return buildJugadoresCommandResponse_(args);
+    case '/arbitros':   return buildArbitrosResumenText_();
     case '/ayuda':      return buildHelpCommandResponse_();
     default:            return null;
   }
@@ -292,6 +293,7 @@ function buildHelpCommandResponse_() {
     '/h2h España vs Francia — Historial cara a cara',
     '/prediccion Argentina — Predicción IA del próximo partido',
     '/noticias Brasil — Últimas noticias del equipo',
+    '/arbitros — Árbitros del torneo con estadísticas',
     '/ayuda — Ver este menú'
   ].join('\n');
 }

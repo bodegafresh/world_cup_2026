@@ -18,8 +18,10 @@ function loadWorldCupDay_(date) {
 
     const eventsData = fetchEventsByFixture_(fixtureId);
     const eventsRawUrl = saveRawJson_(`events/${date}`, `events-${fixtureId}.json`, eventsData);
-    saveEvents_(fixtureId, eventsData.response || [], eventsRawUrl);
-    savePlayerSummaryFromEvents_(fixtureId, fixture, eventsData.response || []);
+    const eventsArr = eventsData.response || [];
+    saveEvents_(fixtureId, eventsArr, eventsRawUrl);
+    savePlayerSummaryFromEvents_(fixtureId, fixture, eventsArr);
+    try { saveRefereeForFixture_(fixture, eventsArr); } catch (e) { console.warn('Referee:', e.message); }
 
     try {
       const statsData = fetchStatisticsByFixture_(fixtureId);
