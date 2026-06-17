@@ -68,6 +68,10 @@ function shouldProcessUpdate_(updateId) {
 
 // Telegram verifica el endpoint con GET antes de aceptar el webhook
 function doGet(e) {
+  // Si hay parámetro ?tab= → API del dashboard web
+  if (e && e.parameter && e.parameter.tab) {
+    return routeWebRequest_(e);
+  }
   return ContentService.createTextOutput('ok').setMimeType(ContentService.MimeType.TEXT);
 }
 

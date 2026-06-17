@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mundial FIFA 2026 — Dashboard</title>
+  <meta name="description" content="Predicciones, probabilidades y estadísticas del Mundial FIFA 2026">
+  <meta property="og:title"       content="Mundial FIFA 2026 — Dashboard">
+  <meta property="og:description" content="Predicciones Poisson, tabla de posiciones, EV y simulación de grupos">
+  <meta property="og:type"        content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ─── Header ──────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <span id="torneo-emoji">🏆</span>
+      <span id="torneo-nombre">Mundial FIFA 2026</span>
+    </div>
+
+    <nav>
+      <a href="#" data-section="hoy"         class="active">Hoy</a>
+      <a href="#" data-section="tabla">Posiciones</a>
+      <a href="#" data-section="ev">EV+</a>
+      <a href="#" data-section="elo">Ranking ELO</a>
+      <a href="#" data-section="simulacion">Clasificación</a>
+      <a href="#" data-section="rendimiento">Modelo</a>
+    </nav>
+
+    <div class="header-right">
+      <span id="live-badge" class="live-badge" style="display:none">En vivo</span>
+    </div>
+  </div>
+</header>
+
+<!-- ─── Main ─────────────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Banner: configuración pendiente -->
+  <div id="config-banner" class="config-banner" style="display:none">
+    <h2>⚙️ Configuración requerida</h2>
+    <p>Edita <strong>web/js/config.js</strong> con tu URL de Apps Script y el ID de tu Google Sheet.</p>
+    <div>
+      <code>GAS_URL = 'https://script.google.com/macros/s/.../exec'</code><br>
+      <code>SPREADSHEET_ID = '1BxiMVs0...'</code>
+    </div>
+    <p style="margin-top:1rem;font-size:.8rem;color:var(--text3)">
+      Luego publica en GitHub Pages con el repositorio en modo público.
+    </p>
+  </div>
+
+  <!-- Contenido principal -->
+  <div id="app-content" style="display:none">
+
+    <!-- HOY -->
+    <div id="panel-hoy" class="section-panel">
+      <div id="section-hoy"></div>
+    </div>
+
+    <!-- TABLA DE POSICIONES -->
+    <div id="panel-tabla" class="section-panel" style="display:none">
+      <h2 class="section-title">📊 Tabla de posiciones</h2>
+      <div id="groups-tabs" class="groups-tabs"></div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div id="standings-content" style="padding:1rem"></div>
+      </div>
+    </div>
+
+    <!-- EV OPPORTUNITIES -->
+    <div id="panel-ev" class="section-panel" style="display:none">
+      <h2 class="section-title">💡 Oportunidades EV+</h2>
+      <p style="font-size:.82rem;color:var(--text2);margin-bottom:1rem">
+        Mercados donde el modelo Poisson detecta value vs cuotas de mercado (Pinnacle / The Odds API).
+        EV positivo = la cuota pagada es mayor a la probabilidad real.
+      </p>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div id="section-ev" style="padding:1rem"></div>
+      </div>
+    </div>
+
+    <!-- ELO -->
+    <div id="panel-elo" class="section-panel" style="display:none">
+      <h2 class="section-title">📈 Ranking ELO</h2>
+      <p style="font-size:.82rem;color:var(--text2);margin-bottom:1rem">
+        Rating dinámico actualizado después de cada partido. K-factor variable por ronda.
+        Dorado = líder · Verde = top 4 · Azul = top 8
+      </p>
+      <div class="card">
+        <div id="section-elo"></div>
+      </div>
+    </div>
+
+    <!-- SIMULACIÓN -->
+    <div id="panel-simulacion" class="section-panel" style="display:none">
+      <h2 class="section-title">🎲 Clasificación a octavos</h2>
+      <p style="font-size:.82rem;color:var(--text2);margin-bottom:1rem">
+        Probabilidad de cada equipo de clasificar, basada en 2000 simulaciones Monte Carlo
+        usando probabilidades ELO para los partidos restantes.
+      </p>
+      <div id="section-sim"></div>
+    </div>
+
+    <!-- RENDIMIENTO DEL MODELO -->
+    <div id="panel-rendimiento" class="section-panel" style="display:none">
+      <h2 class="section-title">🔬 Rendimiento del modelo</h2>
+      <p style="font-size:.82rem;color:var(--text2);margin-bottom:1rem">
+        Métricas de calibración y performance histórico de las predicciones.
+      </p>
+      <div id="section-perf"></div>
+
+      <div style="margin-top:2rem">
+        <h3 class="section-title">ℹ️ Metodología</h3>
+        <div class="card" style="font-size:.82rem;color:var(--text2);line-height:1.8">
+          <p><strong style="color:var(--text)">Modelo Poisson Bivariado + Dixon-Coles</strong><br>
+          P(i,j) = Poisson(i,λh) × Poisson(j,λa) × τ(i,j). El parámetro τ corrige la infra-representación
+          de resultados bajos (0-0, 1-0, 0-1, 1-1) con ρ = −0.13.</p>
+          <p style="margin-top:.75rem"><strong style="color:var(--text)">ELO-Poisson blend</strong><br>
+          Cuando un equipo tiene menos de 3 partidos en el torneo, se mezcla con rating ELO
+          (40% peso ELO, 0% con 3+ partidos). Evita el cold-start problem.</p>
+          <p style="margin-top:.75rem"><strong style="color:var(--text)">Expected Value</strong><br>
+          EV = (prob_modelo × cuota) − 1. La probabilidad del modelo es independiente de las cuotas
+          del mercado, lo que hace el EV real y no circular.</p>
+          <p style="margin-top:.75rem"><strong style="color:var(--text)">Fuentes de datos</strong><br>
+          ESPN API (gratis) · SofaScore (xG) · The Odds API (cuotas Pinnacle) · OpenAI gpt-4.1-mini (análisis)</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /app-content -->
+
+</main>
+
+<footer>
+  <p>
+    <strong style="color:var(--text2)">Mundial FIFA 2026 Dashboard</strong> ·
+    Datos actualizados automáticamente cada 5 min ·
+    Modelo Poisson + ELO · Cuotas: The Odds API
+  </p>
+  <p style="margin-top:.3rem">
+    Proyecto open-source ·
+    <a href="https://github.com" target="_blank">GitHub</a>
+  </p>
+</footer>
+
+<script src="js/config.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
