@@ -475,30 +475,52 @@ function getWebLive_() {
     liveStatuses.includes(String(r.status || '').toUpperCase())
   );
 
-  const eventos = readAll_(CONFIG.SHEETS.EVENTOS_LIVE);
+  const eventos   = readAll_(CONFIG.SHEETS.EVENTOS_LIVE);
+  const espnStats = readAll_(CONFIG.SHEETS.ESPN_STATS);
+
+  // Mapa fixture_id → clima
+  const climaMap = {};
+  try {
+    readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).forEach(r => {
+      const fid = String(r.fixture_id || r.match_id || '');
+      if (fid && fid !== 'undefined') climaMap[fid] = {
+        temperatura: r.temperatura_c  || null,
+        humedad:     r.humedad        || null,
+        condicion:   r.condicion      || '',
+        viento:      r.viento_kmh     || null
+      };
+    });
+  } catch (e_) {}
 
   return liveMatches.map(m => {
-    const fid = String(m.fixture_id_af || m.fixture_id_fd || m.espn_id || '');
+    const fid      = String(m.fixture_id_af || m.match_id || m.espn_id || '');
     const matchKey = m.match_key || '';
 
     const evs = eventos
-      .filter(e => String(e.fixture_id || '') === fid || (fid === '' && String(e.fixture_id || '').includes(matchKey)))
+      .filter(e => String(e.fixture_id || '') === fid)
       .sort((a, b) => Number(a.minuto || 0) - Number(b.minuto || 0))
       .map(e => ({
-        minuto:   Number(e.minuto || 0),
-        extra:    Number(e.minuto_extra || 0),
-        tipo:     e.tipo     || '',
-        detalle:  e.detalle  || '',
-        equipo:   teamNameToSpanish_(e.equipo   || ''),
-        jugador:  e.jugador  || '',
+        minuto:    Number(e.minuto || 0),
+        extra:     Number(e.minuto_extra || 0),
+        tipo:      e.tipo     || '',
+        equipo:    teamNameToSpanish_(e.equipo || ''),
+        jugador:   e.jugador  || '',
         asistente: e.asistente || ''
       }));
 
-    let statsRow = null;
+    const statsRow = espnStats.find(s => String(s.fixture_id || '') === fid) || null;
+
+    // Hora local en el estadio
+    let hora_local = '';
     try {
-      const espnStats = readAll_(CONFIG.SHEETS.ESPN_STATS);
-      statsRow = espnStats.find(s => String(s.fixture_id || '') === fid) || null;
-    } catch (e_) {}
+      const horaChile = formatHoraChile_(m.hora_chile);
+      const tz = m.timezone_estadio || '';
+      if (tz && horaChile) {
+        const today = todayChile_();
+        const utcMs = new Date(`${today}T${horaChile}:00`).getTime() + 4 * 3600000;
+        hora_local = Utilities.formatDate(new Date(utcMs), tz, 'HH:mm');
+      }
+    } catch(e_) {}
 
     return {
       match_key:       matchKey,
@@ -506,24 +528,28 @@ function getWebLive_() {
       visitante:       teamNameToSpanish_(m.visitante || ''),
       goles_local:     m.goles_local     ?? null,
       goles_visitante: m.goles_visitante ?? null,
-      status:          m.status || '',
+      status:          m.status  || '',
+      minuto:          m.minuto  || '',
       estadio:         m.estadio || '',
+      ciudad:          m.ciudad  || '',
+      hora_local:      hora_local,
       grupo:           m.grupo   || '',
       ronda:           m.ronda   || '',
+      clima:           climaMap[fid] || null,
       eventos:         evs,
       stats: statsRow ? {
-        posesion_local:    Number(statsRow.posesion_local    || 0),
-        posesion_visitante:Number(statsRow.posesion_visitante|| 0),
-        tiros_local:       Number(statsRow.tiros_local       || 0),
-        tiros_visitante:   Number(statsRow.tiros_visitante   || 0),
-        tiros_arco_local:  Number(statsRow.tiros_arco_local  || 0),
+        posesion_local:       Number(statsRow.posesion_local     || 0),
+        posesion_visitante:   Number(statsRow.posesion_visitante || 0),
+        tiros_local:          Number(statsRow.tiros_local        || 0),
+        tiros_visitante:      Number(statsRow.tiros_visitante    || 0),
+        tiros_arco_local:     Number(statsRow.tiros_arco_local   || 0),
         tiros_arco_visitante: Number(statsRow.tiros_arco_visitante || 0),
-        corners_local:     Number(statsRow.corners_local     || 0),
-        corners_visitante: Number(statsRow.corners_visitante || 0),
-        amarillas_local:   Number(statsRow.amarillas_local   || 0),
-        amarillas_visitante:Number(statsRow.amarillas_visitante||0),
-        rojas_local:       Number(statsRow.rojas_local       || 0),
-        rojas_visitante:   Number(statsRow.rojas_visitante   || 0)
+        corners_local:        Number(statsRow.corners_local      || 0),
+        corners_visitante:    Number(statsRow.corners_visitante  || 0),
+        amarillas_local:      Number(statsRow.amarillas_local    || 0),
+        amarillas_visitante:  Number(statsRow.amarillas_visitante|| 0),
+        rojas_local:          Number(statsRow.rojas_local        || 0),
+        rojas_visitante:      Number(statsRow.rojas_visitante    || 0)
       } : null
     };
   });
@@ -968,15 +994,32 @@ function getWebNoticias_() {
     }
   }
 
+  var today     = todayChile_();
+  var yesterday = yesterdayChile_();
+
   var noticias = dataRows.map(function(row) {
     var titulo = String(row[COL_TITULO] || '');
     if (!titulo || titulo.startsWith('http') || titulo.length < 10) return null;
+
+    // Parsear pubDate (RFC 2822: 'Wed, 17 Jun 2026 14:20:35 GMT')
+    var fechaIso = '';
+    try {
+      var pubRaw = row[COL_FECHA];
+      var d = (pubRaw instanceof Date) ? pubRaw : new Date(String(pubRaw || ''));
+      if (!isNaN(d.getTime())) {
+        fechaIso = Utilities.formatDate(d, 'America/Santiago', 'yyyy-MM-dd');
+      }
+    } catch(e_) {}
+
+    // Solo noticias de hoy o ayer
+    if (fechaIso && fechaIso < yesterday) return null;
+
     return {
       titulo: titulo,
       url:    String(row[COL_URL]    || ''),
       fuente: String(row[COL_FUENTE] || ''),
       equipo: COL_EQUIPO >= 0 ? teamNameToSpanish_(String(row[COL_EQUIPO] || '')) : '',
-      fecha:  normalizeFecha_(row[COL_FECHA]) || String(row[COL_FECHA] || '').substring(0, 10)
+      fecha:  fechaIso
     };
   }).filter(function(n) { return n && n.titulo; });
 
@@ -1064,43 +1107,63 @@ function getWebSquad_(e) {
 // ─── Tab: stats ──────────────────────────────────────────────────────────────
 
 function getWebStats_() {
-  // Leer EspnStats y Partidos
+  // EspnStats tiene columnas local/visitante (no equipo) y datos por lado del partido
   var espnStats  = readAll_(CONFIG.SHEETS.ESPN_STATS);
   var partidos   = readAll_(CONFIG.SHEETS.PARTIDOS);
 
-  // Agregar stats ESPN por equipo
+  function ensureStat(map, eq) {
+    if (!map[eq]) map[eq] = { equipo:eq, posesion_sum:0, posesion_n:0,
+      tiros:0, tiros_arco:0, corners:0, faltas:0, amarillas:0, rojas:0 };
+  }
+
   var statsMap = {};
+  // Deduplicar EspnStats por fixture_id (puede haber duplicados del mismo partido)
+  var espnDedup = {};
   espnStats.forEach(function(r) {
-    var equipo = teamNameToSpanish_(r.equipo || '');
-    if (!equipo) return;
-    if (!statsMap[equipo]) {
-      statsMap[equipo] = {
-        equipo:     equipo,
-        posesion_sum:  0,
-        posesion_n:    0,
-        tiros:         0,
-        tiros_arco:    0,
-        corners:       0,
-        faltas:        0,
-        amarillas:     0,
-        rojas:         0
-      };
-    }
-    var s = statsMap[equipo];
-    var pos = parseFloat(String(r.posesion || '0').replace('%',''));
-    if (!isNaN(pos) && pos > 0) { s.posesion_sum += pos; s.posesion_n += 1; }
-    s.tiros      += Number(r.tiros      || 0);
-    s.tiros_arco += Number(r.tiros_al_arco || r.tiros_arco || 0);
-    s.corners    += Number(r.corners    || 0);
-    s.faltas     += Number(r.faltas     || 0);
-    s.amarillas  += Number(r.amarillas  || 0);
-    s.rojas      += Number(r.rojas      || 0);
+    var fid = String(r.fixture_id || '');
+    if (!fid) return;
+    if (!espnDedup[fid]) espnDedup[fid] = r;
   });
 
-  // Agregar W/D/L y GF/GA desde Partidos
+  Object.values(espnDedup).forEach(function(r) {
+    var lEq = teamNameToSpanish_(r.local     || '');
+    var vEq = teamNameToSpanish_(r.visitante || '');
+    if (!lEq && !vEq) return;
+
+    if (lEq) {
+      ensureStat(statsMap, lEq);
+      var posL = parseFloat(String(r.posesion_local || '0').replace('%',''));
+      if (!isNaN(posL) && posL > 0) { statsMap[lEq].posesion_sum += posL; statsMap[lEq].posesion_n += 1; }
+      statsMap[lEq].tiros      += Number(r.tiros_local      || 0);
+      statsMap[lEq].tiros_arco += Number(r.tiros_arco_local || 0);
+      statsMap[lEq].corners    += Number(r.corners_local    || 0);
+      statsMap[lEq].faltas     += Number(r.faltas_local     || 0);
+      statsMap[lEq].amarillas  += Number(r.amarillas_local  || 0);
+      statsMap[lEq].rojas      += Number(r.rojas_local      || 0);
+    }
+    if (vEq) {
+      ensureStat(statsMap, vEq);
+      var posV = parseFloat(String(r.posesion_visitante || '0').replace('%',''));
+      if (!isNaN(posV) && posV > 0) { statsMap[vEq].posesion_sum += posV; statsMap[vEq].posesion_n += 1; }
+      statsMap[vEq].tiros      += Number(r.tiros_visitante      || 0);
+      statsMap[vEq].tiros_arco += Number(r.tiros_arco_visitante || 0);
+      statsMap[vEq].corners    += Number(r.corners_visitante    || 0);
+      statsMap[vEq].faltas     += Number(r.faltas_visitante     || 0);
+      statsMap[vEq].amarillas  += Number(r.amarillas_visitante  || 0);
+      statsMap[vEq].rojas      += Number(r.rojas_visitante      || 0);
+    }
+  });
+
+  // Agregar W/D/L y GF/GA desde Partidos (deduplicar por match_id/fixture_id)
   var wdlMap = {};
   var FINAL_STATUS = ['FT', 'AET', 'PEN'];
+  var partidosDedup = {};
   partidos.forEach(function(r) {
+    var fid = String(r.match_id || r.fixture_id_api_football || r.match_key || '');
+    if (!fid) return;
+    if (!partidosDedup[fid]) partidosDedup[fid] = r;
+  });
+  Object.values(partidosDedup).forEach(function(r) {
     var status = String(r.status || '').toUpperCase();
     if (!FINAL_STATUS.includes(status)) return;
     var gl = Number(r.goles_local     || 0);
