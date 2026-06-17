@@ -47,9 +47,14 @@ async function handleApi(request, url, env) {
     return corsResponse(JSON.stringify({ ok: false, error: 'Unauthorized' }), 401);
   }
 
-  // Reenviar al GAS Web App con todos los parámetros
+  // Reenviar al GAS Web App con TODOS los parámetros (tab, key, equipo, match_key, etc.)
+  const forwardParams = new URLSearchParams();
+  for (const [k, v] of url.searchParams.entries()) {
+    if (k !== 'key') forwardParams.set(k, v); // key ya fue validada, la reenviamos igual para GAS
+  }
+  forwardParams.set('key', key);
   const tab      = url.searchParams.get('tab') || 'dashboard';
-  const targetUrl = `${gasUrl}?tab=${encodeURIComponent(tab)}&key=${encodeURIComponent(key)}`;
+  const targetUrl = `${gasUrl}?${forwardParams.toString()}`;
 
   try {
     // fetch con redirect:follow resuelve el 302 de GAS server-side (sin CORS)

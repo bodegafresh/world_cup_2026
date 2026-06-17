@@ -338,6 +338,23 @@ function getWebHoy_() {
   const date     = todayChile_();
   const partidos = getTodayFixturesForReport_(date);
 
+  // Mapa fixture_id → clima desde EstadiosClima
+  const climaMap = {};
+  try {
+    readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).forEach(r => {
+      const fid = String(r.fixture_id || r.match_id || '');
+      if (fid && fid !== 'undefined') {
+        climaMap[fid] = {
+          temperatura: r.temperatura_c  || r.temperatura || null,
+          humedad:     r.humedad        || null,
+          condicion:   r.condicion      || '',
+          viento:      r.viento_kmh     || null,
+          prob_lluvia: r.prob_lluvia    || null
+        };
+      }
+    });
+  } catch(e_) {}
+
   const FINAL_STATUS = ['FT','AET','PEN'];
   const LIVE_STATUS  = ['1H','2H','HT','ET','P','BT','INT','LIVE'];
 
@@ -406,20 +423,40 @@ function getWebHoy_() {
   const proximos   = lista.filter(p => !FINAL_STATUS.includes(p.status) && !LIVE_STATUS.includes(p.status));
 
   // Normalizar nombres a español para la web
-  const norm = p => ({
-    local:           teamNameToSpanish_(p.local),
-    visitante:       teamNameToSpanish_(p.visitante),
-    goles_local:     p.goles_local     !== undefined && p.goles_local     !== '' ? p.goles_local     : null,
-    goles_visitante: p.goles_visitante !== undefined && p.goles_visitante !== '' ? p.goles_visitante : null,
-    status:          p.status  || 'NS',
-    minuto:          p.minuto  || '',
-    hora_chile:      formatHoraChile_(p.hora_chile),
-    grupo:           p.grupo   || '',
-    ronda:           p.ronda   || '',
-    estadio:         p.estadio || '',
-    ciudad:          p.ciudad  || '',
-    match_key:       p.match_key || ''
-  });
+  const norm = p => {
+    // Hora local en el estadio (si tiene timezone)
+    let hora_local = '';
+    try {
+      const horaChile = formatHoraChile_(p.hora_chile);
+      const tz = p.timezone_estadio || '';
+      if (tz && horaChile) {
+        const today = todayChile_();
+        const utcMs = new Date(`${today}T${horaChile}:00`).getTime() + 4 * 3600000; // Chile UTC-4 → UTC
+        hora_local = Utilities.formatDate(new Date(utcMs), tz, 'HH:mm');
+      }
+    } catch(e_) {}
+
+    // Clima del partido
+    const fid    = String(p.fixture_id || p.match_id || '');
+    const clima  = climaMap[fid] || null;
+
+    return {
+      local:           teamNameToSpanish_(p.local),
+      visitante:       teamNameToSpanish_(p.visitante),
+      goles_local:     p.goles_local     !== undefined && p.goles_local     !== '' ? p.goles_local     : null,
+      goles_visitante: p.goles_visitante !== undefined && p.goles_visitante !== '' ? p.goles_visitante : null,
+      status:          p.status  || 'NS',
+      minuto:          p.minuto  || '',
+      hora_chile:      formatHoraChile_(p.hora_chile),
+      hora_local:      hora_local,
+      grupo:           p.grupo   || '',
+      ronda:           p.ronda   || '',
+      estadio:         p.estadio || '',
+      ciudad:          p.ciudad  || '',
+      match_key:       p.match_key || '',
+      clima:           clima
+    };
+  };
 
   return {
     fecha:      date,
@@ -667,16 +704,20 @@ function getWebTeams_() {
 // ─── Tab: players ────────────────────────────────────────────────────────────
 
 function getWebPlayers_() {
-  // Mapa jugador_id → foto + posicion desde hoja Jugadores
-  const fotoMap = {};
+  // Mapa jugador_id + nombre_normalizado → foto + posicion desde hoja Jugadores
+  const fotoByPid  = {};
+  const fotoByName = {};
+  const normName   = s => String(s || '').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+    .replace(/[^a-z0-9]/g,'');
   try {
     readAll_(CONFIG.SHEETS.JUGADORES).forEach(r => {
-      const pid = String(r.player_id_api_football || r.jugador_id || '');
-      if (pid) fotoMap[pid] = {
-        foto:     r.foto     || '',
-        posicion: r.posicion || '',
-        edad:     r.edad     || ''
-      };
+      const pid  = String(r.player_id_api_football || r.jugador_id || '');
+      const meta = { foto: r.foto || '', posicion: r.posicion || '', edad: r.edad || '' };
+      if (pid)        fotoByPid[pid]               = meta;
+      const nombre = normName(r.nombre || '');
+      if (nombre)     fotoByName[nombre]            = meta;
     });
   } catch(e_) {}
 
@@ -700,7 +741,7 @@ function getWebPlayers_() {
     if (!name) return;
     const pid = String(r.jugador_id || '');
     if (!byPlayer[name]) {
-      const meta = fotoMap[pid] || {};
+      const meta = fotoByPid[pid] || fotoByName[normName(name)] || {};
       byPlayer[name] = {
         jugador_id:  pid,
         jugador:     name,
@@ -732,7 +773,7 @@ function getWebPlayers_() {
       if (!name) return;
       const pid = String(r.player_id || '');
       if (!byPlayer[name]) {
-        const meta = fotoMap[pid] || {};
+        const meta = fotoByPid[pid] || fotoByName[normName(name)] || {};
         byPlayer[name] = {
           jugador_id:  pid,
           jugador:     name,
