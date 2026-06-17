@@ -1,0 +1,41 @@
+src/PoissonModel.gs
+  s_8d080e6df27905::t_8a55f3faf387d9 171-175
+  s_8d080e6df27905::t_fabb9f77822f58 26-27
+  s_8d080e6df27905::t_0764159db3a839 63-65,67-80,83-89
+src/LeagueManager.gs
+  s_8d080e6df27905::t_4b8c65c43aa2b5 1-265
+src/BotCommands.gs
+  s_8d080e6df27905::t_0ee7d7b05578d6 503
+  s_8d080e6df27905::t_7a4f3ab5ae7728 484-485
+  s_8d080e6df27905::t_f971b51ae4c215 143
+  s_8d080e6df27905::t_8a939cf890ddcf 148
+src/Config.gs
+  s_8d080e6df27905::t_3d50dd5e63b45c 51-67
+  s_8d080e6df27905::t_4cfc0bc888899f 40
+  s_8d080e6df27905::t_f2f5d06f555fc2 95-115
+  s_8d080e6df27905::t_69c04f99880603 41-42
+src/BetfairApi.gs
+  s_8d080e6df27905::t_1d690e9cf9d946 1-1008
+src/GoalScorerModel.gs
+  s_8d080e6df27905::t_13da21a8a98368 1-631
+src/EloRating.gs
+  s_8d080e6df27905::t_7c31f093a2a5f9 120-149
+  s_8d080e6df27905::t_3185108cc17daf 99
+  s_8d080e6df27905::t_41a2bb4df0b569 212-215,218-219,227,229-237,256-258,265-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "ea60b00a79c0105ba2e886e8c8c667c5da247935",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
