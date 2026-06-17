@@ -313,9 +313,9 @@ function getWebPredictions_() {
         btts:       Number((mkts['btts_yes'] || 0) * 100).toFixed(1)
       } : null,
       elo: elo ? {
-        prob_home: Number(elo.home * 100).toFixed(1),
-        prob_draw: Number(elo.draw * 100).toFixed(1),
-        prob_away: Number(elo.away * 100).toFixed(1),
+        prob_home: Number((elo.home_win || elo.home || 0) * 100).toFixed(1),
+        prob_draw: Number((elo.draw     || 0)             * 100).toFixed(1),
+        prob_away: Number((elo.away_win || elo.away || 0) * 100).toFixed(1),
         elo_home:  Number(elo.elo_home || 0),
         elo_away:  Number(elo.elo_away || 0)
       } : null
