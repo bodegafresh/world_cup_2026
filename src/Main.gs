@@ -94,6 +94,8 @@ function cronDailySetup() {
 
     // 5. Modelo Poisson: recalibrar con partidos FT y precalcular todos los pendientes
     try { recalcularPoissonOdds(); } catch (e) { console.warn('Poisson:', e.message); }
+    try { recalcularCornersOdds(); } catch (e) { console.warn('Corners:', e.message); }
+    try { recalcularCardsOdds();   } catch (e) { console.warn('Cards:', e.message); }
 
     // 6. EV y simulación de grupos (Poisson ya disponible → EV usa modelo independiente)
     try { runGroupSimulation(); } catch (e) { console.warn('GroupSim:', e.message); }

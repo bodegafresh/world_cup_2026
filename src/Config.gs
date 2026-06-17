@@ -39,7 +39,9 @@ const CONFIG = {
     SOFA_STATS:       'SofaStats',
     POISSON_ODDS:     'PoissonOdds',
     BETFAIR_ODDS:     'BetfairOdds',
-    GOAL_SCORER_ODDS: 'GoalScorerOdds'
+    GOAL_SCORER_ODDS: 'GoalScorerOdds',
+    CORNERS_ODDS:     'CornersOdds',
+    CARDS_ODDS:       'CardsOdds'
   },
 
   API_FOOTBALL: {

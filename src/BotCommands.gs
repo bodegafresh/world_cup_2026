@@ -146,6 +146,8 @@ function handleTelegramCommand_(text) {
     case '/alertas':     return buildAlertasToggleText_(args, chatId);
     case '/eliminados':  return buildEliminadosText_();
     case '/liga':        return buildLeagueManagerText_(args);
+    case '/corners':     return buildCornersCommandText_(args);
+    case '/tarjetas':    return buildCardsCommandText_(args);
     case '/ayuda':       return buildHelpCommandResponse_();
     default:             return null;
   }
@@ -503,6 +505,8 @@ function buildHelpCommandResponse_() {
     '/liga — Ver y cambiar la liga activa (Premier, La Liga, Champions...)',
     '',
     '📈 <b>Modelo y apuestas</b>',
+    '/corners — Predicción de córners (O/U 9.5, por equipo)',
+    '/tarjetas — Predicción de tarjetas (O/U 4.5, roja sí/no)',
     '/ev — Apuestas con valor esperado positivo (EV+)',
     '/upsets — Divergencias ELO vs cuotas de mercado',
     '/elo — Ranking ELO de los 48 equipos',
