@@ -26,9 +26,14 @@
 const SOFA_BASE = 'https://api.sofascore.com/api/v1';
 const SOFA_CACHE_TTL = 4 * 60 * 60; // 4 horas en segundos
 
+// SofaScore bloquea requests desde Google Apps Script con HTTP 403.
+// Deshabilitado hasta que haya un proxy o método alternativo.
+const SOFASCORE_ENABLED = false;
+
 // ─── Fetch con cache ─────────────────────────────────────────────────────────
 
 function sofaGet_(path) {
+  if (!SOFASCORE_ENABLED) throw new Error('SofaScore deshabilitado (HTTP 403 desde GAS)');
   const cache    = CacheService.getScriptCache();
   const cacheKey = 'sofa_' + path.replace(/[^a-z0-9]/gi, '_').substring(0, 240);
   const cached   = cache.get(cacheKey);
@@ -480,6 +485,10 @@ function buildSofaTeamContext_(teamName, lastN) {
  * Respeta un sleep de 2s entre llamadas para no saturar SofaScore.
  */
 function backfillSofaStats() {
+  if (!SOFASCORE_ENABLED) {
+    Logger.log('backfillSofaStats: SofaScore deshabilitado (HTTP 403). Usa backfillEspnHistorical() para stats históricas via ESPN.');
+    return;
+  }
   const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
     .filter(r => String(r.status || '').toUpperCase() === 'FT');
 

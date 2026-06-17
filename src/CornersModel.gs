@@ -214,6 +214,7 @@ function predictCorners_(homeTeam, awayTeam, strengths) {
  * @returns {{ home: number, away: number } | null}
  */
 function _getSofaPossessionBoost_(home, away) {
+  if (!SOFASCORE_ENABLED) return null; // SofaScore deshabilitado — modelo usa solo ESPN
   try {
     const rows = readAll_(CONFIG.SHEETS.SOFA_STATS);
     if (!rows || rows.length === 0) return null;
