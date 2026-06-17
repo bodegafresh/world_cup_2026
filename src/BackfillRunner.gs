@@ -57,6 +57,179 @@ function backfillWorldCupOpeningWeek() {
 }
 
 /**
+ * Backfill histórico 100% ESPN — sin cuota de API-Football.
+ * Para cada partido FT del Mundial desde dateFrom hasta ayer:
+ *   1. Actualiza Partidos con scores y status correctos
+ *   2. Guarda EspnStats (posesión, tiros, pases, etc.)
+ *   3. Guarda Alineaciones (titulares + suplentes)
+ *   4. Guarda FormaEquipos
+ *
+ * Usar cuando API-Football no retorna fixtures (normal para Mundial 2026 en plan free).
+ * Ejecutar UNA VEZ manualmente desde Apps Script → Editor.
+ * Prerequisito: correr loadFullWorldCupCalendarFromEspn() antes para tener Partidos base.
+ */
+function backfillEspnHistorical() {
+  const dateFrom = '2026-06-12'; // primer día con partidos
+  const dateTo   = yesterdayChile_(); // solo partidos ya terminados
+  Logger.log(`=== BACKFILL ESPN HISTÓRICO: ${dateFrom} → ${dateTo} ===`);
+
+  // Generar rango de fechas
+  const dates = [];
+  const d = new Date(dateFrom);
+  const end = new Date(dateTo);
+  while (d <= end) {
+    dates.push(Utilities.formatDate(new Date(d), 'UTC', 'yyyy-MM-dd'));
+    d.setDate(d.getDate() + 1);
+  }
+
+  // Leer Partidos para hacer upsert de scores/status
+  const sheet   = getOrCreateSheet_(CONFIG.SHEETS.PARTIDOS, null);
+  const headers = getHeaders_(CONFIG.SHEETS.PARTIDOS);
+  const mkIdx   = headers.indexOf('match_key');
+  const existingValues = sheet.getDataRange().getValues();
+  const rowByKey = {};
+  existingValues.slice(1).forEach((row, i) => {
+    const key = String(row[mkIdx] || '');
+    if (key) rowByKey[key] = i + 2;
+  });
+
+  const normName = n => String(n || '')
+    .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/ /g, '');
+
+  const FT_STATUSES = ['FT','STATUS_FULL_TIME','STATUS_FINAL','final','full time','final/aet','final/pen'];
+  const STATUS_ESPN = {
+    'STATUS_FULL_TIME':'FT','STATUS_FINAL':'FT','STATUS_POSTPONED':'PST',
+    'STATUS_CANCELED':'CANC','final':'FT','full time':'FT',
+    'final/aet':'AET','final/pen':'PEN'
+  };
+
+  let processed = 0, skipped = 0, errors = 0;
+
+  dates.forEach(date => {
+    let events;
+    try { events = fetchEspnEventsByDate_(date); }
+    catch (e) { Logger.log(`⚠️ ESPN ${date}: ${e.message}`); return; }
+
+    const ftEvents = (events || []).filter(ev => {
+      const s = String(ev.espn_status || ev.status || '');
+      return FT_STATUSES.some(fs => s.toLowerCase().includes(fs.toLowerCase()) || s === fs);
+    });
+
+    if (!ftEvents.length) { Logger.log(`  ${date}: sin partidos FT`); return; }
+    Logger.log(`  ${date}: ${ftEvents.length} partido(s) FT`);
+
+    ftEvents.forEach(ev => {
+      const espnId   = String(ev.espn_id || '');
+      const fakeId   = `espn_${espnId}`; // ID sintético para hojas que requieren fixture_id
+
+      // 1. Actualizar Partidos con scores y status reales
+      try {
+        const kickoffDate = ev.hora_utc ? new Date(ev.hora_utc) : null;
+        const fechaChile  = kickoffDate
+          ? Utilities.formatDate(kickoffDate, CONFIG.TIMEZONE, 'yyyy-MM-dd') : date;
+        const matchKey = `${fechaChile}_${normName(ev.home_team)}_${normName(ev.away_team)}`;
+        const statusFinal = STATUS_ESPN[ev.espn_status] || 'FT';
+
+        if (rowByKey[matchKey]) {
+          const rowIdx = rowByKey[matchKey];
+          const colStatus    = headers.indexOf('status') + 1;
+          const colGolLocal  = headers.indexOf('goles_local') + 1;
+          const colGolVisit  = headers.indexOf('goles_visitante') + 1;
+          const colUpdated   = headers.indexOf('updated_at') + 1;
+          if (colStatus    > 0) sheet.getRange(rowIdx, colStatus,   1, 1).setValue(statusFinal);
+          if (colGolLocal  > 0) sheet.getRange(rowIdx, colGolLocal, 1, 1).setValue(ev.home_score !== undefined ? ev.home_score : '');
+          if (colGolVisit  > 0) sheet.getRange(rowIdx, colGolVisit, 1, 1).setValue(ev.away_score !== undefined ? ev.away_score : '');
+          if (colUpdated   > 0) sheet.getRange(rowIdx, colUpdated,  1, 1).setValue(nowChile_());
+        }
+      } catch(ep_) { Logger.log(`  ⚠️ Partidos update ${ev.home_team}: ${ep_.message}`); }
+
+      // 2. Fetch ESPN summary (stats + lineups + forma)
+      if (!espnId) { skipped++; return; }
+      try {
+        // Verificar si ya existe EspnStats para este evento
+        const existing = getEspnStatsForFixture_(fakeId);
+        if (existing) { Logger.log(`  skip ${ev.home_team} vs ${ev.away_team}: ya en EspnStats`); skipped++; return; }
+
+        const summary = fetchEspnSummary_(espnId);
+
+        // 3. Guardar EspnStats
+        _saveEspnStats_(fakeId, espnId, date, ev.home_team, ev.away_team, summary);
+
+        // 4. Guardar Alineaciones desde ESPN rosters
+        _saveEspnLineupsToSheet_(fakeId, espnId, ev.home_team, ev.away_team, summary);
+
+        // 5. Guardar FormaEquipos
+        _saveEspnForma_(summary);
+
+        processed++;
+        Logger.log(`  ✅ ${ev.home_team} vs ${ev.away_team} (${date})`);
+      } catch(es_) {
+        errors++;
+        Logger.log(`  ❌ ESPN summary ${espnId}: ${es_.message}`);
+      }
+
+      Utilities.sleep(500);
+    });
+
+    Utilities.sleep(300);
+  });
+
+  Logger.log(`\n=== FIN BACKFILL ESPN: ${processed} guardados, ${skipped} ya existían, ${errors} errores ===`);
+}
+
+/**
+ * Guarda lineups desde ESPN summary.rosters en la hoja Alineaciones.
+ * Usa fakeId (espn_{espnId}) como fixture_id para no necesitar API-Football.
+ */
+function _saveEspnLineupsToSheet_(fakeId, espnId, homeTeamEn, awayTeamEn, summary) {
+  const rosters = summary.rosters || [];
+  if (!rosters.length) return;
+
+  const alinSheet = getOrCreateSheet_(CONFIG.SHEETS.ALINEACIONES, null);
+  const alinHeaders = getHeaders_(CONFIG.SHEETS.ALINEACIONES);
+  const fidIdx = alinHeaders.indexOf('fixture_id');
+
+  // Borrar filas previas del mismo fakeId
+  if (fidIdx !== -1) {
+    const vals = alinSheet.getDataRange().getValues();
+    for (let i = vals.length - 1; i >= 1; i--) {
+      if (String(vals[i][fidIdx]) === fakeId) alinSheet.deleteRow(i + 1);
+    }
+  }
+
+  const rows = [];
+  rosters.forEach(entry => {
+    const side     = entry.homeAway;
+    const teamEn   = side === 'home' ? homeTeamEn : awayTeamEn;
+    const teamEs   = teamNameToSpanish_(teamEn);
+    const teamId   = String((entry.team || {}).id || '');
+
+    (entry.roster || []).forEach(p => {
+      const ath = p.athlete || {};
+      const pos = ((p.position || {}).abbreviation || '').toUpperCase();
+      const rowData = {};
+      rowData['fixture_id'] = fakeId;
+      rowData['equipo']     = teamEs;
+      rowData['equipo_id']  = teamId;
+      rowData['rol']        = p.starter ? 'titular' : 'suplente';
+      rowData['numero']     = ath.jersey || '';
+      rowData['jugador']    = ath.shortName || ath.displayName || '';
+      rowData['jugador_id'] = String(ath.id || '');
+      rowData['posicion']   = pos;
+      rowData['grid']       = '';
+      rowData['updated_at'] = nowChile_();
+      rows.push(alinHeaders.map(h => rowData[h] !== undefined ? rowData[h] : ''));
+    });
+  });
+
+  if (rows.length) {
+    alinSheet.getRange(alinSheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  }
+}
+
+/**
  * Carga el calendario completo del Mundial 2026 desde ESPN.
  * ESPN es gratuito, sin cuota y tiene todos los ~104 partidos.
  * Itera desde el 11 de junio hasta el 19 de julio (~39 llamadas).
