@@ -367,6 +367,79 @@ function buildStandingsText_() {
 }
 
 /**
+ * Elimina filas duplicadas de la hoja Partidos.
+ * Para cada par canónico de equipos + fecha, mantiene la fila con más datos
+ * (prioriza: tiene score > tiene status FT > tiene espn_id > más columnas rellenas).
+ * Ejecutar manualmente desde Apps Script editor.
+ */
+function limpiarDuplicadosPartidos() {
+  const sheet  = getSheet_(CONFIG.SHEETS.PARTIDOS);
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) { Logger.log('Hoja vacía.'); return; }
+
+  const headers = values[0];
+  const rows    = values.slice(1); // filas de datos (índice 0 = fila 2 en sheet)
+
+  const toObject = row => {
+    const o = {};
+    headers.forEach((h, i) => o[h] = row[i]);
+    return o;
+  };
+
+  // Agrupar por clave canónica
+  const groups = {};
+  rows.forEach((row, idx) => {
+    const r    = toObject(row);
+    const home = teamNameToSpanish_(r.local || r.home || '');
+    const away = teamNameToSpanish_(r.visitante || r.away || '');
+    if (!home || !away) return;
+    const fecha = normalizeFecha_(r.fecha) || String(r.fecha || '').substring(0, 10);
+    const key   = `${fecha}_${[home, away].sort().join('_')}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push({ idx, row, r }); // idx es 0-based sobre rows[]
+  });
+
+  // Determinar qué filas eliminar (las peores de cada grupo duplicado)
+  const rowsToDelete = new Set();
+  let dupes = 0;
+
+  Object.entries(groups).forEach(([key, entries]) => {
+    if (entries.length <= 1) return;
+    dupes++;
+
+    // Score = calidad de la fila (mayor = mejor)
+    const score = ({ r }) => {
+      let s = 0;
+      const status = String(r.status || '').toUpperCase();
+      if (['FT','AET','PEN'].includes(status)) s += 100;
+      if (r.goles_local !== '' && r.goles_local !== null && r.goles_local !== undefined) s += 50;
+      if (r.espn_id || r.espn_event_id) s += 20;
+      if (r.fixture_id_af) s += 10;
+      // contar columnas no vacías
+      s += Object.values(r).filter(v => v !== '' && v !== null && v !== undefined).length;
+      return s;
+    };
+
+    entries.sort((a, b) => score(b) - score(a)); // mejor primero
+    const best = entries[0];
+    Logger.log(`🔁 ${key} → mantener fila ${best.idx + 2}, eliminar ${entries.slice(1).map(e => e.idx + 2).join(', ')}`);
+    entries.slice(1).forEach(e => rowsToDelete.add(e.idx));
+  });
+
+  if (rowsToDelete.size === 0) {
+    Logger.log('✅ No hay duplicados que limpiar.');
+    return;
+  }
+
+  // Eliminar de abajo hacia arriba para no desplazar índices
+  Array.from(rowsToDelete).sort((a, b) => b - a).forEach(idx => {
+    sheet.deleteRow(idx + 2); // +1 por header, +1 porque idx es 0-based
+  });
+
+  Logger.log(`✅ Limpeza completa: ${dupes} grupos duplicados, ${rowsToDelete.size} filas eliminadas.`);
+}
+
+/**
  * Detecta y reporta partidos duplicados en la hoja Partidos.
  * Agrupa por par canónico de equipos + fecha y muestra los que tienen > 1 fila.
  * Útil para diagnosticar discrepancias de stats cuando ESPN y API-Football
