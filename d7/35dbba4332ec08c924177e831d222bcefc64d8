@@ -1,0 +1,28 @@
+src/BetfairApi.gs
+  s_8d080e6df27905::t_7a5501eef1bff4 439
+  s_8d080e6df27905::t_79eff2ac4aaf2d 537
+  s_8d080e6df27905::t_09e3529978983d 335
+  s_8d080e6df27905::t_c7dcddac104ea4 50-54
+src/Config.gs
+  s_8d080e6df27905::t_f022822290343a 80
+src/CardsModel.gs
+  s_8d080e6df27905::t_f92c802a335c98 547,553-574,576,578
+src/CornersModel.gs
+  s_8d080e6df27905::t_9debfdbe2f7cd0 518-522,524-525,528,530-535,537-538,543
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "d735dbba4332ec08c924177e831d222bcefc64d8",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
