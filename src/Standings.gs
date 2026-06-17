@@ -442,6 +442,63 @@ function limpiarDuplicadosPartidos() {
 }
 
 /**
+ * Limpia duplicados en ResumenJugadorPartido.
+ * Clave: fixture_id + jugador_id. Conserva la fila más reciente (mayor timestamp_carga).
+ * Ejecutar manualmente desde Apps Script una vez para limpiar datos históricos.
+ * También se llama desde cronWeeklyMaintenance.
+ */
+function limpiarDuplicadosResumen() {
+  const sheetName = CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO || 'ResumenJugadorPartido';
+  const sheet = getSheet_(sheetName);
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) { Logger.log('ResumenJugadorPartido vacío.'); return; }
+
+  const headers = values[0];
+  const rows    = values.slice(1);
+
+  let fidIdx = headers.indexOf('fixture_id');
+  if (fidIdx < 0) fidIdx = headers.indexOf('match_id');
+  const pidIdx = headers.indexOf('jugador_id');
+  let tsIdx = headers.indexOf('timestamp_carga');
+  if (tsIdx < 0) tsIdx = headers.indexOf('updated_at');
+
+  if (fidIdx < 0 || pidIdx < 0) {
+    Logger.log('No se encontraron columnas fixture_id / jugador_id — abortando.');
+    return;
+  }
+
+  const groups = {};
+  rows.forEach((row, idx) => {
+    const fid = row[fidIdx];
+    const pid = row[pidIdx];
+    if (!fid || !pid) return;
+    const k = `${fid}_${pid}`;
+    if (!groups[k]) groups[k] = [];
+    groups[k].push({ idx, ts: tsIdx >= 0 ? String(row[tsIdx] || '') : '' });
+  });
+
+  const toDelete = new Set();
+  let dupes = 0;
+  Object.values(groups).forEach(entries => {
+    if (entries.length <= 1) return;
+    dupes++;
+    entries.sort((a, b) => b.ts.localeCompare(a.ts)); // más reciente primero
+    entries.slice(1).forEach(e => toDelete.add(e.idx));
+  });
+
+  if (toDelete.size === 0) {
+    Logger.log('✅ ResumenJugadorPartido: sin duplicados.');
+    return;
+  }
+
+  Array.from(toDelete).sort((a, b) => b - a).forEach(idx => {
+    sheet.deleteRow(idx + 2);
+  });
+
+  Logger.log(`✅ ResumenJugadorPartido: ${dupes} jugadores duplicados, ${toDelete.size} filas eliminadas.`);
+}
+
+/**
  * Detecta y reporta partidos duplicados en la hoja Partidos.
  * Agrupa por par canónico de equipos + fecha y muestra los que tienen > 1 fila.
  * Útil para diagnosticar discrepancias de stats cuando ESPN y API-Football

@@ -185,7 +185,8 @@ function cronPostMatch() {
 function cronWeeklyMaintenance() {
   runWithHealthCheck_('cronWeeklyMaintenance', () => {
     Logger.log('cronWeeklyMaintenance: inicio');
-    try { limpiarDuplicadosPartidos(); }  catch (e) { console.warn('LimpDup:', e.message); }
+    try { limpiarDuplicadosPartidos(); }   catch (e) { console.warn('LimpDup:', e.message); }
+    try { limpiarDuplicadosResumen(); }    catch (e) { console.warn('LimpResumen:', e.message); }
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
     try { calculateModelCalibration_(); }   catch (e) { console.warn('Calib:', e.message); }
     try { cronWeeklyPerformanceReport(); }  catch (e) { console.warn('WeekRep:', e.message); }
