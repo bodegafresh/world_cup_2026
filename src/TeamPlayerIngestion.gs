@@ -328,3 +328,126 @@ function normalizePlayerName_(name) {
 
 function cargarEquipos()  { return loadTeamsFromCurrentData_(); }
 function cargarPlanteles() { return loadSquadsForKnownTeams_(); }
+
+/**
+ * Carga planteles desde ESPN para todos los equipos que a\u00fan no tienen jugadores
+ * en la hoja Jugadores. Usa los summaries de los partidos ya disputados.
+ *
+ * No requiere API-Football. Usa espn_{athleteId} como player_id sint\u00e9tico.
+ * Ejecutar manualmente despu\u00e9s de backfillEspnHistorical().
+ */
+function cargarPlantelesDesdeEspn() {
+  Logger.log('=== CARGANDO PLANTELES DESDE ESPN ===');
+
+  // Equipos ya con jugadores en la hoja
+  const jugadores = readAll_(CONFIG.SHEETS.JUGADORES);
+  const equiposConPlantel = new Set(jugadores.map(j => String(j.equipo || '').toLowerCase()));
+
+  // Partidos FT para saber qu\u00e9 equipos jugaron y en qu\u00e9 fechas
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
+    .filter(r => ['FT','AET','PEN'].includes(String(r.status || '').toUpperCase()));
+
+  // Recolectar teams sin plantel y el primer partido FT de cada uno
+  const equiposFaltantes = {}; // equipoEs \u2192 { fecha, homeTeam, awayTeam }
+  partidos.forEach(r => {
+    const localEs = teamNameToSpanish_(r.local || '');
+    const visitEs = teamNameToSpanish_(r.visitante || '');
+    if (!equiposConPlantel.has(localEs.toLowerCase()) && !equiposFaltantes[localEs]) {
+      equiposFaltantes[localEs] = { fecha: r.fecha, localEs, visitEs, lado: 'home' };
+    }
+    if (!equiposConPlantel.has(visitEs.toLowerCase()) && !equiposFaltantes[visitEs]) {
+      equiposFaltantes[visitEs] = { fecha: r.fecha, localEs, visitEs, lado: 'away' };
+    }
+  });
+
+  const faltantesList = Object.entries(equiposFaltantes);
+  Logger.log(`Equipos sin plantel: ${faltantesList.length}`);
+  if (!faltantesList.length) { Logger.log('Todos los equipos ya tienen plantel.'); return; }
+
+  const sheet   = getOrCreateSheet_(CONFIG.SHEETS.JUGADORES, null);
+  const headers = getHeaders_(CONFIG.SHEETS.JUGADORES);
+  const keyIdx  = headers.indexOf('player_id_api_football');
+
+  // Mapa de IDs ya existentes para dedup
+  const vals = sheet.getDataRange().getValues();
+  const existingIds = new Set(vals.slice(1).map(r => String(r[keyIdx] || '')).filter(Boolean));
+
+  let totalEquipos = 0, totalJugadores = 0;
+
+  // Agrupar por fecha para minimizar llamadas ESPN
+  const porFecha = {};
+  faltantesList.forEach(([, info]) => {
+    if (!porFecha[info.fecha]) porFecha[info.fecha] = [];
+    porFecha[info.fecha].push(info);
+  });
+
+  Object.entries(porFecha).forEach(([fecha, infos]) => {
+    let espnEvents;
+    try { espnEvents = fetchEspnEventsByDate_(fecha); }
+    catch(e) { Logger.log(`ESPN ${fecha}: ${e.message}`); return; }
+
+    infos.forEach(info => {
+      // Encontrar el evento ESPN que corresponde a este partido
+      const normN = s => String(s || '').toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
+      const homeN = normN(info.localEs), awayN = normN(info.visitEs);
+      const ev = (espnEvents || []).find(e => {
+        const eH = normN(teamNameToSpanish_(e.home_team || ''));
+        const eA = normN(teamNameToSpanish_(e.away_team || ''));
+        return (eH === homeN && eA === awayN) || (eH === awayN && eA === homeN);
+      });
+      if (!ev || !ev.espn_id) { Logger.log(`  sin ESPN ID para ${info.localEs} vs ${info.visitEs}`); return; }
+
+      let summary;
+      try { summary = fetchEspnSummary_(ev.espn_id); }
+      catch(e) { Logger.log(`  ESPN summary error: ${e.message}`); return; }
+
+      const rosters = summary.rosters || [];
+      const newRows = [];
+
+      rosters.forEach(entry => {
+        const side   = entry.homeAway;
+        const teamEn = side === 'home' ? ev.home_team : ev.away_team;
+        const teamEs = teamNameToSpanish_(teamEn);
+        if (!equiposFaltantes[teamEs]) return; // este equipo ya tiene plantel, skip
+
+        (entry.roster || []).forEach(p => {
+          const ath = p.athlete || {};
+          const pid = `espn_${ath.id || ''}`;
+          if (!ath.id || existingIds.has(pid)) return;
+
+          const rowData = {};
+          rowData['player_id_api_football'] = pid;
+          rowData['nombre']                 = ath.displayName || ath.shortName || '';
+          rowData['nombre_normalizado']     = normalizePlayerName_(rowData['nombre']);
+          rowData['equipo_id']              = String((entry.team || {}).id || '');
+          rowData['equipo']                 = teamEs;
+          rowData['posicion']               = ((p.position || {}).abbreviation || '').toUpperCase();
+          rowData['edad']                   = ath.age || '';
+          rowData['fecha_nacimiento']       = '';
+          rowData['nacionalidad']           = teamEs;
+          rowData['altura']                 = '';
+          rowData['peso']                   = '';
+          rowData['foto']                   = (ath.headshot || {}).href || '';
+          rowData['fuente']                 = 'ESPN_SUMMARY';
+          rowData['last_updated']           = nowChile_();
+
+          const row = headers.map(h => rowData[h] !== undefined ? rowData[h] : '');
+          newRows.push(row);
+          existingIds.add(pid);
+          totalJugadores++;
+        });
+      });
+
+      if (newRows.length) {
+        sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
+        Logger.log(`  \u2705 ${info.localEs} vs ${info.visitEs}: ${newRows.length} jugadores`);
+        totalEquipos++;
+      }
+
+      Utilities.sleep(500);
+    });
+  });
+
+  Logger.log(`\n=== FIN: ${totalJugadores} jugadores de ${totalEquipos} equipos cargados ===`);
+}
