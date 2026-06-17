@@ -94,6 +94,11 @@ function handleMessage_(msg) {
     return;
   }
 
+  if (cmd_ === '/alertas') {
+    try { sendTelegramMessageToSingleChat_(chatId, buildAlertasToggleText_(args_, chatId)); } catch (e_) {}
+    return;
+  }
+
   let response;
   try {
     response = handleTelegramCommand_(text);
@@ -123,18 +128,24 @@ function handleTelegramCommand_(text) {
     case '/noticias':   return buildNewsResponse_(args);
     case '/paises':     return buildPaisesCommandResponse_();
     case '/jugadores':  return buildJugadoresCommandResponse_(args);
-    case '/arbitros':   return buildArbitrosResumenText_();
-    case '/ev':         return buildEvSummaryText_();
-    case '/elo':        return buildEloRankingText_();
-    case '/historial':  return buildBettingHistoryText_();
-    case '/calibrar':   return buildCalibrationText_();
-    case '/en_vivo':    return buildLiveMatchesText_();
-    case '/grafico':    return null; // manejado antes del switch (necesita chatId)
-    case '/portafolio': return buildPortfolioText_();
-    case '/upsets':     return buildUpsetRankingText_();
-    case '/grupos':     return buildGroupSimText_(args);
-    case '/ayuda':      return buildHelpCommandResponse_();
-    default:            return null;
+    case '/arbitros':    return buildArbitrosResumenText_();
+    case '/ev':          return buildEvSummaryText_();
+    case '/elo':         return buildEloRankingText_();
+    case '/historial':   return buildBettingHistoryText_();
+    case '/calibrar':    return buildCalibrationText_();
+    case '/en_vivo':     return buildLiveMatchesText_();
+    case '/grafico':     return null; // manejado antes del switch (necesita chatId)
+    case '/portafolio':  return buildPortfolioText_();
+    case '/upsets':      return buildUpsetRankingText_();
+    case '/grupos':      return buildGroupSimText_(args);
+    // ── Comandos nuevos ───────────────────────────────────────────────────────
+    case '/goleadores':  return buildGoleadoresText_();
+    case '/grupo':       return buildGrupoDetalleText_(args);
+    case '/partido':     return buildPartidoDirectoText_(args);
+    case '/alertas':     return buildAlertasToggleText_(args, chatId);
+    case '/eliminados':  return buildEliminadosText_();
+    case '/ayuda':       return buildHelpCommandResponse_();
+    default:             return null;
   }
 }
 
@@ -455,37 +466,47 @@ function buildHelpCommandResponse_() {
   return [
     '🏆 <b>Bot Mundial 2026 — Comandos</b>',
     '',
-    '/hoy — Partidos de hoy',
-    '/ayer — Resultados de ayer',
-    '/proximos — Próximos 3 días',
-    '/paises — Ver todas las selecciones del torneo',
-    '/jugadores Argentina — Plantel + alineación si hay partido',
-    '/seleccion Brasil — Historial de un equipo',
-    '/tabla — Tabla de posiciones por grupo',
-    '/stats Argentina — Estadísticas del equipo',
+    '📅 <b>Partidos</b>',
+    '/hoy — En vivo, terminados y próximos de hoy',
+    '/ayer — Resultados de ayer con goleadores',
+    '/proximos — Próximos 3 días con clima y hora Chile',
+    '/en_vivo — Partido en curso: marcador, stats, goles, tarjetas',
+    '/partido Argentina vs Francia — Resultado o fecha de un partido',
+    '',
+    '🏅 <b>Equipos y jugadores</b>',
+    '/seleccion Brasil — Todos los partidos de un equipo',
+    '/jugadores Argentina — Plantel + alineación en vivo',
     '/jugador Messi — Stats del jugador en el torneo',
-    '/clima Miami — Clima del estadio',
+    '/stats Argentina — Stats acumuladas del equipo',
+    '/goleadores — Top 15 goleadores del torneo',
+    '',
+    '📊 <b>Clasificación y grupos</b>',
+    '/tabla — Tabla de posiciones de los 12 grupos',
+    '/grupo A — Tabla + resultados + próximos de un grupo',
+    '/eliminados — Quién sigue y quién ya se fue del torneo',
+    '/grupos A — Probabilidad de clasificación (simulación)',
+    '',
+    '🔍 <b>Análisis</b>',
+    '/prediccion Argentina — Análisis IA + cuotas del partido',
     '/h2h España vs Francia — Historial cara a cara',
-    '/prediccion Argentina — Predicción IA del próximo partido',
     '/noticias Brasil — Últimas noticias del equipo',
-    '/arbitros — Árbitros del torneo con estadísticas',
+    '/arbitros — Árbitros asignados a partidos de hoy',
+    '/clima Miami — Clima del estadio de una ciudad',
     '',
-    '📊 <b>Análisis estadístico</b>',
-    '/ev — Oportunidades EV+ actuales',
-    '/elo — Ranking ELO de equipos',
-    '/historial — P&L de apuestas registradas',
-    '/calibrar — Precisión del modelo predictivo',
+    '🔔 <b>Alertas y configuración</b>',
+    '/alertas on — Recibir alertas de goles y tarjetas rojas',
+    '/alertas off — Desactivar alertas automáticas',
     '',
-    '📸 <b>Gráficos e imágenes</b>',
-    '/grafico Argentina — Probabilidades + ELO en imagen',
-    '/en_vivo — Marcadores y estadísticas en tiempo real',
-    '',
-    '🧮 <b>Apuestas</b>',
-    '/portafolio — P&L realizado + posiciones abiertas',
+    '📈 <b>Modelo y apuestas</b>',
+    '/ev — Apuestas con valor esperado positivo (EV+)',
     '/upsets — Divergencias ELO vs cuotas de mercado',
-    '/grupos A — Probabilidad de clasificación por grupo',
+    '/elo — Ranking ELO de los 48 equipos',
+    '/grafico Argentina — Gráfico de probabilidades',
+    '/portafolio — P&L de apuestas registradas',
     '',
-    '/ayuda — Ver este menú'
+    '/ayuda — Ver este menú',
+    '',
+    '<i>Nombres de equipos sin tildes y en cualquier idioma ✓</i>'
   ].join('\n');
 }
 
@@ -939,47 +960,97 @@ function buildH2HCommandResponse_(args) {
 // ─── /prediccion ───────────────────────────────────────────────────────────────
 
 function buildPredictionResponse_(team) {
-  if (!team) return 'Uso: /prediccion Argentina';
+  if (!team) return 'Uso: /prediccion Argentina\nO: /prediccion Argentina vs Brasil';
 
-  const q = team.toLowerCase();
-
-  const aiRows = readAll_(CONFIG.SHEETS.AI_ANALYSIS).filter(r => {
-    return String(r.local || r.home || '').toLowerCase().includes(q) ||
-           String(r.visitante || r.away || '').toLowerCase().includes(q);
-  });
-
-  const oddsRows = readAll_(CONFIG.SHEETS.ODDS).filter(r => {
-    return String(r.home || r.local || '').toLowerCase().includes(q) ||
-           String(r.away || r.visitante || '').toLowerCase().includes(q);
-  });
-
-  if (!aiRows.length && !oddsRows.length) {
-    return `Sin predicción disponible para: ${team}. Se genera el día anterior al partido.`;
+  // Detectar si viene "X vs Y"
+  const vsMatch = team.match(/^(.+?)\s+vs\.?\s+(.+)$/i);
+  if (vsMatch) {
+    return buildPoissonPredictionText_(vsMatch[1].trim(), vsMatch[2].trim());
   }
 
-  let msg = `🔮 <b>Predicción — ${team}</b>\n`;
+  const q  = norm_(team);
+  const normN = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z]/g,'');
 
-  if (aiRows.length) {
-    const latest = aiRows[aiRows.length - 1];
-    const summary = latest.resumen_telegram || latest.summary || latest.analisis || '';
-    if (summary) msg += `\n${summary}\n`;
+  // Buscar partido próximo del equipo en Partidos
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
+    .filter(r => {
+      const st = String(r.status || '').toUpperCase();
+      if (st === 'FT' || st === 'AET' || st === 'PEN') return false;
+      return normN(r.local||'').includes(q) || normN(r.visitante||'').includes(q);
+    })
+    .sort((a, b) => new Date(normalizeFecha_(a.fecha)) - new Date(normalizeFecha_(b.fecha)));
+
+  if (!partidos.length) {
+    return `Sin partido próximo para: <b>${team}</b>. ¿Ya fue eliminado?\n\nUsa /prediccion EquipoA vs EquipoB para predicción directa.`;
   }
 
-  if (oddsRows.length) {
-    const h2xRows = oddsRows.filter(r => String(r.mercado || r.market || '') === '1X2');
+  const fixture = partidos[0];
+  const home = fixture.local, away = fixture.visitante;
+  const hFlag = teamFlag_(home), aFlag = teamFlag_(away);
+  const fecha = normalizeFecha_(fixture.fecha);
+  const hora  = normalizeHora_(fixture.hora_chile || fixture.hora) || '';
 
-    if (h2xRows.length >= 3) {
-      msg += '\n<b>Cuotas de mercado:</b>';
-      h2xRows.slice(-3).forEach(r => {
-        const prob = r.probabilidad_modelo || r.model_probability;
-        const conf = r.confianza || r.confidence || '';
-        const sel = r.seleccion || r.selection || '';
-        const odd = r.cuota_real || r.odd || '';
-        msg += `\n• ${sel}: ${odd ? odd + ' → ' : ''}${prob ? Math.round(prob * 100) + '%' : 'N/A'} (${conf})`;
-      });
+  let msg = `🔮 <b>Predicción — ${hFlag}${teamNameToSpanish_(home)} vs ${aFlag}${teamNameToSpanish_(away)}</b>\n`;
+  msg += `📅 ${fecha}${hora ? ' · ' + hora : ''} (Chile)\n\n`;
+
+  // Poisson
+  try {
+    const poisson = getPoissonOdds_(home, away, fixture.match_key);
+    if (poisson) {
+      const pct = v => `${(Number(v)||0).toFixed(1)}%`;
+      msg += `<b>📐 Modelo Poisson</b>\n`;
+      msg += `${hFlag} Local: <b>${pct(poisson.prob_home)}</b>  `;
+      msg += `➖ Empate: <b>${pct(poisson.prob_draw)}</b>  `;
+      msg += `${aFlag} Visita: <b>${pct(poisson.prob_away)}</b>\n`;
+      msg += `⚽ Goles esperados: <b>${poisson.lambda_home}</b> – <b>${poisson.lambda_away}</b>`;
+      if (poisson.goles_esperados) msg += ` (total ${poisson.goles_esperados})`;
+      msg += `\n`;
+      if (poisson.over_2_5) msg += `📊 Over 2.5: ${pct(poisson.over_2_5)} · BTTS: ${pct(poisson.prob_btts_si)}\n`;
+      if (poisson.score_probable) msg += `🎯 Marcador más probable: <b>${poisson.score_probable}</b>\n`;
+      msg += '\n';
     }
-  }
+  } catch (e_) {}
 
+  // ELO
+  try {
+    const elo = getEloProbabilities_(home, away);
+    if (elo) {
+      const pct = v => `${Math.round((Number(v)||0)*100)}%`;
+      msg += `<b>⚡ ELO Rating</b>\n`;
+      msg += `${hFlag} ${pct(elo.home)}  ➖ ${pct(elo.draw)}  ${aFlag} ${pct(elo.away)}\n\n`;
+    }
+  } catch (e_) {}
+
+  // IA análisis
+  try {
+    const aiRows = readAll_(CONFIG.SHEETS.AI_ANALYSIS).filter(r =>
+      normN(r.local||r.home||'').includes(q) || normN(r.visitante||r.away||'').includes(q)
+    );
+    if (aiRows.length) {
+      const latest = aiRows[aiRows.length - 1];
+      const summary = latest.resumen_telegram || latest.summary || '';
+      if (summary) msg += `<b>🤖 Análisis IA</b>\n${summary}\n\n`;
+    }
+  } catch (e_) {}
+
+  // Cuotas de mercado
+  try {
+    const oddsRows = readAll_(CONFIG.SHEETS.ODDS).filter(r =>
+      (normN(r.home||r.local||'').includes(q) || normN(r.away||r.visitante||'').includes(q)) &&
+      String(r.mercado||'').toUpperCase() === '1X2'
+    );
+    if (oddsRows.length) {
+      msg += `<b>💰 Cuotas mercado (1X2)</b>\n`;
+      const h = oddsRows.find(r => (r.seleccion||'').toLowerCase().includes('home')) || {};
+      const d = oddsRows.find(r => (r.seleccion||'').toLowerCase().includes('draw')) || {};
+      const a = oddsRows.find(r => (r.seleccion||'').toLowerCase().includes('away')) || {};
+      if (h.cuota) msg += `${hFlag} Local ${Number(h.cuota).toFixed(2)}  `;
+      if (d.cuota) msg += `➖ Empate ${Number(d.cuota).toFixed(2)}  `;
+      if (a.cuota) msg += `${aFlag} Visita ${Number(a.cuota).toFixed(2)}\n`;
+    }
+  } catch (e_) {}
+
+  msg += `\n<i>💡 Para detalles completos: /prediccion ${teamNameToSpanish_(home)} vs ${teamNameToSpanish_(away)}</i>`;
   return msg.trim();
 }
 
@@ -1031,4 +1102,245 @@ function splitMessage_(text, maxLen) {
   }
 
   return chunks;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NUEVOS COMANDOS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * /goleadores — Top goleadores del torneo con asistencias.
+ */
+function buildGoleadoresText_() {
+  // Fuente primaria: ResumenJugadorPartido acumulado
+  const rows = readAll_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO || 'ResumenJugadorPartido');
+
+  const totals = {};
+  rows.forEach(r => {
+    const key = `${r.jugador_id || r.jugador}`;
+    if (!totals[key]) totals[key] = { nombre: r.jugador || '', equipo: r.equipo || '', goles: 0, asistencias: 0 };
+    totals[key].goles       += Number(r.goles || 0);
+    totals[key].asistencias += Number(r.asistencias || 0);
+  });
+
+  const sorted = Object.values(totals)
+    .filter(t => t.goles > 0)
+    .sort((a, b) => b.goles - a.goles || b.asistencias - a.asistencias)
+    .slice(0, 15);
+
+  if (!sorted.length) return '⚽ Aún no hay goles registrados en el torneo.';
+
+  let msg = '🥇 <b>Goleadores — Mundial 2026</b>\n\n';
+  sorted.forEach((p, i) => {
+    const flag = teamFlag_(p.equipo);
+    msg += `${i + 1}. ${flag} <b>${p.nombre}</b> (${p.equipo})\n`;
+    msg += `   ⚽ ${p.goles} gol${p.goles !== 1 ? 'es' : ''}`;
+    if (p.asistencias) msg += ` · 👟 ${p.asistencias} asist.`;
+    msg += '\n';
+  });
+  return msg.trim();
+}
+
+/**
+ * /grupo <A-L> — Detalle completo de un grupo: tabla + resultados + próximos.
+ */
+function buildGrupoDetalleText_(args) {
+  if (!args) return 'Uso: /grupo A\n\nGrupos disponibles: A B C D E F G H I J K L';
+
+  const grupoKey = 'Grupo ' + args.toUpperCase().trim().replace(/grupo\s*/i, '');
+  const clas = readAll_('Clasificacion').filter(r => r.grupo === grupoKey);
+  if (!clas.length) return `No encontré el ${grupoKey}. Usa /grupo A (o B, C... L).`;
+
+  let msg = `🏆 <b>${grupoKey}</b>\n\n`;
+
+  // Tabla
+  msg += '<b>Tabla</b>\n';
+  clas
+    .sort((a, b) => Number(b.puntos||0) - Number(a.puntos||0) || Number(b.gd||0) - Number(a.gd||0))
+    .forEach((r, i) => {
+      const flag = teamFlag_(r.equipo);
+      const pts  = Number(r.puntos || 0);
+      const pj   = Number(r.pj || 0);
+      const avanza = i < 2 ? '✅' : '  ';
+      msg += `${avanza}${i+1}. ${flag} <b>${r.equipo}</b> ${pts}pts`;
+      if (pj > 0) msg += ` (${pj}PJ ${r.pg}G ${r.pe}E ${r.pp}P | ${r.gf}:${r.gc})`;
+      msg += '\n';
+    });
+
+  // Partidos jugados
+  const equipos    = clas.map(r => r.equipo);
+  const normEquipo = e => teamNameToSpanish_(e).toLowerCase().replace(/[^a-z]/g, '');
+  const todos      = readAll_(CONFIG.SHEETS.PARTIDOS);
+
+  const delGrupo = todos.filter(r => {
+    const h = normEquipo(r.local || ''), a = normEquipo(r.visitante || '');
+    return equipos.some(eq => normEquipo(eq) === h || normEquipo(eq) === a);
+  });
+
+  const jugados  = delGrupo.filter(r => ['FT','AET','PEN'].includes(String(r.status||'').toUpperCase()));
+  const proximos = delGrupo.filter(r => String(r.status||'').toUpperCase() === 'NS');
+
+  if (jugados.length) {
+    msg += '\n<b>Resultados</b>\n';
+    jugados.sort((a,b) => normalizeFecha_(a.fecha) > normalizeFecha_(b.fecha) ? -1 : 1)
+      .slice(0, 6).forEach(r => {
+        const h = teamNameToSpanish_(r.local||''), a = teamNameToSpanish_(r.visitante||'');
+        msg += `${teamFlag_(h)} ${h} <b>${r.goles_local}-${r.goles_visitante}</b> ${a} ${teamFlag_(a)}\n`;
+      });
+  }
+
+  if (proximos.length) {
+    msg += '\n<b>Próximos</b>\n';
+    proximos.sort((a,b) => normalizeFecha_(a.fecha) > normalizeFecha_(b.fecha) ? 1 : -1)
+      .slice(0, 6).forEach(r => {
+        const h    = teamNameToSpanish_(r.local||''), a = teamNameToSpanish_(r.visitante||'');
+        const hora = normalizeHora_(r.hora_chile || r.hora);
+        const fecha = normalizeFecha_(r.fecha);
+        msg += `${teamFlag_(h)} ${h} vs ${a} ${teamFlag_(a)} — ${fecha} ${hora}\n`;
+      });
+  }
+
+  return msg.trim();
+}
+
+/**
+ * /partido <equipo1> vs <equipo2> — Resultado o fecha de un partido específico.
+ */
+function buildPartidoDirectoText_(args) {
+  if (!args || !args.toLowerCase().includes('vs')) {
+    return 'Uso: /partido Argentina vs Francia\n(usa "vs" para separar los equipos)';
+  }
+  const [rawH, rawA] = args.split(/\s+vs\s+/i);
+  const qH = rawH.trim(), qA = rawA ? rawA.trim() : '';
+  if (!qH || !qA) return 'Uso: /partido Argentina vs Francia';
+
+  const normN = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 ]/g,'').trim();
+  const termsH = teamSearchTerms_(qH).map(normN);
+  const termsA = teamSearchTerms_(qA).map(normN);
+
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
+  const match = partidos.find(r => {
+    const h = normN(r.local||''), a = normN(r.visitante||'');
+    return (termsH.some(t => h.includes(t)) && termsA.some(t => a.includes(t))) ||
+           (termsA.some(t => h.includes(t)) && termsH.some(t => a.includes(t)));
+  });
+
+  if (!match) return `No encontré un partido entre ${qH} y ${qA} en el Mundial 2026.`;
+
+  const h    = teamNameToSpanish_(match.local||'');
+  const a    = teamNameToSpanish_(match.visitante||'');
+  const hF   = teamFlag_(h), aF = teamFlag_(a);
+  const fecha = normalizeFecha_(match.fecha);
+  const hora  = normalizeHora_(match.hora_chile || match.hora);
+  const st    = String(match.status||'').toUpperCase();
+
+  if (['FT','AET','PEN'].includes(st)) {
+    let msg = `${hF} <b>${h} ${match.goles_local} - ${match.goles_visitante} ${a}</b> ${aF}\n`;
+    msg += `✅ ${st} · ${fecha}\n`;
+    msg += `🏟️ ${match.estadio || ''}\n`;
+    // Goleadores si hay espn_id
+    const espnId = match.espn_id || match.espn_event_id;
+    if (espnId) {
+      try {
+        const summary = fetchEspnSummary_(espnId);
+        const events  = parseEspnMatchEvents_(summary);
+        ['home','away'].forEach((side, idx) => {
+          const nombre = idx === 0 ? h : a;
+          if (events[side].goles.length) msg += `⚽ ${nombre}: ${events[side].goles.join(', ')}\n`;
+        });
+        // H2H si está disponible
+      } catch (e_) {}
+    }
+    return msg.trim();
+  }
+
+  // Partido futuro
+  let msg = `${hF} <b>${h}</b> vs <b>${a}</b> ${aF}\n`;
+  msg += `📅 ${fecha} · ⏰ ${hora} (hora Chile)\n`;
+  msg += `🏟️ ${match.estadio || ''}, ${match.ciudad || ''}\n`;
+  msg += `\n<i>Usa /prediccion ${h.toLowerCase()} para análisis IA</i>`;
+  return msg.trim();
+}
+
+/**
+ * /alertas on|off — Activa o desactiva alertas de goles/rojas para el usuario.
+ */
+function buildAlertasToggleText_(args, chatId) {
+  if (!chatId) return 'Comando no disponible en este contexto.';
+  const on = !args || args.toLowerCase().includes('on') || args.toLowerCase().includes('activar');
+  const sheet = getSheet_('Suscriptores');
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0];
+  const chatCol = headers.indexOf('chat_id');
+  const alertCol = headers.indexOf('alertas');
+
+  if (chatCol === -1) return '⚠️ Error interno: columna chat_id no encontrada.';
+
+  let found = false;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][chatCol]) === String(chatId)) {
+      if (alertCol !== -1) sheet.getRange(i+1, alertCol+1).setValue(on ? '1' : '0');
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    // Registrar nuevo suscriptor con alertas activadas
+    sheet.appendRow([chatId, '', new Date(), on ? '1' : '0']);
+  }
+
+  return on
+    ? '🔔 <b>Alertas activadas.</b>\n\nTe notificaré cuando haya goles, tarjetas rojas o VAR en partidos del Mundial.'
+    : '🔕 <b>Alertas desactivadas.</b>\n\nNo recibirás notificaciones automáticas. Usa /alertas on para reactivar.';
+}
+
+/**
+ * /eliminados — Muestra qué equipos siguen en el torneo y cuáles fueron eliminados.
+ */
+function buildEliminadosText_() {
+  const clas = readAll_('Clasificacion');
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
+
+  // Un equipo está eliminado si ya jugó 3 partidos de grupo con 0 posibilidades matemáticas
+  // Simplificación: si tiene 3PJ y no puede alcanzar al 2do del grupo
+  const byGroup = {};
+  clas.forEach(r => {
+    const g = r.grupo;
+    if (!byGroup[g]) byGroup[g] = [];
+    byGroup[g].push({ equipo: r.equipo, pj: Number(r.pj||0), puntos: Number(r.puntos||0), gd: Number(r.gd||0) });
+  });
+
+  const eliminados = [], enCarrera = [];
+
+  Object.entries(byGroup).forEach(([grupo, equipos]) => {
+    const sorted = equipos.sort((a,b) => b.puntos - a.puntos || b.gd - a.gd);
+    const segundoPuntos = sorted[1] ? sorted[1].puntos : 0;
+    equipos.forEach(eq => {
+      const partidosRestantes = 3 - eq.pj;
+      const maxPuntosAlcanzables = eq.puntos + partidosRestantes * 3;
+      if (eq.pj >= 2 && maxPuntosAlcanzables < segundoPuntos) {
+        eliminados.push({ ...eq, grupo });
+      } else {
+        enCarrera.push({ ...eq, grupo });
+      }
+    });
+  });
+
+  // Si no hay suficientes partidos jugados aún, mostrar solo los que tienen 0 posibilidades
+  let msg = '🏆 <b>Estado del Torneo — Mundial 2026</b>\n\n';
+  msg += `🟢 <b>En carrera: ${enCarrera.length} equipos</b>\n`;
+  msg += `🔴 <b>Eliminados: ${eliminados.length} equipos</b>\n\n`;
+
+  if (eliminados.length) {
+    msg += '<b>❌ Fuera del torneo:</b>\n';
+    eliminados
+      .sort((a,b) => a.grupo.localeCompare(b.grupo))
+      .forEach(e => { msg += `${teamFlag_(e.equipo)} ${e.equipo} (${e.grupo})\n`; });
+  } else {
+    msg += '<i>Aún no hay equipos eliminados matemáticamente.</i>\n';
+  }
+
+  const totalJugados = partidos.filter(r => ['FT','AET','PEN'].includes(String(r.status||'').toUpperCase())).length;
+  msg += `\n<i>Partidos jugados: ${totalJugados}/104</i>`;
+  return msg.trim();
 }

@@ -553,6 +553,108 @@ function formatLiveStatsMessage_(fixture, stats, score) {
  * ESPN no tiene límite de cuota y refleja el estado en tiempo real.
  * Fallback a hoja Partidos si ESPN falla.
  */
+// ── Cache de clima por estadio: 10 minutos vía CacheService ──────────────────
+function getClimaForVenue_(venueName, city) {
+  if (!venueName) return null;
+  const cache    = CacheService.getScriptCache();
+  const cacheKey = 'clima_' + venueName.replace(/\s+/g, '_').toLowerCase();
+
+  // 1. CacheService (10 min, persiste entre llamadas al mismo /en_vivo)
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (e_) {}
+  }
+
+  // 2. Hoja EstadiosClima (poblada por cron diario)
+  try {
+    const normV = s => String(s || '').toLowerCase().trim();
+    const row   = readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).find(r =>
+      normV(r.estadio) === normV(venueName) || normV(r.ciudad) === normV(city)
+    );
+    if (row && row.temperatura_c !== '' && row.temperatura_c !== null) {
+      const result = {
+        temperatura_c: row.temperatura_c,
+        humedad:       row.humedad,
+        prob_lluvia:   row.prob_lluvia,
+        condicion:     row.condicion
+      };
+      cache.put(cacheKey, JSON.stringify(result), 600);
+      return result;
+    }
+  } catch (e_) {}
+
+  // 3. Open-Meteo en tiempo real (gratis, sin cuota)
+  try {
+    const info = getVenueInfo_(venueName, city || '');
+    if (info && info.lat && info.lon) {
+      const data = callOpenMeteo_(info.lat, info.lon, Utilities.formatDate(new Date(), 'UTC', 'yyyy-MM-dd'));
+      const w    = extractHourlyWeather_(data, new Date().toISOString(), null);
+      const result = {
+        temperatura_c: w.temperature_c,
+        humedad:       w.humidity,
+        prob_lluvia:   w.rain_probability,
+        condicion:     classifyCondition_(w)
+      };
+      cache.put(cacheKey, JSON.stringify(result), 600);
+      // Guardar también en EstadiosClima para futuras consultas
+      try { saveEstadioClima_(venueName, city, result); } catch (e_) {}
+      return result;
+    }
+  } catch (e_) { console.warn('Clima Open-Meteo:', e_.message); }
+
+  cache.put(cacheKey, 'null', 120); // evitar llamar de nuevo por 2min si falla
+  return null;
+}
+
+function saveEstadioClima_(venueName, city, climaObj) {
+  const sheet = getSheet_(CONFIG.SHEETS.ESTADIOS_CLIMA);
+  sheet.appendRow([venueName, city, climaObj.temperatura_c, climaObj.humedad,
+    climaObj.prob_lluvia, climaObj.condicion, nowChile_()]);
+}
+
+/**
+ * Extrae eventos del summary ESPN y los organiza en goles, amarillas, rojas, penales.
+ * Devuelve { home: {goles, amarillas, rojas, penales}, away: {...} }
+ * donde cada lista es [{nombre, minuto}]
+ */
+function parseEspnMatchEvents_(summary) {
+  const comp     = ((summary.header || {}).competitions || [])[0] || {};
+  const competitors = comp.competitors || [];
+  const homeId   = String(((competitors.find(c => c.homeAway === 'home') || {}).team || {}).id || '');
+  const awayId   = String(((competitors.find(c => c.homeAway === 'away') || {}).team || {}).id || '');
+
+  const result = {
+    home: { goles: [], amarillas: [], rojas: [], penales: 0 },
+    away: { goles: [], amarillas: [], rojas: [], penales: 0 }
+  };
+
+  (comp.details || []).forEach(d => {
+    const typeText  = String((d.type || {}).text || '').toLowerCase();
+    const athlete   = (d.athletesInvolved || [])[0] || {};
+    const nombre    = athlete.shortName || athlete.displayName || '';
+    const minute    = (d.clock || {}).displayValue || '';
+    const teamId    = String((d.team || {}).id || '');
+    const side      = teamId === homeId ? 'home' : teamId === awayId ? 'away' : null;
+    if (!side) return;
+
+    if (typeText.includes('goal') || typeText.includes('penalty - scored')) {
+      const ownGoal = typeText.includes('own');
+      const penalty = typeText.includes('penalty');
+      const tag     = ownGoal ? `${nombre} ${minute}' 🔴(AG)` : penalty ? `${nombre} ${minute}'(P)` : `${nombre} ${minute}'`;
+      result[side].goles.push(tag);
+      if (penalty) result[side].penales++;
+    } else if (typeText.includes('red card') || typeText.includes('tarjeta roja')) {
+      result[side].rojas.push(`${nombre} ${minute}'`);
+    } else if (typeText.includes('yellow card') && !typeText.includes('second')) {
+      result[side].amarillas.push(`${nombre} ${minute}'`);
+    } else if (typeText.includes('second yellow')) {
+      result[side].rojas.push(`${nombre} ${minute}' 🟨🟥`);
+    }
+  });
+
+  return result;
+}
+
 function buildLiveMatchesText_() {
   const ESPN_LIVE = {
     STATUS_FIRST_HALF:    '⏱ 1° Tiempo',
@@ -567,155 +669,118 @@ function buildLiveMatchesText_() {
     STATUS_INTERRUPTED:   '⚠️ Interrumpido'
   };
 
-  // 1. Intentar ESPN (tiempo real, sin cuota)
+  // 1. ESPN en tiempo real (sin cuota)
   let espnEvents = [];
   try {
     const data = espnGet_('/scoreboard');
     espnEvents = (data.events || []).filter(e => {
-      const statusName = ((e.competitions || [])[0] || {}).status?.type?.name || '';
-      return Object.keys(ESPN_LIVE).includes(statusName);
+      const sName = ((e.competitions || [])[0] || {}).status?.type?.name || '';
+      return Object.keys(ESPN_LIVE).includes(sName);
     });
   } catch (e) {
-    console.warn('buildLiveMatchesText_: ESPN falló, usando hoja:', e.message);
+    console.warn('buildLiveMatchesText_: ESPN falló:', e.message);
   }
 
-  if (espnEvents.length) {
-    let msg = `🔴 <b>En vivo — ${espnEvents.length} partido${espnEvents.length > 1 ? 's' : ''}</b>\n\n`;
-
-    // Cache de clima por estadio — se llama Open-Meteo si no está en EstadiosClima
-    const climaCache_ = {};
-    const getClimaForVenue_ = (venueName) => {
-      if (!venueName) return null;
-      if (climaCache_[venueName] !== undefined) return climaCache_[venueName];
-      // 1. Buscar en hoja EstadiosClima por nombre de estadio
-      try {
-        const normV = s => String(s || '').toLowerCase().trim();
-        const row = readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).find(r =>
-          normV(r.estadio) === normV(venueName)
-        );
-        if (row && row.temperatura_c !== '' && row.temperatura_c !== null) {
-          climaCache_[venueName] = row;
-          return row;
-        }
-      } catch (e_) { /* ignorar */ }
-      // 2. Fallback: Open-Meteo en tiempo real usando VenueCatalog
-      try {
-        const info = getVenueInfo_(venueName, '');
-        if (info && info.lat && info.lon) {
-          const today = Utilities.formatDate(new Date(), 'UTC', 'yyyy-MM-dd');
-          const data  = callOpenMeteo_(info.lat, info.lon, today);
-          const w     = extractHourlyWeather_(data, new Date().toISOString(), null);
-          const result = {
-            estadio:      venueName,
-            temperatura_c: w.temperature_c,
-            humedad:       w.humidity,
-            prob_lluvia:   w.rain_probability,
-            condicion:     classifyCondition_(w)
-          };
-          climaCache_[venueName] = result;
-          return result;
-        }
-      } catch (e_) { console.warn('Clima ESPN fallback:', e_.message); }
-      climaCache_[venueName] = null;
-      return null;
-    };
-
-    espnEvents.forEach(ev => {
-      const comp   = ev.competitions[0];
-      const comps  = comp.competitors || [];
-      const home   = comps.find(c => c.homeAway === 'home') || comps[0] || {};
-      const away   = comps.find(c => c.homeAway === 'away') || comps[1] || {};
-      const status = comp.status || {};
-      const clock  = status.displayClock || '';
-      const label  = ESPN_LIVE[status.type?.name] || '🔴 En curso';
-
-      const homeNombre = teamNameToSpanish_((home.team || {}).displayName || '?');
-      const awayNombre = teamNameToSpanish_((away.team || {}).displayName || '?');
-      const homeScore  = home.score !== undefined ? home.score : '?';
-      const awayScore  = away.score !== undefined ? away.score : '?';
-      const venue      = (comp.venue || {}).fullName || '';
-
-      msg += `⚽ <b>${homeNombre} ${homeScore} - ${awayScore} ${awayNombre}</b>\n`;
-      msg += `   ${label}${clock ? ' ' + clock : ''}`;
-      if (venue) msg += ` | 🏟️ ${venue}`;
-      msg += '\n';
-
-      // Hora local del estadio
-      try {
-        const venueInfo = getVenueInfo_(venue, (comp.venue || {}).address && comp.venue.address.city || '');
-        if (venueInfo && venueInfo.timezone_estadio) {
-          const horaLocal = Utilities.formatDate(new Date(), venueInfo.timezone_estadio, 'HH:mm');
-          msg += `   🕐 Hora local: ${horaLocal}\n`;
-        }
-      } catch (e_) { /* sin timezone */ }
-
-      // Clima del estadio (EstadiosClima o Open-Meteo directo)
-      const clima = getClimaForVenue_(venue);
-      if (clima && clima.temperatura_c !== null && clima.temperatura_c !== '') {
-        const lluvia = Number(clima.prob_lluvia) > 30 ? ` ☔${clima.prob_lluvia}%` : '';
-        msg += `   🌡️ ${clima.temperatura_c}°C, ${clima.humedad}% hum${lluvia}\n`;
-      }
-
-      // Stats + alineaciones desde ESPN summary
-      try {
-        const summary = fetchEspnSummary_(ev.id);
-        const bsTeams = (summary.boxscore || {}).teams || [];
-        const hEntry  = bsTeams.find(t => t.homeAway === 'home');
-        const aEntry  = bsTeams.find(t => t.homeAway === 'away');
-        if (hEntry && aEntry) {
-          const hs = parseEspnTeamStats_(hEntry);
-          const as_ = parseEspnTeamStats_(aEntry);
-          const v  = (h, a) => `${h || '?'}-${a || '?'}`;
-          msg += `   ⚽ Pos: ${v(hs.possessionPct, as_.possessionPct)}%`;
-          msg += ` | 🎯 Tiros: ${v(hs.totalShots, as_.totalShots)} (arco: ${v(hs.shotsOnTarget, as_.shotsOnTarget)})\n`;
-          msg += `   🔄 Corners: ${v(hs.cornerKicks, as_.cornerKicks)}`;
-          msg += ` | ⚠️ Faltas: ${v(hs.foulsCommitted, as_.foulsCommitted)}`;
-          msg += ` | 🟨 ${v(hs.yellowCards, as_.yellowCards)}`;
-          const hr = Number(hs.redCards || 0), ar = Number(as_.redCards || 0);
-          if (hr || ar) msg += ` | 🟥 ${v(hr, ar)}`;
-          msg += '\n';
-        }
-
-        // Alineaciones titulares con goleadores marcados
-        const rosters = summary.rosters || [];
-        if (rosters.length) {
-          // Intentar scoringPlays → keyEvents → header.competitions[0].details (más robusto)
-          let scorersMap = parseEspnScorers_(summary.scoringPlays || [], summary.keyEvents || []);
-          if (scorersMap.size === 0) scorersMap = parseEspnScorersFromHeader_(summary);
-          const hLineup = parseEspnLineup_(rosters, 'home');
-          const aLineup = parseEspnLineup_(rosters, 'away');
-          msg += formatEspnLineupText_(homeNombre, hLineup, scorersMap);
-          msg += formatEspnLineupText_(awayNombre, aLineup, scorersMap);
-        }
-      } catch (e_) { /* sin stats/alineación */ }
-
-      msg += '\n';
+  if (!espnEvents.length) {
+    // Fallback a hoja Partidos
+    const rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r =>
+      ['1H','HT','2H','ET','BT','P','LIVE','INT'].includes(String(r.status || '').toUpperCase())
+    );
+    if (!rows.length) return '⚽ No hay partidos en curso ahora.\n\n<i>Usa /hoy para ver el horario.</i>';
+    let msg = `🔴 <b>En vivo</b> <i>(datos locales)</i>\n\n`;
+    rows.forEach(r => {
+      const h = teamNameToSpanish_(r.local || ''), a = teamNameToSpanish_(r.visitante || '');
+      msg += `⚽ <b>${h} ${r.goles_local ?? '?'} - ${r.goles_visitante ?? '?'} ${a}</b>\n🏟️ ${r.estadio || ''}\n\n`;
     });
-
     return msg.trim();
   }
 
-  // 2. Fallback: leer de hoja Partidos (puede estar desactualizado)
-  const liveStatuses = ['1H', 'HT', '2H', 'ET', 'BT', 'P', 'LIVE', 'INT'];
-  let rows = [];
-  try {
-    rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r =>
-      liveStatuses.includes(String(r.status || '').toUpperCase())
-    );
-  } catch (e) { rows = []; }
+  let msg = `🔴 <b>En vivo — ${espnEvents.length} partido${espnEvents.length > 1 ? 's' : ''}</b>\n\n`;
 
-  if (!rows.length) {
-    return '⚽ <b>En vivo ahora</b>\n\nNo hay partidos en curso.\n\n<i>Usa /hoy para ver el horario de hoy.</i>';
-  }
+  espnEvents.forEach(ev => {
+    const comp   = ev.competitions[0];
+    const comps  = comp.competitors || [];
+    const home   = comps.find(c => c.homeAway === 'home') || comps[0] || {};
+    const away   = comps.find(c => c.homeAway === 'away') || comps[1] || {};
+    const status = comp.status || {};
+    const clock  = status.displayClock || '';
+    const label  = ESPN_LIVE[status.type?.name] || '🔴';
+    const venue  = (comp.venue || {}).fullName || '';
+    const city   = ((comp.venue || {}).address || {}).city || '';
 
-  let msg = `🔴 <b>En vivo — ${rows.length} partido${rows.length > 1 ? 's' : ''}</b> <i>(datos de hoja)</i>\n\n`;
-  rows.forEach(r => {
-    const home = teamNameToSpanish_(r.local || '?');
-    const away = teamNameToSpanish_(r.visitante || '?');
-    const gl   = r.goles_local ?? '?';
-    const gv   = r.goles_visitante ?? '?';
-    msg += `⚽ <b>${home} ${gl} - ${gv} ${away}</b>\n   ${r.estadio || ''}\n\n`;
+    const hNombre = teamNameToSpanish_((home.team || {}).displayName || '?');
+    const aNombre = teamNameToSpanish_((away.team || {}).displayName || '?');
+    const hFlag   = teamFlag_(hNombre), aFlag = teamFlag_(aNombre);
+    const hScore  = home.score !== undefined ? home.score : '?';
+    const aScore  = away.score !== undefined ? away.score : '?';
+
+    // Cabecera: marcador
+    msg += `${hFlag} <b>${hNombre} ${hScore} - ${aScore} ${aNombre}</b> ${aFlag}\n`;
+    msg += `${label}${clock ? ' ' + clock + "'" : ''}`;
+    if (venue) msg += ` · 🏟️ ${venue}`;
+    msg += '\n';
+
+    // Hora local + clima (con CacheService, max 1 call Open-Meteo por estadio cada 10min)
+    try {
+      const venueInfo = getVenueInfo_(venue, city);
+      if (venueInfo && venueInfo.timezone_estadio) {
+        msg += `🕐 Hora local: ${Utilities.formatDate(new Date(), venueInfo.timezone_estadio, 'HH:mm')}`;
+      }
+    } catch (e_) {}
+
+    const clima = getClimaForVenue_(venue, city);
+    if (clima && clima.temperatura_c != null) {
+      const lluvia = Number(clima.prob_lluvia) > 30 ? ` ☔${Math.round(clima.prob_lluvia)}%` : '';
+      msg += `  🌡️ ${clima.temperatura_c}°C${lluvia}`;
+    }
+    msg += '\n';
+
+    // Stats + eventos desde ESPN summary
+    try {
+      const summary  = fetchEspnSummary_(ev.id);
+
+      // Estadísticas de equipo
+      const bsTeams  = (summary.boxscore || {}).teams || [];
+      const hEntry   = bsTeams.find(t => t.homeAway === 'home');
+      const aEntry   = bsTeams.find(t => t.homeAway === 'away');
+      if (hEntry && aEntry) {
+        const hs  = parseEspnTeamStats_(hEntry);
+        const as_ = parseEspnTeamStats_(aEntry);
+        const v   = (h, a) => `${h ?? '?'}‑${a ?? '?'}`;
+        msg += `⚽ Pos: ${v(hs.possessionPct, as_.possessionPct)}%`;
+        msg += ` | 🎯 ${v(hs.totalShots, as_.totalShots)} (arco: ${v(hs.shotsOnTarget, as_.shotsOnTarget)})`;
+        msg += ` | 🔄 ${v(hs.cornerKicks, as_.cornerKicks)}\n`;
+        msg += `⚠️ Faltas: ${v(hs.foulsCommitted, as_.foulsCommitted)}`;
+        msg += ` | 🟨 ${v(hs.yellowCards, as_.yellowCards)}`;
+        const hr = Number(hs.redCards || 0), ar = Number(as_.redCards || 0);
+        if (hr || ar) msg += ` | 🟥 ${v(hr, ar)}`;
+        msg += '\n';
+      }
+
+      // Eventos del partido: goles, tarjetas, penales
+      const events = parseEspnMatchEvents_(summary);
+      const fmt = (side, nombre) => {
+        const ev_ = events[side];
+        let lines = '';
+        if (ev_.goles.length)    lines += `  ⚽ ${nombre}: ${ev_.goles.join(', ')}\n`;
+        if (ev_.amarillas.length) lines += `  🟨 ${nombre}: ${ev_.amarillas.join(', ')}\n`;
+        if (ev_.rojas.length)    lines += `  🟥 ${nombre}: ${ev_.rojas.join(', ')}\n`;
+        return lines;
+      };
+      const evLines = fmt('home', hNombre) + fmt('away', aNombre);
+      if (evLines) msg += evLines;
+
+      // Penales en serie (si status = STATUS_PENALTY)
+      if (status.type?.name === 'STATUS_PENALTY') {
+        const hp = events.home.penales, ap = events.away.penales;
+        msg += `🥅 Penales: ${hNombre} ${hp} - ${ap} ${aNombre}\n`;
+      }
+
+    } catch (e_) { /* sin summary */ }
+
+    msg += `\n<i>👥 Planteles: /jugadores ${hNombre.toLowerCase()} · /jugadores ${aNombre.toLowerCase()}</i>\n\n`;
   });
+
   return msg.trim();
 }
 

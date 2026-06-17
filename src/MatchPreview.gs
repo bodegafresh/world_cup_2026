@@ -62,6 +62,17 @@ function buildEnrichedPreviewInput_(fixture, weather, news, baseOdds) {
     base.recent_form = null;
   }
 
+  // SofaScore: métricas avanzadas del mundial (xG, posesión por tercio, momentum)
+  try {
+    const homeCtx = buildSofaTeamContext_(homeTeam, 5);
+    const awayCtx = buildSofaTeamContext_(awayTeam, 5);
+    if (homeCtx || awayCtx) {
+      base.advanced_metrics = { home: homeCtx, away: awayCtx };
+    }
+  } catch (e) {
+    console.warn('buildEnrichedPreviewInput_ SofaScore context:', e.message);
+  }
+
   return base;
 }
 

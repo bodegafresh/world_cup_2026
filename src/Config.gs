@@ -35,7 +35,9 @@ const CONFIG = {
     MODEL_CALIBRATION:'ModelCalibration',
     SIM_GRUPOS:       'SimulacionGrupos',
     ESPN_STATS:       'EspnStats',
-    FORMA_EQUIPOS:    'FormaEquipos'
+    FORMA_EQUIPOS:    'FormaEquipos',
+    SOFA_STATS:       'SofaStats',
+    POISSON_ODDS:     'PoissonOdds'
   },
 
   API_FOOTBALL: {

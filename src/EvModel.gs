@@ -30,14 +30,20 @@ const KELLY_DIVISOR          = 4;     // Fractional Kelly conservador (Kelly/4)
 
 /**
  * Calcula EV y Kelly para todos los mercados de un fixture.
- * Solo procesa cuotas reales (fuente THE_ODDS_API) — ignora MODELO_INTERNO.
+ * Usa probabilidades del modelo Poisson como estimación independiente.
+ * Las cuotas vienen de The Odds API (fuente real del mercado).
+ *
+ * El EV es real (edge genuino) porque Poisson ≠ mercado.
  *
  * @param {Object} fixture  Objeto fixture de API-Football o mínimo {fixture:{id:N}, teams:{home:{name}, away:{name}}}
  * @returns {Array} Oportunidades ordenadas por EV desc
  */
 function calculateEvForFixture_(fixture) {
   const fixtureId = String(fixture.fixture.id);
+  const home = fixture.teams.home.name;
+  const away = fixture.teams.away.name;
 
+  // 1. Obtener cuotas de mercado (The Odds API)
   let oddsRows;
   try {
     oddsRows = readAll_(CONFIG.SHEETS.ODDS)
@@ -47,37 +53,101 @@ function calculateEvForFixture_(fixture) {
     console.warn(`calculateEvForFixture_ ${fixtureId}: ${e.message}`);
     return [];
   }
-
   if (!oddsRows.length) return [];
+
+  // 2. Obtener probabilidades del modelo Poisson (independiente del mercado)
+  let poisson = null;
+  try { poisson = getPoissonOdds_(home, away); } catch (e_) {}
+
+  // 3. Fallback: si Poisson no tiene datos, usar ELO
+  let eloProbs = null;
+  if (!poisson) {
+    try { eloProbs = getEloProbabilities_(home, away); } catch (e_) {}
+  }
+
+  /**
+   * Retorna la probabilidad de nuestro modelo para un mercado+selección dados.
+   * Convierte en [0,1], retorna null si no hay dato.
+   */
+  function modelProb(mercado, seleccion) {
+    const sel = String(seleccion || '').toLowerCase();
+    const mkt = String(mercado  || '').toLowerCase();
+
+    // Resultado 1X2
+    if (mkt === '1x2' || mkt === 'h2h' || mkt === 'match winner') {
+      const hName = teamNameToSpanish_(home).toLowerCase();
+      const aName = teamNameToSpanish_(away).toLowerCase();
+      const isHome = sel.includes('home') || sel.toLowerCase().includes(hName.split(' ')[0]);
+      const isAway = sel.includes('away') || sel.toLowerCase().includes(aName.split(' ')[0]);
+      if (poisson) {
+        if (isHome) return poisson.prob_home / 100;
+        if (isAway) return poisson.prob_away / 100;
+        return poisson.prob_draw / 100;
+      }
+      if (eloProbs) {
+        if (isHome) return eloProbs.home;
+        if (isAway) return eloProbs.away;
+        return eloProbs.draw;
+      }
+    }
+
+    // Over/Under
+    if (mkt.includes('total') || mkt.includes('over') || mkt.includes('under')) {
+      if (!poisson) return null;
+      const lineMatch = mkt.match(/(\d+\.?\d*)/);
+      const line = lineMatch ? parseFloat(lineMatch[1]) : 2.5;
+      // Usamos 2.5 como aproximación si no hay línea exacta
+      const lineKey = line === 1.5 ? 'over_1_5' : line === 3.5 ? 'over_3_5' : 'over_2_5';
+      if (sel.includes('over')) return (poisson[lineKey] || poisson.over_2_5) / 100;
+      if (sel.includes('under')) return (poisson[`under_${lineKey.replace('over_','')}`] || poisson.under_2_5) / 100;
+    }
+
+    // BTTS
+    if (mkt.includes('btts') || mkt.includes('both teams')) {
+      if (!poisson) return null;
+      if (sel === 'yes' || sel === 'si' || sel === 'ambos') return poisson.prob_btts_si / 100;
+      return poisson.prob_btts_no / 100;
+    }
+
+    return null;
+  }
 
   const opportunities = [];
 
   oddsRows.forEach(row => {
     const cuota = Number(row.cuota);
-    const prob  = Number(row.probabilidad_modelo);
-    if (!cuota || cuota < 1.01 || !prob || prob <= 0 || prob >= 1) return;
+    if (!cuota || cuota < 1.01) return;
+
+    const prob = modelProb(row.mercado, row.seleccion);
+    if (!prob || prob <= 0 || prob >= 1) return;
 
     const probImplicita = 1 / cuota;
-    const ev            = (prob * cuota) - 1;
-    const edge          = prob - probImplicita;
+    const ev   = (prob * cuota) - 1;
+    const edge = prob - probImplicita;
 
     const kellyRaw = (prob * cuota - 1) / (cuota - 1);
     const kelly    = Math.max(0, Math.min(kellyRaw / KELLY_DIVISOR, KELLY_MAX_FRACTION));
 
+    // Confianza basada en fuente del modelo
+    const confianza = poisson
+      ? (poisson.source === 'poisson_cache' ? 'ALTA' : 'MEDIA')
+      : (eloProbs ? 'MEDIA' : 'BAJA');
+
     opportunities.push({
-      fixture_id:      fixtureId,
-      equipo_local:    fixture.teams.home.name,
-      equipo_visitante: fixture.teams.away.name,
-      mercado:         String(row.mercado    || ''),
-      seleccion:       String(row.seleccion  || ''),
+      fixture_id:       fixtureId,
+      equipo_local:     home,
+      equipo_visitante: away,
+      mercado:          String(row.mercado   || ''),
+      seleccion:        String(row.seleccion || ''),
       cuota,
-      prob_modelo:     prob,
-      prob_implicita:  probImplicita,
+      prob_modelo:      prob,
+      prob_implicita:   probImplicita,
       ev,
       edge,
       kelly,
-      confianza:       String(row.confianza  || 'BAJA'),
-      es_positivo:     ev > EV_POSITIVE_THRESHOLD && edge > EDGE_MIN_THRESHOLD
+      confianza,
+      fuente_modelo:    poisson ? 'POISSON' : (eloProbs ? 'ELO' : 'N/A'),
+      es_positivo:      ev > EV_POSITIVE_THRESHOLD && edge > EDGE_MIN_THRESHOLD
     });
   });
 

@@ -91,8 +91,62 @@ function splitTelegramMessage_(text, maxLen) {
   return chunks;
 }
 
+/**
+ * Reporte matutino: texto + imagen de probabilidades por partido.
+ * Llamado desde cronDailySetup(). Usa Poisson como fuente primaria de probs.
+ */
+function broadcastMorningReport_() {
+  const date     = todayChile_();
+  const partidos = getTodayFixturesForReport_(date);
+  if (!partidos.length) return;
+
+  const aiReports = getTodayAiReports_();
+  const message   = buildMorningTelegramMessage_(date, partidos, aiReports);
+  broadcastTelegramMessage_(message);
+
+  Utilities.sleep(800);
+  partidos.forEach((p, i) => {
+    try {
+      const home = p.local || '', away = p.visitante || '';
+      if (!home || !away) return;
+
+      // Prioridad: Poisson > IA > ELO
+      let probHome = 0.33, probDraw = 0.34, probAway = 0.33;
+      const poisson = getPoissonOdds_(home, away, p.match_key);
+      if (poisson && poisson.prob_home) {
+        probHome = poisson.prob_home / 100;
+        probDraw = poisson.prob_draw / 100;
+        probAway = poisson.prob_away / 100;
+      } else {
+        const aiRows = readAll_(CONFIG.SHEETS.AI_ANALYSIS).filter(r =>
+          norm_(r.local||r.home||'').includes(norm_(home).substring(0,4)) ||
+          norm_(r.visitante||r.away||'').includes(norm_(away).substring(0,4))
+        );
+        if (aiRows.length) {
+          const lat = aiRows[aiRows.length - 1];
+          if (lat.prob_local) { probHome = Number(lat.prob_local); probDraw = Number(lat.prob_empate); probAway = Number(lat.prob_visitante); }
+        } else {
+          const eloP = getEloProbabilities_(home, away);
+          if (eloP) { probHome = eloP.home; probDraw = eloP.draw; probAway = eloP.away; }
+        }
+      }
+
+      const src = poisson ? 'Poisson' : 'ELO';
+      const chartUrl = buildProbabilityChartUrl_(home, away, probHome, probDraw, probAway);
+      const caption  = [
+        `📐 ${src}: ${teamNameToSpanish_(home)} vs ${teamNameToSpanish_(away)}`,
+        `${Math.round(probHome*100)}% · ${Math.round(probDraw*100)}% · ${Math.round(probAway*100)}%`,
+        p.hora_chile ? `🕒 ${p.hora_chile} Chile` : ''
+      ].filter(Boolean).join('\n').substring(0, 1024);
+
+      broadcastTelegramPhoto_(chartUrl, caption);
+      if (i < partidos.length - 1) Utilities.sleep(600);
+    } catch (e_) { console.warn('broadcastMorningReport_ photo:', e_.message); }
+  });
+}
+
 function cronMorningTelegramReport() {
-  const date = todayChile_();
+  throw new Error('DEPRECATED: esta función fue consolidada en cronDailySetup(). Elimina el trigger si existe.');
 
   const partidos  = getTodayFixturesForReport_(date);
   const aiReports = getTodayAiReports_();

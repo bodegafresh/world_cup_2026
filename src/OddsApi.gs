@@ -46,9 +46,90 @@ function getAllOddsFromCacheOrApi_() {
 
   if (fresh && fresh.length) {
     writeOddsCache_(cacheKey, fresh);
+    upsertOddsToSheet_(fresh);
   }
 
   return fresh;
+}
+
+/**
+ * Verifica si existen odds frescos en la hoja OddsApuestas para un partido.
+ * "Fresco" = updated_at hace menos de 4 horas.
+ *
+ * @param {string} matchKey - Identificador del partido (match_key o fixture_id)
+ * @returns {Object|null} La fila de OddsApuestas si está fresca, null si no
+ */
+function getSheetOddsIfFresh_(matchKey) {
+  if (!matchKey) return null;
+  const FRESH_HOURS = 4;
+  try {
+    const rows = readAll_('OddsApuestas');
+    const now = Date.now();
+    const row = rows.find(r => {
+      const key = String(r.match_key || r.fixture_id || '');
+      return key === String(matchKey);
+    });
+    if (!row) return null;
+    const updatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+    const ageHours = (now - updatedAt) / 3600000;
+    return ageHours < FRESH_HOURS ? row : null;
+  } catch (e) {
+    console.warn('getSheetOddsIfFresh_ error:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Upsert de eventos de odds en la hoja OddsApuestas.
+ * Si ya existe una fila con el mismo match_key → update; si no → append.
+ *
+ * @param {Array} events - Array de eventos de The Odds API
+ */
+function upsertOddsToSheet_(events) {
+  if (!events || !events.length) return;
+  const sheetName = 'OddsApuestas';
+  try {
+    const existing = readAll_(sheetName);
+    const now = new Date().toISOString();
+    events.forEach(ev => {
+      const matchKey = `${normalizeTeamName_(ev.home_team)}_vs_${normalizeTeamName_(ev.away_team)}`;
+      const parsed = parseOddsEventWithPinnacle_(ev);
+      if (!parsed) return;
+      const rowData = {
+        match_key:           matchKey,
+        fixture_id:          ev.id || '',
+        home_team:           ev.home_team || '',
+        away_team:           ev.away_team || '',
+        commence_time:       ev.commence_time || '',
+        prob_local:          parsed.prob_local,
+        prob_empate:         parsed.prob_empate,
+        prob_visitante:      parsed.prob_visitante,
+        odd_local:           parsed.odd_local,
+        odd_empate:          parsed.odd_empate,
+        odd_visitante:       parsed.odd_visitante,
+        over25_prob:         parsed.over25_prob,
+        btts_prob:           parsed.btts_prob,
+        bookmakers_count:    parsed.bookmakers_count,
+        pinnacle_prob_local:     parsed.pinnacle_prob_local,
+        pinnacle_prob_empate:    parsed.pinnacle_prob_empate,
+        pinnacle_prob_visitante: parsed.pinnacle_prob_visitante,
+        pinnacle_vig:            parsed.pinnacle_vig,
+        tiene_pinnacle:          parsed.tiene_pinnacle,
+        updated_at:          now
+      };
+      const idx = existing.findIndex(r =>
+        String(r.match_key || r.fixture_id || '') === matchKey ||
+        (ev.id && String(r.fixture_id || '') === String(ev.id))
+      );
+      if (idx >= 0) {
+        updateRow_(sheetName, idx, rowData);
+      } else {
+        appendRow_(sheetName, rowData);
+      }
+    });
+  } catch (e) {
+    console.warn('upsertOddsToSheet_ error:', e.message);
+  }
 }
 
 function fetchAllOddsFromApi_() {

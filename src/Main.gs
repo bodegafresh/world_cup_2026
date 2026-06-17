@@ -1,8 +1,200 @@
-function cronDailyLoadTodayStats() {
-  runWithHealthCheck_('cronDailyLoadTodayStats', () => {
-    const date = todayChile_();
-    loadWorldCupDay_(date);
+// ═══════════════════════════════════════════════════════════════════════════════
+// SISTEMA DE CRONS — 4 triggers, lógica inteligente de ejecución
+//
+// Triggers a configurar en Apps Script → Activadores:
+//   cronDailySetup        → Day timer  → 6:00–7:00 AM
+//   cronLiveEventsMonitor → Minute timer → cada 5 min
+//   cronPostMatch         → Hour timer  → cada hora
+//   cronWeeklyMaintenance → Week timer  → Lunes 3:00–4:00 AM
+//
+// Eliminar: cronDailyLoadTodayStats, cronTomorrowPreview, cronMatchDayAnalysis,
+//           cronTodayPreviewRefresh, cronEvCalculation, cronMorningTelegramReport
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Obtiene el contexto del día (partidos hoy, mañana, status del torneo).
+ * Se cachea 1 hora en PropertiesService para no repetir la lógica entre crons.
+ */
+function getContextoDelDia_() {
+  const props = PropertiesService.getScriptProperties();
+  const cacheKey = 'ctx_' + todayChile_();
+  const cached = props.getProperty(cacheKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (e_) {}
+  }
+
+  const today    = todayChile_();
+  const tomorrow = tomorrowChile_();
+
+  // Usar ESPN (sin cuota) como fuente del calendario
+  let partidosHoy = [], partidosMañana = [];
+  try {
+    partidosHoy    = fetchEspnEventsByDate_(today);
+    partidosMañana = fetchEspnEventsByDate_(tomorrow);
+  } catch (e) {
+    // Fallback a hoja Partidos
+    const all = readAll_(CONFIG.SHEETS.PARTIDOS);
+    partidosHoy    = all.filter(r => normalizeFecha_(r.fecha) === today);
+    partidosMañana = all.filter(r => normalizeFecha_(r.fecha) === tomorrow);
+  }
+
+  const hayPartidosHoy    = partidosHoy.length > 0;
+  const hayPartidosMañana = partidosMañana.length > 0;
+
+  const ctx = { today, tomorrow, hayPartidosHoy, hayPartidosMañana,
+    nHoy: partidosHoy.length, nMañana: partidosMañana.length };
+
+  props.setProperty(cacheKey, JSON.stringify(ctx));
+  return ctx;
+}
+
+/**
+ * CRON 1 — 6:00 AM Chile (Day timer)
+ * Prepara TODO el día en un solo cron:
+ *   - Carga calendario hoy y mañana desde ESPN (gratis)
+ *   - Clima, noticias y H2H para partidos de HOY (fuentes gratuitas)
+ *   - Análisis IA para partidos próximos (OpenAI, solo si no hay análisis)
+ *   - EV y simulación de grupos
+ *   - Reporte matutino por Telegram
+ *   - API-Football: estadísticas del día ANTERIOR (consume cuota)
+ * Costo: ~5 req API-Football (ayer) + 0 req ESPN + ~3 req OpenAI
+ */
+function cronDailySetup() {
+  runWithHealthCheck_('cronDailySetup', () => {
+    const ctx = getContextoDelDia_();
+    Logger.log(`cronDailySetup | hoy: ${ctx.nHoy} partidos | mañana: ${ctx.nMañana}`);
+
+    // 1. Actualizar datos del día anterior con API-Football (estadísticas detalladas)
+    try { loadWorldCupDay_(yesterdayChile_()); } catch (e) { console.warn('LoadDay ayer:', e.message); }
+
+    // 2. Precargar calendario ESPN de hoy y mañana en Partidos
+    try { loadFullWorldCupCalendarFromEspn(); } catch (e) { console.warn('ESPN calendar:', e.message); }
+
+    // 3. Contexto de partidos de hoy (clima, noticias, H2H, cuotas) — fuentes gratuitas
+    if (ctx.hayPartidosHoy) {
+      const fixturesHoy = readAll_(CONFIG.SHEETS.PARTIDOS)
+        .filter(r => normalizeFecha_(r.fecha) === ctx.today && r.fixture_id_af);
+      fixturesHoy.forEach(r => {
+        const fakeFixture = { fixture: { id: r.fixture_id_af, date: r.fecha } };
+        try { gatherFixtureContext_(fakeFixture); } catch (e_) {}
+        Utilities.sleep(500);
+      });
+    }
+
+    // 4. Análisis IA para partidos de hoy (OpenAI, cachea si ya existe)
+    if (ctx.hayPartidosHoy) {
+      const fixturesHoy = readAll_(CONFIG.SHEETS.PARTIDOS)
+        .filter(r => normalizeFecha_(r.fecha) === ctx.today && r.fixture_id_af);
+      fixturesHoy.forEach(r => {
+        const fakeFixture = { fixture: { id: r.fixture_id_af, date: r.fecha } };
+        try { analyzeAndSaveFixture_(fakeFixture); } catch (e_) {}
+        Utilities.sleep(1000);
+      });
+    }
+
+    // 5. Modelo Poisson: recalibrar con partidos FT y precalcular todos los pendientes
+    try { recalcularPoissonOdds(); } catch (e) { console.warn('Poisson:', e.message); }
+
+    // 6. EV y simulación de grupos (Poisson ya disponible → EV usa modelo independiente)
+    try { runGroupSimulation(); } catch (e) { console.warn('GroupSim:', e.message); }
+
+    // 7. Recalcular tabla de posiciones
+    try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
+
+    // 8. Dashboard y reporte matutino
+    try { refreshDashboard(); } catch (e) { console.warn('Dashboard:', e.message); }
+    if (ctx.hayPartidosHoy) {
+      try { broadcastMorningReport_(); } catch (e) { console.warn('MorningReport:', e.message); }
+    }
   });
+}
+
+/**
+ * CRON 2 — cada 5 minutos (Minute timer) — YA EXISTE, mantener igual
+ * Monitorea partidos en vivo con ESPN (sin cuota).
+ * Sale rápido si no hay partidos en curso.
+ */
+// cronLiveEventsMonitor() — definida en LiveEvents.gs, sin cambios
+
+/**
+ * CRON 3 — cada hora (Hour timer)
+ * Acciones post-partido: enriquecer datos con ESPN cuando termina un partido.
+ * Solo actúa si hay partidos que terminaron en la última hora.
+ * Costo: 0 req API-Football | gratis ESPN
+ */
+function cronPostMatch() {
+  runWithHealthCheck_('cronPostMatch', () => {
+    const now      = new Date();
+    const today    = todayChile_();
+    const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
+      .filter(r => normalizeFecha_(r.fecha) === today);
+
+    const recienTerminados = partidos.filter(r => {
+      if (!['FT','AET','PEN'].includes(String(r.status || '').toUpperCase())) return false;
+      // Solo partidos que terminaron hace menos de 90 min
+      const hora = normalizeHora_(r.hora_chile || r.hora);
+      if (!hora) return false;
+      const [hh, mm] = hora.split(':').map(Number);
+      const [yy, mo, dd] = today.split('-').map(Number);
+      const CHILE_OFFSET = -4 * 60 * 60 * 1000;
+      const kickoff = new Date(Date.UTC(yy, mo-1, dd, hh, mm) - CHILE_OFFSET);
+      const finEst  = new Date(kickoff.getTime() + 105 * 60 * 1000); // kickoff + 105 min
+      const diffMin = (now - finEst) / 60000;
+      return diffMin >= 0 && diffMin <= 90;
+    });
+
+    if (!recienTerminados.length) return;
+    Logger.log(`cronPostMatch: ${recienTerminados.length} partido(s) recién terminados`);
+
+    recienTerminados.forEach(r => {
+      // ESPN stats post-partido (goleadores, alineaciones, stats avanzadas)
+      const espnId = r.espn_id || r.espn_event_id;
+      if (espnId) {
+        try {
+          const summary = fetchEspnSummary_(espnId);
+          // Guardar goleadores en ResumenJugadorPartido si no están
+          // Guardar stats en EspnStats
+          const fakeFixture = { fixture: { id: r.fixture_id_af || '', date: r.fecha },
+            teams: { home: { name: r.local }, away: { name: r.visitante } } };
+          try { saveEspnDataForFixture_(fakeFixture, today); } catch (e_) {}
+        } catch (e_) { console.warn('PostMatch ESPN:', e_.message); }
+      }
+      // SofaScore: guardar métricas avanzadas post-partido
+      try {
+        const fecha = normalizeFecha_(r.fecha);
+        saveSofaDataForMatch_(r.local, r.visitante, fecha, r.match_key);
+      } catch (e_) { console.warn('PostMatch SofaScore:', e_.message); }
+
+      Utilities.sleep(300);
+    });
+
+    // Recalcular tabla después de partidos terminados
+    try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla post:', e.message); }
+    try { refreshDashboard(); } catch (e) {}
+  });
+}
+
+/**
+ * CRON 4 — Lunes 3:00 AM (Week timer)
+ * Mantenimiento semanal: auditoría de datos, limpieza de duplicados,
+ * calibración del modelo, reporte de rendimiento de apuestas.
+ * Costo: 0 req API externa
+ */
+function cronWeeklyMaintenance() {
+  runWithHealthCheck_('cronWeeklyMaintenance', () => {
+    Logger.log('cronWeeklyMaintenance: inicio');
+    try { limpiarDuplicadosPartidos(); }  catch (e) { console.warn('LimpDup:', e.message); }
+    try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
+    try { calculateModelCalibration_(); }   catch (e) { console.warn('Calib:', e.message); }
+    try { cronWeeklyPerformanceReport(); }  catch (e) { console.warn('WeekRep:', e.message); }
+    try { refreshDashboard(); }             catch (e) {}
+    Logger.log('cronWeeklyMaintenance: fin');
+  });
+}
+
+// ── Funciones legacy (mantenidas para compatibilidad manual) ──────────────────
+function cronDailyLoadTodayStats() {
+  throw new Error('DEPRECATED: esta función fue consolidada en cronDailySetup(). Elimina el trigger si existe.');
 }
 
 function loadWorldCupDay_(date) {
@@ -66,24 +258,7 @@ function loadWorldCupDay_(date) {
  * cuotas, H2H). NO llama a OpenAI. Todo queda en caché (sheets).
  */
 function cronTomorrowPreview() {
-  runWithHealthCheck_('cronTomorrowPreview', () => {
-    const date = tomorrowChile_();
-
-    const fixturesData = fetchWorldCupFixturesByDate_(date);
-    const fixtures = fixturesData.response || [];
-
-    saveRawJson_(`fixtures/${date}`, `tomorrow-fixtures-${date}.json`, fixturesData);
-    upsertGoldenMatchesFromFixtures_(fixtures, date, createQuotaTracker_());
-
-    fixtures.forEach(fixture => {
-      gatherFixtureContext_(fixture);
-      Utilities.sleep(1000);
-    });
-
-    try { runSmartAlertsForTomorrow_();    } catch (e) { console.warn('SmartAlerts:', e.message); }
-    try { checkClassificationAlerts_();   } catch (e) { console.warn('ClassifAlert:', e.message); }
-    try { refreshDashboard(); }             catch (e) { console.warn('Dashboard:', e.message); }
-  });
+  throw new Error('DEPRECATED: esta función fue consolidada en cronDailySetup(). Elimina el trigger si existe.');
 }
 
 /**
@@ -91,22 +266,7 @@ function cronTomorrowPreview() {
  * próximos (entre 30 min y 4 horas) que aún no tienen análisis guardado.
  */
 function cronMatchDayAnalysis() {
-  runWithHealthCheck_('cronMatchDayAnalysis', () => {
-    const date = todayChile_();
-    const fixturesData = fetchWorldCupFixturesByDate_(date);
-    const fixtures = fixturesData.response || [];
-    const now = new Date();
-
-    fixtures.forEach(fixture => {
-      const kickoff = new Date(fixture.fixture.date);
-      const minutesUntilKickoff = (kickoff - now) / 60000;
-
-      if (minutesUntilKickoff < 30 || minutesUntilKickoff > 240) return;
-
-      analyzeAndSaveFixture_(fixture);
-      Utilities.sleep(2000);
-    });
-  });
+  throw new Error('DEPRECATED: esta función fue consolidada en cronDailySetup(). Elimina el trigger si existe.');
 }
 
 /**
@@ -115,33 +275,7 @@ function cronMatchDayAnalysis() {
  * Guarda en EvOpportunities y envía alerta Telegram si hay EV+.
  */
 function cronEvCalculation() {
-  runWithHealthCheck_('cronEvCalculation', () => {
-    const date = tomorrowChile_();
-    const fixturesData = fetchWorldCupFixturesByDate_(date);
-    const fixtures = fixturesData.response || [];
-
-    if (!fixtures.length) {
-      Logger.log('cronEvCalculation: sin partidos mañana.');
-      return;
-    }
-
-    fixtures.forEach(fixture => {
-      try {
-        const opportunities = calculateEvForFixture_(fixture);
-        if (opportunities.length) {
-          saveAndAlertEvOpportunities_(fixture, opportunities);
-        }
-      } catch (e) {
-        console.warn(`EV fixture ${fixture.fixture.id}: ${e.message}`);
-      }
-      Utilities.sleep(500);
-    });
-
-    Logger.log(`cronEvCalculation completado: ${fixtures.length} fixtures procesados.`);
-
-    // Actualizar simulación de grupos (usa datos de Clasificacion ya cargados)
-    try { runGroupSimulation(); } catch (e) { console.warn('GroupSim:', e.message); }
-  });
+  throw new Error('DEPRECATED: esta función fue consolidada en cronDailySetup(). Elimina el trigger si existe.');
 }
 
 /**
@@ -149,16 +283,7 @@ function cronEvCalculation() {
  * partidos de hoy. Cada paso usa caché; OpenAI solo se llama si no hay análisis.
  */
 function cronTodayPreviewRefresh() {
-  runWithHealthCheck_('cronTodayPreviewRefresh', () => {
-    const date = todayChile_();
-    const fixturesData = fetchWorldCupFixturesByDate_(date);
-    const fixtures = fixturesData.response || [];
-
-    fixtures.forEach(fixture => { gatherFixtureContext_(fixture); Utilities.sleep(1000); });
-    fixtures.forEach(fixture => { analyzeAndSaveFixture_(fixture); Utilities.sleep(2000); });
-
-    try { refreshDashboard(); } catch (e) { console.warn('Dashboard:', e.message); }
-  });
+  throw new Error('DEPRECATED: esta función fue consolidada en cronDailySetup(). Elimina el trigger si existe.');
 }
 
 /**

@@ -1,4 +1,8 @@
+// DEPRECATED: football-data.org no aporta datos únicos que no cubra ESPN/API-Football.
+// Mantener para referencia histórica. No llamar desde crons activos.
+
 function footballDataGet_(path, params) {
+  console.warn('FootballDataOrg DEPRECATED:', 'footballDataGet_');
   const query = Object.keys(params || {})
     .filter(k => params[k] !== undefined && params[k] !== null && params[k] !== '')
     .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
@@ -25,16 +29,19 @@ function footballDataGet_(path, params) {
 }
 
 function fetchFootballDataMatch_(matchId) {
+  console.warn('FootballDataOrg DEPRECATED:', 'fetchFootballDataMatch_');
   return footballDataGet_(`/matches/${matchId}`, {});
 }
 
 function fetchFootballDataWorldCupMatches_() {
+  console.warn('FootballDataOrg DEPRECATED:', 'fetchFootballDataWorldCupMatches_');
   return footballDataGet_(`/competitions/${CONFIG.FOOTBALL_DATA.WORLD_CUP_CODE}/matches`, {
     season: CONFIG.FOOTBALL_DATA.SEASON
   });
 }
 
 function fetchFootballDataMatchesByDate_(dateFrom, dateTo) {
+  console.warn('FootballDataOrg DEPRECATED:', 'fetchFootballDataMatchesByDate_');
   const data = footballDataGet_('/matches', {
     dateFrom: dateFrom,
     dateTo: dateTo
@@ -61,6 +68,7 @@ function fetchFootballDataMatchesByDate_(dateFrom, dateTo) {
  * cae a IDs manuales de fallback si están definidos para esa fecha.
  */
 function fetchFootballDataMatchesByDateWithFallback_(date) {
+  console.warn('FootballDataOrg DEPRECATED:', 'fetchFootballDataMatchesByDateWithFallback_');
   const dateTo = addDaysToDateString_(date, 1);
 
   const data = fetchFootballDataMatchesByDate_(date, dateTo);
@@ -107,6 +115,7 @@ function fetchFootballDataMatchesByDateWithFallback_(date) {
  * resultados por limitaciones del plan gratuito.
  */
 function getFootballDataFallbackMatchIdsByDate_(date) {
+  console.warn('FootballDataOrg DEPRECATED:', 'getFootballDataFallbackMatchIdsByDate_');
   const fallback = {
     '2026-06-12': [537328]
   };
