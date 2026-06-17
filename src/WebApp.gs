@@ -55,6 +55,7 @@ function routeWebRequest_(e) {
       case 'noticias':    data = getWebNoticias_();      break;
       case 'squad':       data = getWebSquad_(e);        break;
       case 'stats':       data = getWebStats_();         break;
+      case 'arbitros':    data = getWebArbitros_();       break;
       default:            data = { error: 'tab desconocido: ' + tab };
     }
     return ContentService
@@ -563,6 +564,27 @@ function getWebLive_() {
 
     const statsRow = espnStats.find(s => String(s.fixture_id || '') === fid) || null;
 
+    // Árbitro del partido
+    let arbitro = null;
+    try {
+      const arbRows = readAll_(CONFIG.SHEETS.ARBITROS)
+        .filter(r => String(r.fixture_id || r.match_key || '') === fid ||
+                     String(r.match_key || '') === matchKey);
+      if (arbRows.length) {
+        const ar = arbRows[0];
+        const stats = getRefereeStats_(ar.nombre);
+        arbitro = {
+          nombre:       ar.nombre       || '',
+          nacionalidad: ar.nacionalidad || '',
+          confederacion:ar.confederacion|| '',
+          amarillas_pp: stats ? stats.amarillas_pp  : null,
+          rojas_pp:     stats ? (stats.rojas / (stats.partidos || 1)).toFixed(2) : null,
+          tendencia:    stats ? stats.tendencia : '',
+          partidos_torneo: stats ? stats.partidos : 0
+        };
+      }
+    } catch(e_) {}
+
     // Alineaciones del partido
     const matchAlin = alineaciones
       .filter(a => String(a.fixture_id || '') === fid)
@@ -615,6 +637,7 @@ function getWebLive_() {
       clima:           climaMap[fid] || null,
       eventos:         evs,
       alineaciones:    matchAlin,
+      arbitro:         arbitro,
       poisson:         poisson,
       stats: statsRow ? {
         posesion_local:       Number(statsRow.posesion_local     || 0),
@@ -1323,4 +1346,58 @@ function getWebStats_() {
 
   result.sort(function(a, b) { return b.gf - a.gf || b.pg - a.pg; });
   return result;
+}
+
+// ─── Tab: arbitros ────────────────────────────────────────────────────────────
+
+function getWebArbitros_() {
+  try {
+    const rows = readAll_(CONFIG.SHEETS.ARBITROS);
+    if (!rows.length) return [];
+
+    // Agrupar por árbitro
+    const byRef = {};
+    rows.forEach(r => {
+      const nombre = r.nombre || '';
+      if (!nombre) return;
+      if (!byRef[nombre]) {
+        byRef[nombre] = {
+          nombre,
+          nacionalidad:  r.nacionalidad  || '',
+          confederacion: r.confederacion || '',
+          partidos: [], amarillas: 0, rojas: 0, penales: 0
+        };
+      }
+      byRef[nombre].partidos.push({
+        fecha:           r.fecha           || '',
+        local:           teamNameToSpanish_(r.equipo_local    || ''),
+        visitante:       teamNameToSpanish_(r.equipo_visitante|| ''),
+        amarillas:       Number(r.amarillas || 0),
+        rojas:           Number(r.rojas     || 0),
+        penales:         Number(r.penales   || 0)
+      });
+      byRef[nombre].amarillas += Number(r.amarillas || 0);
+      byRef[nombre].rojas     += Number(r.rojas     || 0);
+      byRef[nombre].penales   += Number(r.penales   || 0);
+    });
+
+    return Object.values(byRef).map(ref => {
+      const pj = ref.partidos.length;
+      const amarillasPP = pj ? (ref.amarillas / pj) : 0;
+      return {
+        nombre:        ref.nombre,
+        nacionalidad:  ref.nacionalidad,
+        confederacion: ref.confederacion,
+        pj,
+        amarillas:     ref.amarillas,
+        rojas:         ref.rojas,
+        penales:       ref.penales,
+        amarillas_pp:  Number(amarillasPP.toFixed(1)),
+        tendencia:     amarillasPP >= 4.5 ? 'ESTRICTO' : amarillasPP <= 2.5 ? 'PERMISIVO' : 'NORMAL',
+        partidos:      ref.partidos.slice(-5) // últimos 5
+      };
+    }).sort((a, b) => b.pj - a.pj);
+  } catch(e) {
+    return { error: e.message };
+  }
 }

@@ -101,6 +101,7 @@ function upsertOddsToSheet_(events) {
         home_team:           ev.home_team || '',
         away_team:           ev.away_team || '',
         commence_time:       ev.commence_time || '',
+        fuente:              'THE_ODDS_API',
         prob_local:          parsed.prob_local,
         prob_empate:         parsed.prob_empate,
         prob_visitante:      parsed.prob_visitante,

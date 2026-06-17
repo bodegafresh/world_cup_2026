@@ -44,15 +44,48 @@ function calculateEvForFixture_(fixture) {
   const away = fixture.teams.away.name;
 
   // 1. Obtener cuotas de mercado (The Odds API)
-  let oddsRows;
+  // Matching por nombre de equipo porque fixture_id de The Odds API (UUID)
+  // difiere del fixture_id de API-Football (numérico)
+  const normT = s => String(s || '').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+    .replace(/[^a-z]/g,'');
+  const homeNorm = normT(home);
+  const awayNorm = normT(away);
+  let allOddsRows;
   try {
-    oddsRows = readAll_(CONFIG.SHEETS.ODDS)
-      .filter(r => String(r.fixture_id) === fixtureId
-                && String(r.fuente || '') === 'THE_ODDS_API');
+    // Primero intentar desde caché/API en tiempo real
+    const liveOdds = getAllOddsFromCacheOrApi_();
+    if (liveOdds && liveOdds.length) {
+      const ev = liveOdds.find(e =>
+        (normT(e.home_team) === homeNorm && normT(e.away_team) === awayNorm) ||
+        (normT(e.home_team) === awayNorm && normT(e.away_team) === homeNorm)
+      );
+      if (ev) {
+        const parsed = parseOddsEventWithPinnacle_(ev);
+        if (parsed && parsed.odd_local) {
+          allOddsRows = [{ home_team: ev.home_team, away_team: ev.away_team,
+            odd_local: parsed.odd_local, odd_empate: parsed.odd_empate, odd_visitante: parsed.odd_visitante,
+            prob_local: parsed.prob_local, prob_empate: parsed.prob_empate, prob_visitante: parsed.prob_visitante,
+            over25_prob: parsed.over25_prob, btts_prob: parsed.btts_prob,
+            bookmakers_count: parsed.bookmakers_count, fuente: 'THE_ODDS_API' }];
+        }
+      }
+    }
+    // Fallback: leer hoja OddsApuestas por nombre de equipo
+    if (!allOddsRows || !allOddsRows.length) {
+      allOddsRows = readAll_(CONFIG.SHEETS.ODDS).filter(r => {
+        const rH = normT(r.home_team || '');
+        const rA = normT(r.away_team || '');
+        return (rH === homeNorm && rA === awayNorm) ||
+               (rH === awayNorm && rA === homeNorm);
+      });
+    }
   } catch (e) {
     console.warn(`calculateEvForFixture_ ${fixtureId}: ${e.message}`);
     return [];
   }
+  const oddsRows = allOddsRows || [];
   if (!oddsRows.length) return [];
 
   // 2. Obtener probabilidades del modelo Poisson (independiente del mercado)
@@ -385,34 +418,116 @@ function buildFixtureFromSheetRow_(row) {
 }
 
 // ── Función pública para ejecutar desde el editor ─────────────────────────────
+/**
+ * Calcula EV directamente desde The Odds API + modelo Poisson/ELO.
+ * No depende del schema de OddsApuestas — trabaja con los eventos en tiempo real.
+ */
 function calcularEV() {
-  const today    = todayChile_();
-  const tomorrow = tomorrowChile_();
-  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
-    .filter(r => {
-      const f = normalizeFecha_(r.fecha);
-      return (f === today || f === tomorrow) &&
-             !['FT','AET','PEN'].includes(String(r.status || '').toUpperCase());
-    });
+  const normT = s => String(s || '').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+    .replace(/[^a-z]/g,'');
 
-  if (!partidos.length) {
-    Logger.log('No hay partidos pendientes para hoy/mañana.');
+  // 1. Obtener todos los eventos con cuotas
+  const oddsEvents = getAllOddsFromCacheOrApi_();
+  if (!oddsEvents || !oddsEvents.length) {
+    Logger.log('❌ No se obtuvieron eventos de The Odds API. Verifica clave y sport_key.');
     return;
   }
+  Logger.log(`✅ ${oddsEvents.length} eventos obtenidos de The Odds API`);
 
-  let total = 0;
-  partidos.forEach(row => {
-    try {
-      const fixture = buildFixtureFromSheetRow_(row);
-      const opps    = calculateEvForFixture_(fixture);
-      if (opps.length) {
-        saveAndAlertEvOpportunities_(fixture, opps);
-        total += opps.length;
-      }
-    } catch (e) {
-      Logger.log(`Error EV ${row.local} vs ${row.visitante}: ${e.message}`);
+  const today    = todayChile_();
+  const tomorrow = tomorrowChile_();
+  const sheet    = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEETS.EV_OPPORTUNITIES);
+
+  // Limpiar oportunidades anteriores de hoy/mañana
+  try {
+    const existing = readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES);
+    // No borramos todo — mantenemos historial de días anteriores
+  } catch(e_) {}
+
+  let totalOpps = 0;
+  const now = nowChile_();
+
+  oddsEvents.forEach(ev => {
+    const homeEn = ev.home_team || '';
+    const awayEn = ev.away_team || '';
+    const homeEs = teamNameToSpanish_(homeEn);
+    const awayEs = teamNameToSpanish_(awayEn);
+
+    // Solo partidos de hoy/mañana
+    const commence = String(ev.commence_time || '').substring(0, 10);
+    if (commence !== today && commence !== tomorrow) return;
+
+    // Obtener probabilidades del modelo
+    let poisson = null;
+    let eloProbs = null;
+    try { poisson  = getPoissonOdds_(homeEn, awayEn); } catch(e_) {}
+    if (!poisson) {
+      try { poisson = getPoissonOdds_(homeEs, awayEs); } catch(e_) {}
     }
+    if (!poisson) {
+      try { eloProbs = getEloProbabilities_(homeEn, awayEn); } catch(e_) {}
+    }
+    if (!poisson && !eloProbs) {
+      Logger.log(`⚠️  Sin modelo para ${homeEs} vs ${awayEs}`);
+      return;
+    }
+
+    const parsed = parseOddsEventWithPinnacle_(ev);
+    if (!parsed) return;
+
+    const fuente = poisson ? 'POISSON' : 'ELO';
+    const confianza = poisson
+      ? (poisson.source === 'poisson_cache' ? 'ALTA' : 'MEDIA')
+      : 'MEDIA';
+
+    const mkKey = `${normT(homeEs)}_vs_${normT(awayEs)}_${commence}`;
+
+    // Calcular EV para cada mercado disponible
+    const mercados = [
+      { mercado: '1X2', seleccion: homeEs,
+        cuota: parsed.odd_local,
+        prob: poisson ? poisson.prob_home/100 : (eloProbs ? eloProbs.home : null) },
+      { mercado: '1X2', seleccion: 'Empate',
+        cuota: parsed.odd_empate,
+        prob: poisson ? poisson.prob_draw/100 : (eloProbs ? eloProbs.draw : null) },
+      { mercado: '1X2', seleccion: awayEs,
+        cuota: parsed.odd_visitante,
+        prob: poisson ? poisson.prob_away/100 : (eloProbs ? eloProbs.away : null) },
+      { mercado: 'OVER/UNDER 2.5', seleccion: 'Over 2.5',
+        cuota: parsed.over25_cuota || null,
+        prob: poisson ? (poisson.over_2_5||poisson['over_2.5']||0)/100 : null },
+      { mercado: 'BTTS', seleccion: 'Sí',
+        cuota: parsed.btts_cuota || null,
+        prob: poisson ? (poisson.prob_btts_si||poisson.btts_yes||0)/100 : null }
+    ];
+
+    mercados.forEach(m => {
+      if (!m.cuota || m.cuota < 1.01 || !m.prob || m.prob <= 0 || m.prob >= 1) return;
+      const ev_val = (m.prob * m.cuota) - 1;
+      const kelly  = Math.max(0, Math.min(((m.prob * m.cuota - 1) / (m.cuota - 1)) / KELLY_DIVISOR, KELLY_MAX_FRACTION));
+
+      appendRow_(CONFIG.SHEETS.EV_OPPORTUNITIES, {
+        fixture_id:   mkKey,
+        timestamp:    now,
+        fecha:        commence,
+        local:        homeEs,
+        visitante:    awayEs,
+        mercado:      m.mercado,
+        seleccion:    m.seleccion,
+        cuota:        m.cuota,
+        prob_modelo:  m.prob,
+        ev:           ev_val,
+        edge:         m.prob - 1/m.cuota,
+        kelly:        kelly,
+        ev_positivo:  ev_val > EV_POSITIVE_THRESHOLD,
+        confianza:    confianza,
+        fuente_modelo: fuente
+      });
+      totalOpps++;
+    });
   });
-  Logger.log(`calcularEV completado: ${total} oportunidades para ${partidos.length} partidos.`);
-  Logger.log('Nota: requiere cuotas en hoja Odds (fuente THE_ODDS_API). Sin cuotas → sin oportunidades.');
+
+  Logger.log(`✅ calcularEV completado: ${totalOpps} mercados calculados para ${oddsEvents.length} eventos.`);
 }
