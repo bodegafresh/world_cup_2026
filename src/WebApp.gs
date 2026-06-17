@@ -45,6 +45,7 @@ function routeWebRequest_(e) {
       case 'simulation':  data = getWebSimulation_();   break;
       case 'performance': data = getWebPerformance_();  break;
       case 'predictions': data = getWebPredictions_();  break;
+      case 'hoy':         data = getWebHoy_();           break;
       case 'live':        data = getWebLive_();         break;
       case 'teams':       data = getWebTeams_();        break;
       case 'players':     data = getWebPlayers_();      break;
@@ -76,7 +77,7 @@ function getWebDashboard_() {
   const mapPartido = r => ({
     match_key:    r.match_key   || '',
     fecha:        normalizeFecha_(r.fecha),
-    hora:         r.hora_chile  || r.hora || '',
+    hora:         formatHoraChile_(r.hora_chile || r.hora),
     local:        teamNameToSpanish_(r.local     || ''),
     visitante:    teamNameToSpanish_(r.visitante || ''),
     goles_local:  r.goles_local   ?? null,
@@ -276,7 +277,7 @@ function getWebPredictions_() {
     return {
       match_key:  r.match_key || '',
       fecha:      normalizeFecha_(r.fecha),
-      hora:       r.hora_chile || r.hora || '',
+      hora:       formatHoraChile_(r.hora_chile || r.hora),
       local:      teamNameToSpanish_(home),
       visitante:  teamNameToSpanish_(away),
       grupo:      r.grupo  || '',
@@ -300,6 +301,121 @@ function getWebPredictions_() {
       } : null
     };
   });
+}
+
+// Convierte un valor hora de Google Sheets (Date object o string ISO) a "HH:mm" en hora Chile.
+// Sheets serializa time-only como 1899-12-30T{UTC_hora}.000Z — la hora en UTC hay que convertirla.
+function formatHoraChile_(val) {
+  if (!val) return '';
+  // Ya es "HH:mm" limpio → devolver directo
+  if (typeof val === 'string' && /^\d{1,2}:\d{2}$/.test(val.trim())) return val.trim();
+
+  // Extraer HH:MM desde ISO string o Date → siempre vía UTC hours para evitar bugs con 1899
+  const s = (val instanceof Date) ? val.toISOString() : String(val);
+  const m = s.match(/T(\d{2}):(\d{2})/);
+  if (!m) return s.substring(0, 5);
+
+  // Reconstruir con fecha de hoy para aplicar offset Chile correctamente
+  const todayStr = todayChile_();
+  const d = new Date(todayStr + 'T' + m[1] + ':' + m[2] + ':00Z');
+  return Utilities.formatDate(d, CONFIG.TIMEZONE, 'HH:mm');
+}
+
+// ─── Tab: hoy ────────────────────────────────────────────────────────────────
+
+function getWebHoy_() {
+  const date     = todayChile_();
+  const partidos = getTodayFixturesForReport_(date);
+
+  const FINAL_STATUS = ['FT','AET','PEN'];
+  const LIVE_STATUS  = ['1H','2H','HT','ET','P','BT','INT','LIVE'];
+
+  const normN = s => String(s || '').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+    .replace(/[^a-z]/g,'');
+
+  // Deduplicar por par de equipos igual que el bot
+  const STATUS_PRIORITY = s => {
+    if (LIVE_STATUS.includes(s)) return 3;
+    if (FINAL_STATUS.includes(s)) return 2;
+    return 1;
+  };
+  const deduped = new Map();
+  partidos.forEach(p => {
+    const key = normN(teamNameToSpanish_(p.local)) + '_' + normN(teamNameToSpanish_(p.visitante));
+    const ex  = deduped.get(key);
+    if (!ex || STATUS_PRIORITY(p.status) > STATUS_PRIORITY(ex.status)) deduped.set(key, p);
+  });
+  const lista = [...deduped.values()]
+    .sort((a, b) => (a.hora_chile || '').localeCompare(b.hora_chile || ''));
+
+  // ESPN scoreboard — override status y scores en tiempo real
+  const liveScoreMap = {};
+  const ESPN_MAP = {
+    'in progress':'1H', 'halftime':'HT', 'end period':'2H',
+    'final':'FT', 'full time':'FT', 'final/aet':'AET', 'final/pen':'PEN'
+  };
+  try {
+    const espnData = espnGet_('/scoreboard');
+    (espnData.events || []).forEach(ev => {
+      const comp  = (ev.competitions || [])[0] || {};
+      const comps = comp.competitors || [];
+      const home  = comps.find(c => c.homeAway === 'home') || {};
+      const away  = comps.find(c => c.homeAway === 'away') || {};
+      const desc  = String((ev.status && ev.status.type && ev.status.type.description) || '').toLowerCase();
+      const short = String((ev.status && ev.status.type && ev.status.type.shortDetail) || '');
+      const entry = {
+        goles_local:     home.score !== undefined ? home.score : null,
+        goles_visitante: away.score !== undefined ? away.score : null,
+        status:          ESPN_MAP[desc] || null,
+        minuto:          short
+      };
+      const hEn = (home.team || {}).displayName || '';
+      const aEn = (away.team || {}).displayName || '';
+      liveScoreMap[normN(hEn) + '_' + normN(aEn)] = entry;
+      liveScoreMap[normN(teamNameToSpanish_(hEn)) + '_' + normN(teamNameToSpanish_(aEn))] = entry;
+    });
+  } catch (e_) { /* fallback a hoja */ }
+
+  // Override y enriquecer con ESPN
+  lista.forEach(p => {
+    const k    = normN(teamNameToSpanish_(p.local)) + '_' + normN(teamNameToSpanish_(p.visitante));
+    const espn = liveScoreMap[k];
+    if (!espn) return;
+    if (espn.status) p.status = espn.status;
+    if (espn.goles_local     !== null) p.goles_local     = espn.goles_local;
+    if (espn.goles_visitante !== null) p.goles_visitante = espn.goles_visitante;
+    if (espn.minuto)                   p.minuto          = espn.minuto;
+  });
+
+  // Clasificar en tres grupos
+  const terminados = lista.filter(p => FINAL_STATUS.includes(p.status));
+  const enVivo     = lista.filter(p => LIVE_STATUS.includes(p.status));
+  const proximos   = lista.filter(p => !FINAL_STATUS.includes(p.status) && !LIVE_STATUS.includes(p.status));
+
+  // Normalizar nombres a español para la web
+  const norm = p => ({
+    local:           teamNameToSpanish_(p.local),
+    visitante:       teamNameToSpanish_(p.visitante),
+    goles_local:     p.goles_local     !== undefined && p.goles_local     !== '' ? p.goles_local     : null,
+    goles_visitante: p.goles_visitante !== undefined && p.goles_visitante !== '' ? p.goles_visitante : null,
+    status:          p.status  || 'NS',
+    minuto:          p.minuto  || '',
+    hora_chile:      formatHoraChile_(p.hora_chile),
+    grupo:           p.grupo   || '',
+    ronda:           p.ronda   || '',
+    estadio:         p.estadio || '',
+    ciudad:          p.ciudad  || '',
+    match_key:       p.match_key || ''
+  });
+
+  return {
+    fecha:      date,
+    terminados: terminados.map(norm),
+    en_vivo:    enVivo.map(norm),
+    proximos:   proximos.map(norm)
+  };
 }
 
 // ─── Tab: live ───────────────────────────────────────────────────────────────
@@ -475,7 +591,7 @@ function getWebMatch_(e) {
   return {
     match_key:       matchKey,
     fecha:           normalizeFecha_(m.fecha),
-    hora:            m.hora_chile || m.hora || '',
+    hora:            formatHoraChile_(m.hora_chile || m.hora),
     local:           teamNameToSpanish_(m.local     || ''),
     visitante:       teamNameToSpanish_(m.visitante || ''),
     goles_local:     m.goles_local     ?? null,
