@@ -3,5 +3,7 @@ web/**
 docs/**
 .git/**
 *.md
-*.json
 *.toml
+package.json
+package-lock.json
+.clasp.json

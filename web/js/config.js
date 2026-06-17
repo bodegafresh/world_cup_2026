@@ -13,7 +13,7 @@ const SPREADSHEET_ID = '1SDIOcAn3ai_5JtS_-X7cwySAUCQomG9Oo5Yc-4HPH5w';
 // ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
 // WORKER_URL: URL de tu Cloudflare Worker (ya lo tienes configurado para Telegram)
 // Ejemplo: 'https://mundial2026.tu-usuario.workers.dev'
-const WORKER_URL = 'https://dark-waterfall-4199.bodegafresh.workers.dev/';
+const WORKER_URL = 'https://dark-waterfall-4199.bodegafresh.workers.dev';
 
 const TORNEO_NOMBRE = 'Mundial FIFA 2026';
 const TORNEO_EMOJI  = '🏆';

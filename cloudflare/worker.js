@@ -38,8 +38,8 @@ export default {
 // ─── Dashboard API ────────────────────────────────────────────────────────────
 
 async function handleApi(request, url, env) {
-  const gasUrl = env.GAS_URL;
-  if (!gasUrl) return corsResponse(JSON.stringify({ ok: false, error: 'GAS_URL no configurado' }), 500);
+  const gasUrl = env.GAS_WEBAPP_URL || env.GAS_URL;
+  if (!gasUrl) return corsResponse(JSON.stringify({ ok: false, error: 'GAS_WEBAPP_URL no configurado' }), 500);
 
   // Verificar clave del dashboard
   const key = url.searchParams.get('key') || '';
