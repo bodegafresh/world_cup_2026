@@ -542,17 +542,24 @@ function buildTodayCommandResponse_() {
   const liveScoreMap = {};
   try {
     const espnData = espnGet_('/scoreboard');
+    const normN = s => String(s || '').toLowerCase()
+      .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+      .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+      .replace(/[^a-z]/g,'');
     (espnData.events || []).forEach(ev => {
       const comp  = (ev.competitions || [])[0] || {};
       const comps = comp.competitors || [];
       const home  = comps.find(c => c.homeAway === 'home') || {};
       const away  = comps.find(c => c.homeAway === 'away') || {};
-      const normN = s => String(s || '').toLowerCase().replace(/[^a-z]/g,'');
-      const key   = normN((home.team||{}).displayName) + '_' + normN((away.team||{}).displayName);
-      liveScoreMap[key] = {
+      const score = {
         gLocal: home.score !== undefined ? home.score : null,
         gVisit: away.score !== undefined ? away.score : null
       };
+      const hNameEn = (home.team||{}).displayName || '';
+      const aNameEn = (away.team||{}).displayName || '';
+      // Registrar con nombre ESPN (inglés) Y nombre español — para que el lookup siempre encuentre
+      liveScoreMap[normN(hNameEn) + '_' + normN(aNameEn)] = score;
+      liveScoreMap[normN(teamNameToSpanish_(hNameEn)) + '_' + normN(teamNameToSpanish_(aNameEn))] = score;
     });
   } catch (e_) { /* usar datos de hoja como fallback */ }
 
@@ -575,7 +582,10 @@ function buildTodayCommandResponse_() {
     enVivo.forEach(p => {
       const local = teamNameToSpanish_(p.local);
       const visit = teamNameToSpanish_(p.visitante);
-      const normN = s => String(s || '').toLowerCase().replace(/[^a-z]/g,'');
+      const normN = s => String(s || '').toLowerCase()
+        .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+        .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+        .replace(/[^a-z]/g,'');
       const liveKey = normN(teamNameToSpanish_(p.local)) + '_' + normN(teamNameToSpanish_(p.visitante));
       const liveScore = liveScoreMap[liveKey] || {};
       const gLocal = liveScore.gLocal !== null && liveScore.gLocal !== undefined

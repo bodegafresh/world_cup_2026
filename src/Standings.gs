@@ -170,84 +170,96 @@ const WC2026_GROUPS = {
  * Ejecutar manualmente después de loadFullWorldCupCalendarFromEspn().
  */
 function recalcularTablaDesdePartidos() {
-  const rows = readAll_(CONFIG.SHEETS.PARTIDOS);
-
-  const FT_STATUS = ['FT', 'AET', 'PEN'];
-  const played = rows.filter(r =>
-    FT_STATUS.includes(String(r.status || '').toUpperCase()) &&
-    r.goles_local !== '' && r.goles_local !== null && r.goles_local !== undefined &&
-    r.goles_visitante !== '' && r.goles_visitante !== null && r.goles_visitante !== undefined
-  );
-
-  if (!played.length) {
-    Logger.log('No hay partidos terminados en la hoja Partidos.');
-    return;
-  }
-
-  // acumular stats por equipo
-  const stats = {}; // equipo → { grupo, pj, pg, pe, pp, gf, gc }
-  const ensure = (equipo, grupo) => {
-    if (!stats[equipo]) stats[equipo] = { grupo: grupo || '', pj:0, pg:0, pe:0, pp:0, gf:0, gc:0 };
+  // Inicializar los 48 equipos con 0 stats — garantiza exactamente 4 por grupo
+  const ALL_48 = {
+    'Grupo A': ['México','Sudáfrica','Corea del Sur','República Checa'],
+    'Grupo B': ['Canadá','Bosnia','Catar','Suiza'],
+    'Grupo C': ['Brasil','Marruecos','Haití','Escocia'],
+    'Grupo D': ['EE.UU.','Paraguay','Australia','Turquía'],
+    'Grupo E': ['Alemania','Curazao','Costa de Marfil','Ecuador'],
+    'Grupo F': ['Países Bajos','Japón','Suecia','Túnez'],
+    'Grupo G': ['Bélgica','Egipto','Irán','Nueva Zelanda'],
+    'Grupo H': ['España','Cabo Verde','Arabia Saudita','Uruguay'],
+    'Grupo I': ['Francia','Senegal','Irak','Noruega'],
+    'Grupo J': ['Argentina','Argelia','Austria','Jordania'],
+    'Grupo K': ['Portugal','Congo DR','Uzbekistán','Colombia'],
+    'Grupo L': ['Inglaterra','Croacia','Ghana','Panamá'],
   };
 
-  played.forEach(r => {
-    const home  = teamNameToSpanish_(r.local     || r.home     || '') || (r.local || r.home || '');
-    const away  = teamNameToSpanish_(r.visitante || r.away     || '') || (r.visitante || r.away || '');
-    if (!home || !away) return; // skip incomplete rows
-    const grupo = r.grupo || WC2026_GROUPS[home] || WC2026_GROUPS[r.local || ''] || WC2026_GROUPS[r.home || ''] || '';
-    const gh    = parseInt(r.goles_local)     || 0;
-    const ga    = parseInt(r.goles_visitante) || 0;
-
-    ensure(home, grupo);
-    ensure(away, grupo);
-
-    stats[home].pj++; stats[away].pj++;
-    stats[home].gf += gh; stats[home].gc += ga;
-    stats[away].gf += ga; stats[away].gc += gh;
-
-    if (gh > ga)      { stats[home].pg++; stats[away].pp++; }
-    else if (gh < ga) { stats[away].pg++; stats[home].pp++; }
-    else              { stats[home].pe++; stats[away].pe++; }
-  });
-
-  // Construir filas con puntos y GD, ordenadas por grupo
-  const grupos = {};
-  Object.entries(stats).forEach(([equipo, s]) => {
-    const puntos = s.pg * 3 + s.pe;
-    const gd     = s.gf - s.gc;
-    const g      = s.grupo || 'Sin grupo';
-    if (!grupos[g]) grupos[g] = [];
-    grupos[g].push({ equipo, puntos, gd, ...s });
-  });
-
-  const groupRows = [];
-  Object.keys(grupos).sort().forEach(grupo => {
-    const equipos = grupos[grupo]
-      .sort((a, b) => b.puntos - a.puntos || b.gd - a.gd || b.gf - a.gf);
-    equipos.forEach((e, i) => {
-      groupRows.push({
-        grupo,
-        posicion:    i + 1,
-        equipo_id:   '',
-        equipo:      e.equipo,
-        pj:          e.pj,
-        pg:          e.pg,
-        pe:          e.pe,
-        pp:          e.pp,
-        gf:          e.gf,
-        gc:          e.gc,
-        gd:          e.gf - e.gc,
-        puntos:      e.puntos,
-        forma:       '',
-        descripcion: '',
-        updated_at:  nowChile_()
-      });
+  const stats = {};
+  Object.entries(ALL_48).forEach(([grupo, equipos]) => {
+    equipos.forEach(eq => {
+      stats[eq] = { grupo, pj:0, pg:0, pe:0, pp:0, gf:0, gc:0 };
     });
   });
 
+  // Lookup rápido: cualquier nombre (ES o EN) → nombre canónico en stats
+  const nameToCanon = {};
+  Object.keys(stats).forEach(canon => {
+    nameToCanon[canon.toLowerCase()] = canon;
+  });
+  // Agregar variantes EN→ES del diccionario
+  Object.entries(WC2026_GROUPS).forEach(([variant]) => {
+    const es = teamNameToSpanish_(variant);
+    if (stats[es]) nameToCanon[variant.toLowerCase()] = es;
+  });
+
+  const resolve = raw => {
+    if (!raw) return null;
+    const lo = raw.toLowerCase().trim();
+    if (nameToCanon[lo]) return nameToCanon[lo];
+    const es = teamNameToSpanish_(raw);
+    if (stats[es]) return es;
+    return null;
+  };
+
+  // Acumular stats de partidos terminados
+  const FT_STATUS = ['FT', 'AET', 'PEN'];
+  readAll_(CONFIG.SHEETS.PARTIDOS)
+    .filter(r =>
+      FT_STATUS.includes(String(r.status || '').toUpperCase()) &&
+      r.goles_local !== '' && r.goles_local !== null && r.goles_local !== undefined &&
+      r.goles_visitante !== '' && r.goles_visitante !== null && r.goles_visitante !== undefined
+    )
+    .forEach(r => {
+      const home = resolve(r.local || r.home || '');
+      const away = resolve(r.visitante || r.away || '');
+      if (!home || !away) return;
+
+      const gh = parseInt(r.goles_local)     || 0;
+      const ga = parseInt(r.goles_visitante) || 0;
+
+      stats[home].pj++; stats[away].pj++;
+      stats[home].gf += gh; stats[home].gc += ga;
+      stats[away].gf += ga; stats[away].gc += gh;
+
+      if (gh > ga)      { stats[home].pg++; stats[away].pp++; }
+      else if (gh < ga) { stats[away].pg++; stats[home].pp++; }
+      else              { stats[home].pe++; stats[away].pe++; }
+    });
+
+  // Construir filas ordenadas por grupo → posición
+  const groupRows = [];
+  Object.keys(ALL_48).sort().forEach(grupo => {
+    ALL_48[grupo]
+      .map(eq => ({ equipo: eq, ...stats[eq] }))
+      .sort((a, b) => {
+        const pa = a.pg*3+a.pe, pb = b.pg*3+b.pe;
+        return pb - pa || (b.gf-b.gc) - (a.gf-a.gc) || b.gf - a.gf;
+      })
+      .forEach((e, i) => {
+        const puntos = e.pg*3 + e.pe;
+        groupRows.push({
+          grupo, posicion: i+1, equipo_id: '', equipo: e.equipo,
+          pj: e.pj, pg: e.pg, pe: e.pe, pp: e.pp,
+          gf: e.gf, gc: e.gc, gd: e.gf - e.gc, puntos,
+          forma: '', descripcion: '', updated_at: nowChile_()
+        });
+      });
+  });
+
   upsertStandings_(groupRows);
-  Logger.log(`✅ Tabla recalculada: ${groupRows.length} equipos en ${Object.keys(grupos).length} grupos.`);
-  completarTablaConTodos48();
+  Logger.log(`✅ Tabla recalculada: ${groupRows.length} equipos (${Object.keys(ALL_48).length} grupos).`);
 }
 
 /**

@@ -539,7 +539,9 @@ function buildLiveMatchesText_() {
         // Alineaciones titulares con goleadores marcados
         const rosters = summary.rosters || [];
         if (rosters.length) {
-          const scorersMap = parseEspnScorers_(summary.scoringPlays || [], summary.keyEvents || []);
+          // Intentar scoringPlays → keyEvents → header.competitions[0].details (más robusto)
+          let scorersMap = parseEspnScorers_(summary.scoringPlays || [], summary.keyEvents || []);
+          if (scorersMap.size === 0) scorersMap = parseEspnScorersFromHeader_(summary);
           const hLineup = parseEspnLineup_(rosters, 'home');
           const aLineup = parseEspnLineup_(rosters, 'away');
           msg += formatEspnLineupText_(homeNombre, hLineup, scorersMap);

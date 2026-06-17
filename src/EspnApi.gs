@@ -174,11 +174,50 @@ function parseEspnScorers_(scoringPlays, keyEvents) {
     });
   };
 
-  // Try scoringPlays
+  // scoringPlays (estructura estándar ESPN)
   (scoringPlays || []).forEach(processPlay);
-  // Also try keyEvents (ESPN sometimes uses this instead)
-  (keyEvents || []).filter(e => e.scoringPlay || (e.type && String(e.type.text || '').toLowerCase().includes('goal')))
+
+  // keyEvents como fallback (ESPN World Cup a veces lo usa)
+  (keyEvents || [])
+    .filter(e => e.scoringPlay === true ||
+      (e.type && String(e.type.text || e.type.name || '').toLowerCase().includes('goal')))
     .forEach(processPlay);
+
+  return map;
+}
+
+/**
+ * Extrae goleadores desde el header del evento ESPN (competitions[0].details).
+ * Es el fallback más robusto — siempre presente en el summary header.
+ * @param {Object} summary - ESPN summary completo
+ * @returns {Map<string, Array>}
+ */
+function parseEspnScorersFromHeader_(summary) {
+  const map = new Map();
+  const comp = ((summary.header || {}).competitions || [])[0] || {};
+
+  (comp.details || []).forEach(detail => {
+    // detail.type.text puede ser "Goal", "Own Goal", "Penalty - Scored"
+    const typeText = String((detail.type || {}).text || '').toLowerCase();
+    if (!typeText.includes('goal') && !typeText.includes('penalty - scored')) return;
+
+    const teamId  = String((detail.team || {}).id || '');
+    const clock   = (detail.clock || {}).displayValue || '';
+    const ownGoal = typeText.includes('own');
+    const penalty = typeText.includes('penalty');
+
+    const athletes = Array.isArray(detail.athletesInvolved)
+      ? detail.athletesInvolved : [];
+    athletes.slice(0, 1).forEach(a => {
+      if (!a || !a.id) return;
+      if (!map.has(teamId)) map.set(teamId, []);
+      map.get(teamId).push({
+        athleteId: String(a.id),
+        shortName: a.shortName || a.displayName || '',
+        minute: clock, ownGoal, penalty
+      });
+    });
+  });
 
   return map;
 }
