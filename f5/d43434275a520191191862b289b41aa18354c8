@@ -1,0 +1,22 @@
+src/LiveEvents.gs
+  s_8d080e6df27905::t_17ab3ce9cbf088 123-128
+  s_8d080e6df27905::t_6cd0580abf27f9 315-317,319-320
+src/VenueCatalog.gs
+  s_8d080e6df27905::t_61e1506a53d7c1 160,165,167-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "f5d43434275a520191191862b289b41aa18354c8",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
