@@ -193,6 +193,93 @@ function loadFullWorldCupCalendarFromEspn() {
 }
 
 /**
+ * Carga partidos de ESPN para un array de fechas específicas (formato 'yyyy-MM-dd').
+ * Versión rápida de loadFullWorldCupCalendarFromEspn para uso en crons diarios.
+ * Solo hace N llamadas ESPN (N = fechas), upserta en Partidos igual que la versión full.
+ */
+function loadEspnMatchesForDays_(dates) {
+  if (!dates || !dates.length) return;
+
+  const sheet   = getOrCreateSheet_(CONFIG.SHEETS.PARTIDOS, null);
+  const headers = getHeaders_(CONFIG.SHEETS.PARTIDOS);
+  const mkIdx   = headers.indexOf('match_key');
+  if (mkIdx === -1) {
+    Logger.log('❌ Partidos no tiene columna match_key.');
+    return;
+  }
+
+  const existingValues = sheet.getDataRange().getValues();
+  const existingByKey  = {};
+  existingValues.slice(1).forEach((row, i) => {
+    const key = String(row[mkIdx] || '');
+    if (key) existingByKey[key] = i + 2;
+  });
+
+  const normName = n => String(n || '')
+    .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/ /g, '');
+
+  const statusMap = {
+    'STATUS_SCHEDULED':   'NS',  'STATUS_FIRST_HALF':  '1H',
+    'STATUS_HALFTIME':    'HT',  'STATUS_SECOND_HALF': '2H',
+    'STATUS_EXTRA_TIME':  'ET',  'STATUS_BREAK_TIME':  'BT',
+    'STATUS_PENALTY':     'P',   'STATUS_FULL_TIME':   'FT',
+    'STATUS_FINAL':       'FT',  'STATUS_POSTPONED':   'PST',
+    'STATUS_CANCELED':    'CANC','STATUS_IN_PROGRESS':  'LIVE'
+  };
+
+  let total = 0, nuevos = 0, actualizados = 0;
+
+  dates.forEach(date => {
+    let events;
+    try { events = fetchEspnEventsByDate_(date); }
+    catch (e) { Logger.log(`⚠️ ESPN ${date}: ${e.message}`); return; }
+
+    if (!events || !events.length) return;
+
+    events.forEach(ev => {
+      const kickoffDate = ev.hora_utc ? new Date(ev.hora_utc) : null;
+      const horaChile   = kickoffDate ? Utilities.formatDate(kickoffDate, CONFIG.TIMEZONE, 'HH:mm') : '';
+      const fechaChile  = kickoffDate ? Utilities.formatDate(kickoffDate, CONFIG.TIMEZONE, 'yyyy-MM-dd') : date;
+      const status      = statusMap[ev.espn_status || 'STATUS_SCHEDULED'] || 'NS';
+
+      const rowData = {};
+      const matchKey = `${fechaChile}_${normName(ev.home_team)}_${normName(ev.away_team)}`;
+      rowData['match_key']       = matchKey;
+      rowData['local']           = ev.home_team;
+      rowData['visitante']       = ev.away_team;
+      rowData['fecha']           = fechaChile;
+      rowData['hora_chile']      = horaChile;
+      rowData['estadio']         = ev.estadio || '';
+      rowData['ciudad']          = ev.ciudad  || '';
+      rowData['status']          = status;
+      rowData['goles_local']     = ['FT','AET','PEN'].includes(status) ? ev.home_score : '';
+      rowData['goles_visitante'] = ['FT','AET','PEN'].includes(status) ? ev.away_score : '';
+      rowData['sources_count']   = '1';
+      rowData['conflict_detail'] = '';
+      rowData['updated_at']      = nowChile_();
+
+      const row = headers.map(h => rowData[h] !== undefined ? rowData[h] : '');
+
+      if (existingByKey[matchKey]) {
+        sheet.getRange(existingByKey[matchKey], 1, 1, row.length).setValues([row]);
+        actualizados++;
+      } else {
+        appendRows_(CONFIG.SHEETS.PARTIDOS, [row]);
+        existingByKey[matchKey] = -1;
+        nuevos++;
+      }
+      total++;
+    });
+
+    Utilities.sleep(200);
+  });
+
+  Logger.log(`ESPN ${dates.join(',')}: ${total} partidos (${nuevos} nuevos, ${actualizados} actualizados)`);
+}
+
+/**
  * Carga el calendario completo del Mundial 2026 en Partidos.
  * Usa una sola llamada a la API (league + season) en vez de iterar por fecha.
  * Solo guarda fixture_id, equipos, fecha, hora, estadio, ronda y grupo.
