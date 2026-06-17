@@ -323,3 +323,8 @@ function normalizePlayerName_(name) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]/g, '');
 }
+
+// \u2500\u2500 Funciones p\u00fablicas (sin underscore) para ejecutar desde el editor \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+function cargarEquipos()  { return loadTeamsFromCurrentData_(); }
+function cargarPlanteles() { return loadSquadsForKnownTeams_(); }
