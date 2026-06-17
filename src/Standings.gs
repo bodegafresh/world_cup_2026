@@ -213,8 +213,11 @@ function recalcularTablaDesdePartidos() {
     return null;
   };
 
-  // Acumular stats de partidos terminados
+  // Acumular stats de partidos terminados — con dedup por par canónico de equipos
+  // Evita contar 2 veces el mismo partido si ESPN y API-Football crearon filas distintas
   const FT_STATUS = ['FT', 'AET', 'PEN'];
+  const seenMatchups = new Set();
+
   readAll_(CONFIG.SHEETS.PARTIDOS)
     .filter(r =>
       FT_STATUS.includes(String(r.status || '').toUpperCase()) &&
@@ -225,6 +228,15 @@ function recalcularTablaDesdePartidos() {
       const home = resolve(r.local || r.home || '');
       const away = resolve(r.visitante || r.away || '');
       if (!home || !away) return;
+
+      // Clave canónica: fecha normalizada + par de equipos canónicos ordenados alfabéticamente
+      const fecha = normalizeFecha_(r.fecha) || String(r.fecha || '').substring(0, 10);
+      const dedupKey = `${fecha}_${[home, away].sort().join('_')}`;
+      if (seenMatchups.has(dedupKey)) {
+        Logger.log(`⚠️ Duplicado ignorado: ${dedupKey}`);
+        return;
+      }
+      seenMatchups.add(dedupKey);
 
       const gh = parseInt(r.goles_local)     || 0;
       const ga = parseInt(r.goles_visitante) || 0;
@@ -352,4 +364,44 @@ function buildStandingsText_() {
   });
 
   return msg.trim();
+}
+
+/**
+ * Detecta y reporta partidos duplicados en la hoja Partidos.
+ * Agrupa por par canónico de equipos + fecha y muestra los que tienen > 1 fila.
+ * Útil para diagnosticar discrepancias de stats cuando ESPN y API-Football
+ * generan match_keys distintos para el mismo partido.
+ * Ejecutar manualmente desde Apps Script editor.
+ */
+function auditarDuplicadosPartidos() {
+  const rows = readAll_(CONFIG.SHEETS.PARTIDOS);
+  const groups = {};
+
+  rows.forEach((r, idx) => {
+    const home = teamNameToSpanish_(r.local || r.home || '');
+    const away = teamNameToSpanish_(r.visitante || r.away || '');
+    if (!home || !away) return;
+    const fecha = normalizeFecha_(r.fecha) || String(r.fecha || '').substring(0, 10);
+    const key   = `${fecha}_${[home, away].sort().join(' vs ')}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push({
+      row: idx + 2,
+      match_key: r.match_key || '',
+      status:    r.status || '',
+      score:     `${r.goles_local ?? '?'}-${r.goles_visitante ?? '?'}`,
+      source:    r.fuente || r.source || ''
+    });
+  });
+
+  let dupes = 0;
+  Object.entries(groups).forEach(([key, entries]) => {
+    if (entries.length > 1) {
+      dupes++;
+      Logger.log(`🔁 DUPLICADO: ${key}`);
+      entries.forEach(e => Logger.log(`   fila ${e.row} | key=${e.match_key} | ${e.status} ${e.score} | fuente=${e.source}`));
+    }
+  });
+
+  Logger.log(`\n✅ Auditoría completa: ${rows.length} filas, ${dupes} partidos duplicados encontrados.`);
+  return dupes;
 }
