@@ -439,20 +439,36 @@ function calcularEV() {
   const today    = todayChile_();
   const tomorrow = tomorrowChile_();
 
-  // Limpiar oportunidades antiguas (solo de hoy/mañana — deja historial)
+  const EV_HEADERS = ['fixture_id','timestamp','fecha','local','visitante','mercado','seleccion','cuota',
+                      'prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo'];
+
+  // Asegurar headers correctos y preservar historial de otros días
   try {
-    const existing = readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES);
-    const toKeep = existing.filter(r => {
-      const f = String(r.fecha || '');
-      return f !== today && f !== tomorrow;
-    });
-    clearDataKeepHeader_(CONFIG.SHEETS.EV_OPPORTUNITIES);
-    if (toKeep.length) {
-      const headers = ['fixture_id','timestamp','fecha','local','visitante','mercado','seleccion','cuota',
-                       'prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo'];
-      appendRows_(CONFIG.SHEETS.EV_OPPORTUNITIES, toKeep.map(r => headers.map(h => r[h] !== undefined ? r[h] : '')));
+    const ss = SpreadsheetApp.openById(getSpreadsheetId_());
+    const sheet = ss.getSheetByName(CONFIG.SHEETS.EV_OPPORTUNITIES);
+    let toKeep = [];
+    if (sheet) {
+      const vals = sheet.getDataRange().getValues();
+      // Check if first row looks like headers (contains 'fecha' or 'fixture_id')
+      const firstRow = vals[0] || [];
+      const hasHeaders = firstRow.includes('fecha') || firstRow.includes('fixture_id');
+      if (hasHeaders) {
+        const hdrs = firstRow;
+        const fechaIdx = hdrs.indexOf('fecha');
+        toKeep = vals.slice(1).filter(row => {
+          const f = String(row[fechaIdx] || '');
+          return f && f !== today && f !== tomorrow;
+        });
+      }
+      sheet.clearContents();
+      sheet.getRange(1, 1, 1, EV_HEADERS.length).setValues([EV_HEADERS]);
+      if (toKeep.length) {
+        sheet.getRange(2, 1, toKeep.length, EV_HEADERS.length).setValues(toKeep);
+      }
+    } else {
+      getOrCreateSheet_(CONFIG.SHEETS.EV_OPPORTUNITIES, EV_HEADERS);
     }
-  } catch(ec_) {}
+  } catch(ec_) { Logger.log('Error preparando hoja EV: ' + ec_.message); }
 
   let totalOpps = 0;
   const now = nowChile_();
