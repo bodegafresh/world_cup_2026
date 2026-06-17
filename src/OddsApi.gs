@@ -487,3 +487,83 @@ function getDriveCacheFolder_() {
 
   return rawFolder.createFolder(name);
 }
+
+// ── Diagnóstico The Odds API ───────────────────────────────────────────────────
+function diagnosticarOdds() {
+  const results = [];
+
+  // 1. Verificar clave en Script Properties
+  const key = getTheOddsApiKey_();
+  if (!key) {
+    results.push('❌ THE_ODDS_API_KEY no está configurada en Script Properties');
+    results.push('   → Ve a Apps Script → Proyecto → Propiedades del script → Agrega THE_ODDS_API_KEY');
+    Logger.log(results.join('\n'));
+    return;
+  }
+  results.push(`✅ Clave configurada: ${key.substring(0,6)}...${key.slice(-4)}`);
+
+  // 2. Verificar sport_key activo
+  const sportKey = CONFIG.THE_ODDS_API.SPORT_KEY;
+  results.push(`ℹ️  Sport key: ${sportKey}`);
+
+  // 3. Cuántas filas hay en OddsApuestas
+  try {
+    const rows = readAll_(CONFIG.SHEETS.ODDS);
+    results.push(`ℹ️  OddsApuestas tiene ${rows.length} fila(s)`);
+    if (rows.length > 0) {
+      results.push(`   Primera: ${rows[0].home_team || ''} vs ${rows[0].away_team || ''} (${rows[0].updated_at || ''})`);
+    }
+  } catch(e) {
+    results.push(`⚠️  Error leyendo OddsApuestas: ${e.message}`);
+  }
+
+  // 4. Cuántas filas en EvOpportunities
+  try {
+    const evRows = readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES);
+    results.push(`ℹ️  EvOpportunities tiene ${evRows.length} fila(s)`);
+  } catch(e) {
+    results.push(`⚠️  Error leyendo EvOpportunities: ${e.message}`);
+  }
+
+  // 5. Llamada de prueba a la API
+  results.push('🔄 Llamando a The Odds API...');
+  try {
+    const url = `${CONFIG.THE_ODDS_API.BASE_URL}/sports/${sportKey}/odds/?apiKey=${key}&regions=eu&markets=h2h&oddsFormat=decimal`;
+    const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const code = resp.getResponseCode();
+    results.push(`   HTTP ${code}`);
+    if (code === 200) {
+      const data = JSON.parse(resp.getContentText());
+      results.push(`✅ API OK — ${data.length} evento(s) devuelto(s)`);
+      if (data.length > 0) {
+        results.push(`   Primero: ${data[0].home_team} vs ${data[0].away_team} (${data[0].commence_time})`);
+        results.push('   → Corre cronDailySetup() o calcularEV() para poblar OddsApuestas y EvOpportunities');
+      } else {
+        results.push('⚠️  La API devolvió 0 eventos. Posibles causas:');
+        results.push('   - sport_key incorrecto (prueba "soccer_fifa_world_cup_2026" o consulta /v4/sports)');
+        results.push('   - Partidos fuera del rango de cuotas (solo 1-2 días adelante)');
+      }
+    } else if (code === 401) {
+      results.push('❌ API key inválida o sin saldo');
+    } else if (code === 422) {
+      results.push('❌ sport_key no reconocido por la API. Prueba listar sports:');
+      results.push('   → Corre: listarSportsOddsAPI()');
+    } else {
+      results.push(`❌ Error: ${resp.getContentText().substring(0,200)}`);
+    }
+  } catch(e) {
+    results.push(`❌ Error de red: ${e.message}`);
+  }
+
+  Logger.log(results.join('\n'));
+  return results.join('\n');
+}
+
+function listarSportsOddsAPI() {
+  const key = getTheOddsApiKey_();
+  if (!key) { Logger.log('THE_ODDS_API_KEY no configurada'); return; }
+  const resp = UrlFetchApp.fetch(`${CONFIG.THE_ODDS_API.BASE_URL}/sports/?apiKey=${key}`, { muteHttpExceptions: true });
+  const data = JSON.parse(resp.getContentText());
+  const soccer = (Array.isArray(data) ? data : []).filter(s => s.key && s.key.includes('soccer'));
+  Logger.log('Sports de fútbol disponibles:\n' + soccer.map(s => `${s.key} — ${s.title}`).join('\n'));
+}
