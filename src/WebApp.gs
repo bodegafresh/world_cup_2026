@@ -170,17 +170,23 @@ function getWebEvOpps_() {
 // ─── Tab: elo ────────────────────────────────────────────────────────────────
 
 function getWebElo_() {
-  const rows = readAll_(CONFIG.SHEETS.ELO_RATINGS);
-  const leagueId = getActiveLeague_().id;
+  // Build set of WC2026 teams from standings sheet
+  const wc2026Teams = new Set();
+  try {
+    readAll_(CONFIG.SHEETS.CLASIFICACION).forEach(r => {
+      const n = teamNameToSpanish_(r.equipo || '');
+      if (n) wc2026Teams.add(n);
+    });
+  } catch (e_) {}
 
+  const rows = readAll_(CONFIG.SHEETS.ELO_RATINGS);
   const byTeam = {};
   rows.forEach(r => {
-    const lid = Number(r.league_id || 0);
-    if (lid && lid !== leagueId) return;
-    const name = teamNameToSpanish_(r.team || r.equipo || '');
+    const name = teamNameToSpanish_(r.equipo || r.team || '');
     if (!name) return;
-    const elo = Number(r.elo || r.rating || 0);
-    if (!byTeam[name] || elo > byTeam[name]) byTeam[name] = elo;
+    if (wc2026Teams.size && !wc2026Teams.has(name)) return;
+    const elo = Number(r.elo_actual || r.elo || r.rating || 0);
+    if (elo && (!byTeam[name] || elo > byTeam[name])) byTeam[name] = elo;
   });
 
   return Object.entries(byTeam)
