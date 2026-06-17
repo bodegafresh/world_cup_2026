@@ -259,7 +259,7 @@ function buildJugadoresCommandResponse_(pais) {
   let msg = '';
 
   if (matchToday) {
-    const esLocal    = norm_(matchToday.local     || '').includes(q);
+    const esLocal    = searchTerms.some(t => norm_(matchToday.local || '').includes(t));
     const equipoNombre = esLocal ? matchToday.local : matchToday.visitante;
     const rival        = esLocal ? matchToday.visitante : matchToday.local;
     const estado       = String(matchToday.status || '').toUpperCase();

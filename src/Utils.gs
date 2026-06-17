@@ -254,6 +254,89 @@ const TEAM_NAMES_EN = (() => {
 })();
 
 /**
+ * Banderas emoji de las 48 selecciones del Mundial 2026.
+ * Clave: nombre canónico en español (minúsculas).
+ */
+const TEAM_FLAGS = {
+  // Grupo A
+  'méxico':           '🇲🇽',
+  'sudáfrica':        '🇿🇦',
+  'corea del sur':    '🇰🇷',
+  'república checa':  '🇨🇿',
+  // Grupo B
+  'canadá':           '🇨🇦',
+  'bosnia':           '🇧🇦',
+  'catar':            '🇶🇦',
+  'suiza':            '🇨🇭',
+  // Grupo C
+  'brasil':           '🇧🇷',
+  'marruecos':        '🇲🇦',
+  'haití':            '🇭🇹',
+  'escocia':          '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+  // Grupo D
+  'ee.uu.':           '🇺🇸',
+  'paraguay':         '🇵🇾',
+  'australia':        '🇦🇺',
+  'turquía':          '🇹🇷',
+  // Grupo E
+  'alemania':         '🇩🇪',
+  'curazao':          '🇨🇼',
+  'costa de marfil':  '🇨🇮',
+  'ecuador':          '🇪🇨',
+  // Grupo F
+  'países bajos':     '🇳🇱',
+  'japón':            '🇯🇵',
+  'suecia':           '🇸🇪',
+  'túnez':            '🇹🇳',
+  // Grupo G
+  'bélgica':          '🇧🇪',
+  'egipto':           '🇪🇬',
+  'irán':             '🇮🇷',
+  'nueva zelanda':    '🇳🇿',
+  // Grupo H
+  'españa':           '🇪🇸',
+  'cabo verde':       '🇨🇻',
+  'arabia saudita':   '🇸🇦',
+  'uruguay':          '🇺🇾',
+  // Grupo I
+  'francia':          '🇫🇷',
+  'senegal':          '🇸🇳',
+  'irak':             '🇮🇶',
+  'noruega':          '🇳🇴',
+  // Grupo J
+  'argentina':        '🇦🇷',
+  'argelia':          '🇩🇿',
+  'austria':          '🇦🇹',
+  'jordania':         '🇯🇴',
+  // Grupo K
+  'portugal':         '🇵🇹',
+  'congo dr':         '🇨🇩',
+  'uzbekistán':       '🇺🇿',
+  'colombia':         '🇨🇴',
+  // Grupo L
+  'inglaterra':       '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+  'croacia':          '🇭🇷',
+  'ghana':            '🇬🇭',
+  'panamá':           '🇵🇦',
+};
+
+/**
+ * Devuelve el emoji de bandera para un nombre de selección.
+ * Acepta nombres en español o inglés.
+ */
+function teamFlag_(name) {
+  if (!name) return '';
+  const es  = teamNameToSpanish_(name);
+  const key = es.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  // intento con tildes
+  const flag = TEAM_FLAGS[es.toLowerCase()] ||
+               TEAM_FLAGS[key] ||
+               TEAM_FLAGS[String(name).toLowerCase()] ||
+               '';
+  return flag;
+}
+
+/**
  * Traduce nombre de selección al español para mostrar.
  * Si no hay traducción conocida, devuelve el nombre original.
  */

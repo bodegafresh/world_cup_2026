@@ -343,7 +343,9 @@ function buildStandingsText_() {
         const gf  = Number(r.gf || 0);
         const gc  = Number(r.gc || 0);
         const avanza = i < 2 ? '✅' : '  ';
-        msg += `${avanza}${i+1}. <b>${r.equipo || '?'}</b> ${pts}pts`;
+        const flag   = teamFlag_(r.equipo || '');
+        const nombre = r.equipo || '?';
+        msg += `${avanza}${i+1}. ${flag} <b>${nombre}</b> ${pts}pts`;
         if (pj > 0) msg += ` | ${pj}PJ ${pg}G ${pe}E ${pp}P | ${gf}:${gc} (${gd >= 0 ? '+' : ''}${gd})`;
         msg += '\n';
       });
