@@ -84,8 +84,8 @@ function upsertStandings_(groups) {
   const rows = groups.map(g => [
     g.grupo,
     g.posicion,
-    g.equipo_id,
     g.equipo,
+    g.equipo_id,
     g.pj,
     g.pg,
     g.pe,
@@ -114,7 +114,7 @@ function ensureStandingsSheet_(sheetName) {
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
     const headers = [
-      'grupo', 'posicion', 'equipo_id', 'equipo',
+      'grupo', 'posicion', 'equipo', 'equipo_id',
       'pj', 'pg', 'pe', 'pp', 'gf', 'gc', 'gd', 'puntos',
       'forma', 'descripcion', 'updated_at'
     ];
@@ -291,7 +291,7 @@ function completarTablaConTodos48() {
   Object.entries(ALL_TEAMS).forEach(([grupo, equipos]) => {
     equipos.forEach(equipo => {
       if (!existingTeams.has(equipo.toLowerCase().trim())) {
-        newRows.push([grupo, '', '', equipo, 0, 0, 0, 0, 0, 0, 0, 0, '', '', nowChile_()]);
+        newRows.push([grupo, '', equipo, '', 0, 0, 0, 0, 0, 0, 0, 0, '', '', nowChile_()]);
       }
     });
   });
