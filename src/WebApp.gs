@@ -938,20 +938,48 @@ function getWebProximos_() {
 // ─── Tab: noticias ───────────────────────────────────────────────────────────
 
 function getWebNoticias_() {
-  var rows = readAll_(CONFIG.SHEETS.NOTICIAS);
+  // La hoja Noticias no tiene fila de encabezados — leer valores crudos
+  // Estructura por columna (basado en ingesta Google News RSS):
+  // 0:id_hash  1:pubDate  2:updated_at  3:desc  4:?  5:titulo  6:categoria
+  // 7:equipos_mencionados  8:url  9:fuente  10:fixture_id  11:equipo_local  12:equipo_visitante
+  var sheet  = getSheet_(CONFIG.SHEETS.NOTICIAS);
+  var values = sheet.getDataRange().getValues();
+  if (!values || !values.length) return [];
 
-  var noticias = rows.map(function(r) {
+  // Detectar si la primera fila es header o data (header tendría strings como 'titulo', 'url', etc.)
+  var firstRow   = values[0];
+  var hasHeader  = String(firstRow[0] || '').toLowerCase() === 'id_hash' ||
+                   String(firstRow[5] || '').toLowerCase() === 'titulo';
+  var dataRows   = hasHeader ? values.slice(1) : values;
+
+  // Intentar detectar la columna de titulo buscando una fila con texto largo en col 5 vs col 2
+  var COL_TITULO  = 5;
+  var COL_URL     = 8;
+  var COL_FUENTE  = 9;
+  var COL_FECHA   = 1;  // pubDate string
+  var COL_EQUIPO  = 11; // equipo_local
+
+  // Si el primer valor de col 5 parece una URL o hash, ajustar (fallback a SheetManager order)
+  if (dataRows.length > 0) {
+    var sample = String(dataRows[0][5] || '');
+    if (sample.startsWith('http') || sample.length < 5) {
+      // Estructura alternativa (SheetManager): id_hash, fixture_id, titulo, desc, fuente, url, pubDate, equipos, updated_at
+      COL_TITULO = 2; COL_URL = 5; COL_FUENTE = 4; COL_FECHA = 6; COL_EQUIPO = -1;
+    }
+  }
+
+  var noticias = dataRows.map(function(row) {
+    var titulo = String(row[COL_TITULO] || '');
+    if (!titulo || titulo.startsWith('http') || titulo.length < 10) return null;
     return {
-      titulo:  r.titulo  || '',
-      resumen: r.resumen || '',
-      equipo:  teamNameToSpanish_(r.equipo || ''),
-      fecha:   normalizeFecha_(r.fecha) || String(r.fecha || ''),
-      url:     r.url     || '',
-      fuente:  r.fuente  || ''
+      titulo: titulo,
+      url:    String(row[COL_URL]    || ''),
+      fuente: String(row[COL_FUENTE] || ''),
+      equipo: COL_EQUIPO >= 0 ? teamNameToSpanish_(String(row[COL_EQUIPO] || '')) : '',
+      fecha:  normalizeFecha_(row[COL_FECHA]) || String(row[COL_FECHA] || '').substring(0, 10)
     };
-  }).filter(function(n) { return n.titulo; });
+  }).filter(function(n) { return n && n.titulo; });
 
-  // Ordenar por fecha desc
   noticias.sort(function(a, b) {
     return String(b.fecha || '').localeCompare(String(a.fecha || ''));
   });
