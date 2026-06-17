@@ -213,8 +213,11 @@ function recalcularTablaDesdePartidos() {
     return null;
   };
 
-  // Acumular stats de partidos terminados — con dedup por par canónico de equipos
-  // Evita contar 2 veces el mismo partido si ESPN y API-Football crearon filas distintas
+  // Acumular stats de partidos terminados — con dedup por par canónico SIN fecha.
+  // En fase de grupos del Mundial cada par juega exactamente 1 vez.
+  // ESPN usa fecha Chile y API-Football usa fecha UTC → mismo partido puede tener
+  // fechas distintas en el sheet (ej: Jun 12 ESPN vs Jun 13 API-Football).
+  // Usar solo el par ordenado garantiza no contar dos veces sin importar la fecha.
   const FT_STATUS = ['FT', 'AET', 'PEN'];
   const seenMatchups = new Set();
 
@@ -229,9 +232,8 @@ function recalcularTablaDesdePartidos() {
       const away = resolve(r.visitante || r.away || '');
       if (!home || !away) return;
 
-      // Clave canónica: fecha normalizada + par de equipos canónicos ordenados alfabéticamente
-      const fecha = normalizeFecha_(r.fecha) || String(r.fecha || '').substring(0, 10);
-      const dedupKey = `${fecha}_${[home, away].sort().join('_')}`;
+      // Clave = par canónico ordenado alfabéticamente (sin fecha)
+      const dedupKey = [home, away].sort().join('_vs_');
       if (seenMatchups.has(dedupKey)) {
         Logger.log(`⚠️ Duplicado ignorado: ${dedupKey}`);
         return;
@@ -393,8 +395,8 @@ function limpiarDuplicadosPartidos() {
     const home = teamNameToSpanish_(r.local || r.home || '');
     const away = teamNameToSpanish_(r.visitante || r.away || '');
     if (!home || !away) return;
-    const fecha = normalizeFecha_(r.fecha) || String(r.fecha || '').substring(0, 10);
-    const key   = `${fecha}_${[home, away].sort().join('_')}`;
+    // Sin fecha: mismo partido puede tener fechas distintas (UTC vs Chile)
+    const key = [home, away].sort().join('_');
     if (!groups[key]) groups[key] = [];
     groups[key].push({ idx, row, r }); // idx es 0-based sobre rows[]
   });
@@ -454,12 +456,13 @@ function auditarDuplicadosPartidos() {
     const home = teamNameToSpanish_(r.local || r.home || '');
     const away = teamNameToSpanish_(r.visitante || r.away || '');
     if (!home || !away) return;
-    const fecha = normalizeFecha_(r.fecha) || String(r.fecha || '').substring(0, 10);
-    const key   = `${fecha}_${[home, away].sort().join(' vs ')}`;
+    // Sin fecha: mismo par puede tener fechas distintas (UTC vs Chile)
+    const key = [home, away].sort().join(' vs ');
     if (!groups[key]) groups[key] = [];
     groups[key].push({
       row: idx + 2,
       match_key: r.match_key || '',
+      fecha:     normalizeFecha_(r.fecha) || String(r.fecha || '').substring(0, 10),
       status:    r.status || '',
       score:     `${r.goles_local ?? '?'}-${r.goles_visitante ?? '?'}`,
       source:    r.fuente || r.source || ''
@@ -471,7 +474,7 @@ function auditarDuplicadosPartidos() {
     if (entries.length > 1) {
       dupes++;
       Logger.log(`🔁 DUPLICADO: ${key}`);
-      entries.forEach(e => Logger.log(`   fila ${e.row} | key=${e.match_key} | ${e.status} ${e.score} | fuente=${e.source}`));
+      entries.forEach(e => Logger.log(`   fila ${e.row} | fecha=${e.fecha} | key=${e.match_key} | ${e.status} ${e.score} | fuente=${e.source}`));
     }
   });
 

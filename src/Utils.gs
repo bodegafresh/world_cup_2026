@@ -170,6 +170,7 @@ const TEAM_NAMES_ES = {
   'congo dr':             'Congo DR',
   'democratic republic of congo': 'Congo DR',
   'bosnia and herzegovina': 'Bosnia',
+  'bosnia-herzegovina':   'Bosnia',
   'bosnia':               'Bosnia',
   'ir iran':              'Irán',
   'curacao':              'Curazao',

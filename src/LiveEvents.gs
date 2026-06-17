@@ -120,64 +120,204 @@ function calculatePlayerImpact_(p) {
 
 function cronLiveEventsMonitor() {
   const liveFixtures = getFixturesLikelyLive_();
+  if (!liveFixtures.length) return;
 
   liveFixtures.forEach(fixture => {
     try {
-      const fixtureId = fixture.match_id || fixture.fixture_id;
+      const fixtureId    = fixture.fixture_id_af || fixture.match_id || fixture.fixture_id || '';
+      const espnId       = fixture.espn_id || fixture.espn_event_id || '';
+      const matchKey     = fixture.match_key || `${fixture.local}_${fixture.visitante}`;
 
-      const eventsData = fetchEventsByFixture_(fixtureId);
-      const events     = eventsData.response || [];
+      // ── Fuente primaria: ESPN (sin cuota) ───────────────────────────────────
+      if (espnId) {
+        _monitorEspnEvents_(fixture, espnId, matchKey);
+        Utilities.sleep(500);
+        return;
+      }
 
-      const newImportantEvents = detectNewImportantEvents_(fixtureId, events);
-
-      if (newImportantEvents.length) {
-        saveEvents_(fixtureId, events, 'API-Football fixtures/events live');
-
-        newImportantEvents.forEach(event => {
-          const score    = getLiveScore_(fixtureId, events);
-          const textMsg  = formatImportantEventMessage_(fixture, event, score);
-          sendTelegramMessage_(textMsg);
-          markEventAsAlerted_(fixtureId, event);
-
-          // Enviar imagen de stats solo en goles y rojas (los eventos de mayor impacto)
-          if (event.type === 'Goal' || (event.type === 'Card' && event.detail === 'Red Card')) {
-            try {
-              const liveStats = fetchLiveStatistics_(fixtureId);
-              if (liveStats) {
-                const minute   = event.time ? event.time.elapsed : null;
-                // Construir objeto fixture mínimo para buildLiveScoreChartUrl_
-                const fxObj    = buildFixtureFromSheetRow_(fixture);
-                if (score) { fxObj.goals = { home: score.home, away: score.away }; }
-                const chartUrl = buildLiveScoreChartUrl_(fxObj, liveStats, minute);
-                if (chartUrl) {
-                  const caption = `${fixture.local || ''} ${score ? score.home + '-' + score.away : ''} ${fixture.visitante || ''}`;
-                  broadcastTelegramPhoto_(chartUrl, caption);
-                }
-              }
-            } catch (imgErr) {
-              console.warn(`Live chart ${fixtureId}:`, imgErr.message);
-            }
-          }
-        });
+      // ── Fuente fallback: API-Football (consume cuota) ────────────────────────
+      if (fixtureId) {
+        _monitorApiFootballEvents_(fixture, fixtureId);
       }
 
       Utilities.sleep(800);
     } catch (e) {
-      console.warn(`Live monitor error: ${e.message}`);
+      console.warn(`Live monitor error [${fixture.local} vs ${fixture.visitante}]: ${e.message}`);
+    }
+  });
+}
+
+/**
+ * Monitorea eventos en vivo usando ESPN summary (sin cuota de API).
+ * Detecta goles, tarjetas rojas y VAR desde keyEvents / scoringPlays / header details.
+ */
+function _monitorEspnEvents_(fixture, espnId, matchKey) {
+  const summary  = fetchEspnSummary_(espnId);
+  const alerted  = getAlertedEventIds_();
+
+  // Marcador actual desde ESPN
+  const comp       = ((summary.header || {}).competitions || [])[0] || {};
+  const competitors = comp.competitors || [];
+  const homeComp   = competitors.find(c => c.homeAway === 'home') || competitors[0] || {};
+  const awayComp   = competitors.find(c => c.homeAway === 'away') || competitors[1] || {};
+  const scoreHome  = parseInt(homeComp.score || 0);
+  const scoreAway  = parseInt(awayComp.score || 0);
+  const score      = { home: scoreHome, away: scoreAway };
+
+  // Recolectar eventos importantes desde todas las fuentes ESPN disponibles
+  const espnEvents = _extractEspnAlertEvents_(summary);
+
+  espnEvents.forEach(ev => {
+    const eventId = `espn_${espnId}_${ev.type}_${ev.minute}_${ev.athleteId || ev.teamId || ''}`;
+    if (alerted[eventId]) return;
+
+    const msg = _formatEspnEventMessage_(fixture, ev, score);
+    if (msg) {
+      broadcastTelegramMessage_(msg);
+      // Registrar como alertado
+      appendRows_(CONFIG.SHEETS.ALERTAS, [[
+        eventId, espnId, ev.type, ev.detail || '', ev.teamName || '', ev.athleteName || '',
+        ev.minute || '', '', nowChile_(), 'ESPN'
+      ]]);
+    }
+  });
+}
+
+/**
+ * Extrae eventos alertables desde un ESPN summary:
+ * goles (scoringPlays / header details) y tarjetas rojas (keyEvents).
+ */
+function _extractEspnAlertEvents_(summary) {
+  const events = [];
+  const comp   = ((summary.header || {}).competitions || [])[0] || {};
+
+  // Goles desde header details (más confiable en FIFA World Cup)
+  (comp.details || []).forEach(d => {
+    const typeText = String((d.type || {}).text || '').toLowerCase();
+    if (!typeText.includes('goal') && !typeText.includes('penalty - scored')) return;
+    const athlete  = (d.athletesInvolved || [])[0] || {};
+    const minute   = (d.clock || {}).displayValue || '';
+    const ownGoal  = typeText.includes('own');
+    const penalty  = typeText.includes('penalty');
+    events.push({
+      type:        'Goal',
+      detail:      ownGoal ? 'Own Goal' : penalty ? 'Penalty' : 'Normal Goal',
+      athleteId:   String(athlete.id || ''),
+      athleteName: athlete.shortName || athlete.displayName || '',
+      teamId:      String((d.team || {}).id || ''),
+      teamName:    (d.team || {}).displayName || '',
+      minute
+    });
+  });
+
+  // Tarjetas rojas desde keyEvents
+  (summary.keyEvents || []).forEach(e => {
+    const typeText = String((e.type || {}).text || (e.type || {}).name || '').toLowerCase();
+    if (!typeText.includes('red') && !typeText.includes('roja')) return;
+    const athlete  = (e.athlete || {});
+    const minute   = (e.clock || {}).displayValue || '';
+    events.push({
+      type:        'Card',
+      detail:      'Red Card',
+      athleteId:   String(athlete.id || ''),
+      athleteName: athlete.shortName || athlete.displayName || '',
+      teamId:      String((e.team || {}).id || ''),
+      teamName:    (e.team || {}).displayName || '',
+      minute
+    });
+  });
+
+  return events;
+}
+
+/** Formatea el mensaje Telegram para un evento ESPN. */
+function _formatEspnEventMessage_(fixture, ev, score) {
+  const home     = teamNameToSpanish_(fixture.local || '');
+  const away     = teamNameToSpanish_(fixture.visitante || '');
+  const scoreStr = `${home} <b>${score.home} - ${score.away}</b> ${away}`;
+
+  if (ev.type === 'Goal') {
+    const tag = ev.detail === 'Own Goal' ? '🔴 Autogol' : ev.detail === 'Penalty' ? '⚽(P)' : '⚽';
+    return [
+      `${tag} <b>GOL! ${ev.minute}'</b>`,
+      scoreStr,
+      `📌 ${ev.teamName} — ${ev.athleteName}`
+    ].join('\n');
+  }
+
+  if (ev.type === 'Card' && ev.detail === 'Red Card') {
+    return [
+      `🟥 <b>TARJETA ROJA ${ev.minute}'</b>`,
+      scoreStr,
+      `📌 ${ev.teamName} — ${ev.athleteName}`
+    ].join('\n');
+  }
+
+  return null;
+}
+
+/** Monitorea eventos usando API-Football (fallback cuando no hay espn_id). */
+function _monitorApiFootballEvents_(fixture, fixtureId) {
+  const eventsData = fetchEventsByFixture_(fixtureId);
+  const events     = eventsData.response || [];
+  const newEvents  = detectNewImportantEvents_(fixtureId, events);
+
+  if (!newEvents.length) return;
+
+  saveEvents_(fixtureId, events, 'API-Football live');
+
+  newEvents.forEach(event => {
+    const score   = getLiveScore_(fixtureId, events);
+    const textMsg = formatImportantEventMessage_(fixture, event, score);
+    broadcastTelegramMessage_(textMsg);
+    markEventAsAlerted_(fixtureId, event);
+
+    if (event.type === 'Goal' || (event.type === 'Card' && event.detail === 'Red Card')) {
+      try {
+        const liveStats = fetchLiveStatistics_(fixtureId);
+        if (liveStats) {
+          const fxObj = buildFixtureFromSheetRow_(fixture);
+          if (score) fxObj.goals = { home: score.home, away: score.away };
+          const chartUrl = buildLiveScoreChartUrl_(fxObj, liveStats, event.time ? event.time.elapsed : null);
+          if (chartUrl) {
+            broadcastTelegramPhoto_(chartUrl, `${fixture.local || ''} ${score ? score.home + '-' + score.away : ''} ${fixture.visitante || ''}`);
+          }
+        }
+      } catch (imgErr) {
+        console.warn(`Live chart ${fixtureId}:`, imgErr.message);
+      }
     }
   });
 }
 
 function getFixturesLikelyLive_() {
-  const rows = readAll_(CONFIG.SHEETS.PARTIDOS);
-  const now = new Date();
+  const rows  = readAll_(CONFIG.SHEETS.PARTIDOS);
+  const now   = new Date();
+  const today = todayChile_();
 
   return rows.filter(r => {
-    if (!r.hora_chile) return false;
+    const fecha = normalizeFecha_(r.fecha);
+    const hora  = normalizeHora_(r.hora_chile || r.hora);
 
-    const kickoff = new Date(r.hora_chile);
+    // Solo partidos de hoy o ayer (por si hay partido de madrugada Chile)
+    if (fecha !== today) {
+      const ayer = Utilities.formatDate(new Date(now.getTime() - 86400000), CONFIG.TIMEZONE, 'yyyy-MM-dd');
+      if (fecha !== ayer) return false;
+    }
+
+    if (!hora || hora.length < 4) return false;
+
+    // Construir datetime completo: fecha + hora en timezone Chile
+    const [hh, mm]    = hora.split(':').map(Number);
+    const [yy, mo, dd] = fecha.split('-').map(Number);
+    // Crear fecha en UTC desde componentes Chile (America/Santiago = UTC-4 o UTC-3 según DST)
+    // Usamos un string ISO que Apps Script parsea como hora local del script (que es UTC)
+    // En cambio, calculamos el offset manualmente: Chile en junio = UTC-4
+    const CHILE_OFFSET_MS = -4 * 60 * 60 * 1000; // UTC-4 en junio (sin horario de verano)
+    const kickoffUtc = Date.UTC(yy, mo - 1, dd, hh, mm) - CHILE_OFFSET_MS;
+    const kickoff    = new Date(kickoffUtc);
+
     const diffMinutes = (now.getTime() - kickoff.getTime()) / 60000;
-
     return diffMinutes >= -15 && diffMinutes <= 140;
   });
 }
