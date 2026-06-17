@@ -862,40 +862,79 @@ function getWebTeams_() {
   const elo     = readAll_(CONFIG.SHEETS.ELO_RATINGS);
   const forma   = readAll_(CONFIG.SHEETS.FORMA_EQUIPOS);
   const clas    = readAll_(CONFIG.SHEETS.CLASIFICACION);
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
+
+  // Normalize helper: strip accents + lowercase for fuzzy matching
+  const norm = s => String(s || '').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n');
 
   const eloMap   = {};
-  elo.forEach(r => { eloMap[String(r.equipo || '').toLowerCase()] = Number(r.elo_actual || r.elo || 0); });
+  elo.forEach(r => {
+    const nombre = teamNameToSpanish_(r.equipo || '');
+    eloMap[norm(nombre)] = Number(r.elo_actual || r.elo || 0);
+    eloMap[norm(r.equipo || '')] = Number(r.elo_actual || r.elo || 0); // also store raw
+  });
 
   const formaMap = {};
-  forma.forEach(r => { formaMap[String(r.equipo || '').toLowerCase()] = r.ultimos_5_resultados || ''; });
+  forma.forEach(r => {
+    const nombre = teamNameToSpanish_(r.equipo || '');
+    formaMap[norm(nombre)] = r.ultimos_5_resultados || '';
+  });
 
   const clasMap = {};
   clas.forEach(r => {
-    const k = String(r.equipo || '').toLowerCase();
+    const nombre = teamNameToSpanish_(r.equipo || '');
+    const k = norm(nombre);
     clasMap[k] = { grupo: r.grupo || '', pos: Number(r.posicion || r.pos || 0), pts: Number(r.puntos || r.pts || 0) };
   });
 
-  const seenNombres = new Set();
-  return equipos.map(eq => {
+  // Build equipo metadata map from Equipos sheet
+  const equiposMeta = {};
+  equipos.forEach(eq => {
     const nombre = teamNameToSpanish_(eq.nombre || eq.name || eq.equipo || '');
-    const k = nombre.toLowerCase();
+    if (!nombre) return;
+    equiposMeta[norm(nombre)] = {
+      confederacion: eq.confederacion || eq.confederation || '',
+      entrenador:    eq.entrenador || eq.coach || '',
+      espn_id:       eq.espn_id || '',
+      grupo:         eq.grupo || ''
+    };
+  });
+
+  // Collect ALL 48 teams from Clasificacion + Partidos (to avoid gaps)
+  const allTeams = new Set();
+  clas.forEach(r => { const n = teamNameToSpanish_(r.equipo || ''); if (n) allTeams.add(n); });
+  partidos.forEach(r => {
+    const l = teamNameToSpanish_(r.local || '');
+    const v = teamNameToSpanish_(r.visitante || '');
+    if (l) allTeams.add(l);
+    if (v) allTeams.add(v);
+  });
+  equipos.forEach(eq => {
+    const n = teamNameToSpanish_(eq.nombre || eq.name || eq.equipo || '');
+    if (n) allTeams.add(n);
+  });
+
+  const seenNombres = new Set();
+  return Array.from(allTeams).map(nombre => {
+    if (!nombre || seenNombres.has(nombre)) return null;
+    seenNombres.add(nombre);
+    const k     = norm(nombre);
+    const meta  = equiposMeta[k] || {};
+    const cData = clasMap[k] || {};
     return {
       nombre,
-      grupo:       eq.grupo || (clasMap[k] ? clasMap[k].grupo : ''),
-      pos:         clasMap[k] ? clasMap[k].pos : 0,
-      pts:         clasMap[k] ? clasMap[k].pts : 0,
-      elo:         eloMap[k] || 0,
-      forma:       formaMap[k] || '',
-      confederacion: eq.confederacion || eq.confederation || '',
-      entrenador:  eq.entrenador || eq.coach || '',
-      espn_id:     eq.espn_id || ''
+      grupo:         meta.grupo || cData.grupo || '',
+      pos:           cData.pos  || 0,
+      pts:           cData.pts  || 0,
+      elo:           eloMap[k]  || 0,
+      forma:         formaMap[k]|| '',
+      confederacion: meta.confederacion || '',
+      entrenador:    meta.entrenador    || '',
+      espn_id:       meta.espn_id       || ''
     };
-  }).filter(eq => {
-    if (!eq.nombre) return false;
-    if (seenNombres.has(eq.nombre)) return false;
-    seenNombres.add(eq.nombre);
-    return true;
-  }).sort((a, b) => (b.elo || 0) - (a.elo || 0));
+  }).filter(Boolean).sort((a, b) => (b.elo || 0) - (a.elo || 0));
 }
 
 // ─── Tab: players ────────────────────────────────────────────────────────────
