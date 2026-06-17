@@ -1,0 +1,7 @@
+cloudflare/**
+web/**
+docs/**
+.git/**
+*.md
+*.json
+*.toml
