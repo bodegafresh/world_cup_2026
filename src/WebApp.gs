@@ -480,9 +480,6 @@ function getWebHoy_() {
 function getWebLive_() {
   const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
   const liveStatuses = ['1H','2H','HT','ET','BT','P','LIVE','INT'];
-  const liveMatches = partidos.filter(r =>
-    liveStatuses.includes(String(r.status || '').toUpperCase())
-  );
 
   const eventos   = readAll_(CONFIG.SHEETS.EVENTOS_LIVE);
   const espnStats = readAll_(CONFIG.SHEETS.ESPN_STATS);
@@ -512,6 +509,7 @@ function getWebLive_() {
   };
   const liveScoreMap = {};
   const espnSummaryMap = {}; // normKey → summary data (lineup, weather, venue)
+  const espnLiveKeys   = new Set(); // normKeys de partidos live según ESPN
   try {
     const espnData = espnGet_('/scoreboard');
     (espnData.events || []).forEach(ev => {
@@ -526,14 +524,23 @@ function getWebLive_() {
         goles_visitante: away.score !== undefined ? away.score : null,
         status:          ESPN_STATUS[desc] || null,
         minuto:          short,
-        espn_event_id:   String(ev.id || '')
+        espn_event_id:   String(ev.id || ''),
+        home_en:         (home.team || {}).displayName || '',
+        away_en:         (away.team || {}).displayName || ''
       };
-      const hEn = (home.team || {}).displayName || '';
-      const aEn = (away.team || {}).displayName || '';
+      const hEn = entry.home_en;
+      const aEn = entry.away_en;
       const k1 = normN(hEn) + '_' + normN(aEn);
       const k2 = normN(teamNameToSpanish_(hEn)) + '_' + normN(teamNameToSpanish_(aEn));
       liveScoreMap[k1] = entry;
       liveScoreMap[k2] = entry;
+
+      // Registrar claves de partidos que ESPN considera en vivo
+      const espnLiveStatuses = ['1H','2H','HT','ET','BT','P','LIVE'];
+      if (entry.status && espnLiveStatuses.includes(entry.status)) {
+        espnLiveKeys.add(k1);
+        espnLiveKeys.add(k2);
+      }
 
       // Fetch ESPN summary for live matches to get lineup + weather + venue
       if (entry.status && ev.id) {
@@ -550,6 +557,49 @@ function getWebLive_() {
       }
     });
   } catch(e_) {}
+
+  // Partidos live: los que la hoja ya tiene status live
+  const liveFromSheet = partidos.filter(r =>
+    liveStatuses.includes(String(r.status || '').toUpperCase())
+  );
+
+  // Agregar partidos que ESPN ve en vivo pero la hoja aún tiene NS/otro status
+  const liveFromSheetKeys = new Set(liveFromSheet.map(m =>
+    normN(teamNameToSpanish_(m.local||'')) + '_' + normN(teamNameToSpanish_(m.visitante||''))
+  ));
+  const liveFromEspnOnly = [];
+  espnLiveKeys.forEach(key => {
+    if (liveFromSheetKeys.has(key)) return;
+    // Buscar en Partidos por nombre (independiente del status en hoja)
+    const sheetRow = partidos.find(r => {
+      const k = normN(teamNameToSpanish_(r.local||'')) + '_' + normN(teamNameToSpanish_(r.visitante||''));
+      return k === key;
+    });
+    if (sheetRow) {
+      liveFromEspnOnly.push(sheetRow);
+      liveFromSheetKeys.add(key); // evitar duplicados si k1 y k2 apuntan al mismo partido
+    } else {
+      // No está en la hoja — construir desde datos ESPN
+      const entry = liveScoreMap[key];
+      if (!entry) return;
+      liveFromEspnOnly.push({
+        local:           teamNameToSpanish_(entry.home_en),
+        visitante:       teamNameToSpanish_(entry.away_en),
+        status:          entry.status || 'LIVE',
+        goles_local:     entry.goles_local,
+        goles_visitante: entry.goles_visitante,
+        match_key:       '',
+        fixture_id_af:   '',
+        espn_id:         entry.espn_event_id,
+        estadio:         '',
+        ciudad:          '',
+        hora_chile:      ''
+      });
+      liveFromSheetKeys.add(key);
+    }
+  });
+
+  const liveMatches = [...liveFromSheet, ...liveFromEspnOnly];
 
   // Alineaciones
   const alineaciones = readAll_(CONFIG.SHEETS.ALINEACIONES);
