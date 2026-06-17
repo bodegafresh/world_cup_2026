@@ -49,7 +49,7 @@ async function handleApi(request, url, env) {
 
   // Reenviar al GAS Web App con todos los parámetros
   const tab      = url.searchParams.get('tab') || 'dashboard';
-  const targetUrl = `${gasUrl}?tab=${encodeURIComponent(tab)}`;
+  const targetUrl = `${gasUrl}?tab=${encodeURIComponent(tab)}&key=${encodeURIComponent(key)}`;
 
   try {
     // fetch con redirect:follow resuelve el 302 de GAS server-side (sin CORS)

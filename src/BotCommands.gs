@@ -572,8 +572,12 @@ function buildTodayCommandResponse_() {
     !FINAL_STATUS.includes(p.status) && !LIVE_STATUS.includes(p.status)
   );
 
-  // Para partidos en vivo, obtener marcador actual desde ESPN
+  // Obtener estado real desde ESPN scoreboard (overridea status de la hoja)
   const liveScoreMap = {};
+  const ESPN_LIVE_MAP = {
+    'in progress':'1H', 'halftime':'HT', 'end period':'2H',
+    'final':'FT', 'full time':'FT', 'final/aet':'AET', 'final/pen':'PEN'
+  };
   try {
     const espnData = espnGet_('/scoreboard');
     const normN = s => String(s || '').toLowerCase()
@@ -581,21 +585,43 @@ function buildTodayCommandResponse_() {
       .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
       .replace(/[^a-z]/g,'');
     (espnData.events || []).forEach(ev => {
-      const comp  = (ev.competitions || [])[0] || {};
-      const comps = comp.competitors || [];
-      const home  = comps.find(c => c.homeAway === 'home') || {};
-      const away  = comps.find(c => c.homeAway === 'away') || {};
+      const comp    = (ev.competitions || [])[0] || {};
+      const comps   = comp.competitors || [];
+      const home    = comps.find(c => c.homeAway === 'home') || {};
+      const away    = comps.find(c => c.homeAway === 'away') || {};
+      const stateDesc = String((ev.status && ev.status.type && ev.status.type.description) || '').toLowerCase();
+      const espnShort = String((ev.status && ev.status.type && ev.status.type.shortDetail) || '');
+      const overrideStatus = ESPN_LIVE_MAP[stateDesc] || null;
       const score = {
-        gLocal: home.score !== undefined ? home.score : null,
-        gVisit: away.score !== undefined ? away.score : null
+        gLocal:  home.score !== undefined ? home.score : null,
+        gVisit:  away.score !== undefined ? away.score : null,
+        status:  overrideStatus,
+        minuto:  espnShort
       };
       const hNameEn = (home.team||{}).displayName || '';
       const aNameEn = (away.team||{}).displayName || '';
-      // Registrar con nombre ESPN (inglés) Y nombre español — para que el lookup siempre encuentre
       liveScoreMap[normN(hNameEn) + '_' + normN(aNameEn)] = score;
       liveScoreMap[normN(teamNameToSpanish_(hNameEn)) + '_' + normN(teamNameToSpanish_(aNameEn))] = score;
     });
   } catch (e_) { /* usar datos de hoja como fallback */ }
+
+  // Override status en partidosFinal con lo que dice ESPN en tiempo real
+  const normN_ = s => String(s || '').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+    .replace(/[^a-z]/g,'');
+  partidosFinal.forEach(p => {
+    const k = normN_(teamNameToSpanish_(p.local)) + '_' + normN_(teamNameToSpanish_(p.visitante));
+    const espn = liveScoreMap[k];
+    if (espn && espn.status) p.status = espn.status;
+  });
+
+  // Re-clasificar con statuses actualizados
+  terminados = partidosFinal.filter(p => FINAL_STATUS.includes(p.status));
+  enVivo     = partidosFinal.filter(p => LIVE_STATUS.includes(p.status));
+  proximos   = partidosFinal.filter(p =>
+    !FINAL_STATUS.includes(p.status) && !LIVE_STATUS.includes(p.status)
+  );
 
   let msg = `📅 <b>Partidos de hoy ${date}</b>\n`;
 
@@ -616,11 +642,7 @@ function buildTodayCommandResponse_() {
     enVivo.forEach(p => {
       const local = teamNameToSpanish_(p.local);
       const visit = teamNameToSpanish_(p.visitante);
-      const normN = s => String(s || '').toLowerCase()
-        .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
-        .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
-        .replace(/[^a-z]/g,'');
-      const liveKey = normN(teamNameToSpanish_(p.local)) + '_' + normN(teamNameToSpanish_(p.visitante));
+      const liveKey = normN_(teamNameToSpanish_(p.local)) + '_' + normN_(teamNameToSpanish_(p.visitante));
       const liveScore = liveScoreMap[liveKey] || {};
       const gLocal = liveScore.gLocal !== null && liveScore.gLocal !== undefined
         ? liveScore.gLocal
@@ -628,7 +650,8 @@ function buildTodayCommandResponse_() {
       const gVisit = liveScore.gVisit !== null && liveScore.gVisit !== undefined
         ? liveScore.gVisit
         : (p.goles_visitante !== null && p.goles_visitante !== '' ? p.goles_visitante : '0');
-      msg += `\n⚽ <b>${local} ${gLocal} - ${gVisit} ${visit}</b>`;
+      const minuto = liveScore.minuto ? ` (${liveScore.minuto})` : ` (${p.status})`;
+      msg += `\n🔴 <b>${local} ${gLocal} - ${gVisit} ${visit}</b>${minuto}`;
       if (p.grupo) msg += ` <i>(Grupo ${p.grupo})</i>`;
       msg += `\n🏟️ ${p.estadio}`;
       msg += '\n';
