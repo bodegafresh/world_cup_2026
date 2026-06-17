@@ -372,3 +372,65 @@ function initializeEloRatings() {
     Logger.log('ELO ya inicializado — sin nuevas inserciones.');
   }
 }
+
+/**
+ * Recalcula ELO desde cero para todos los partidos FT de la hoja Partidos.
+ * Útil después de backfillEspnHistorical() para reflejar resultados reales.
+ *
+ * Proceso:
+ *   1. Resetea ELO de todos los equipos a sus valores iniciales (ELO_DEFAULTS)
+ *   2. Ordena los partidos FT cronológicamente
+ *   3. Aplica updateEloAfterMatch_ partido a partido
+ *
+ * Ejecutar manualmente desde Apps Script → Editor.
+ */
+function recalcularElo() {
+  Logger.log('=== RECALCULANDO ELO DESDE CERO ===');
+
+  // 1. Resetear la hoja EloRatings a valores iniciales
+  const sheet = getOrCreateSheet_(CONFIG.SHEETS.ELO_RATINGS, ELO_HEADERS);
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+
+  // Re-insertar todos los equipos con ELO inicial
+  const rows = Object.entries(ELO_DEFAULTS).map(([equipo, elo]) =>
+    [equipo, elo, elo, 0, 0, 0, 0, nowChile_(), '', '']
+  );
+  if (rows.length) sheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+  Logger.log(`ELO reseteado: ${rows.length} equipos`);
+
+  // 2. Leer partidos FT ordenados cronológicamente
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
+    .filter(r => ['FT','AET','PEN'].includes(String(r.status || '').toUpperCase()))
+    .sort((a, b) => {
+      const fa = String(a.fecha || ''), fb = String(b.fecha || '');
+      if (fa !== fb) return fa < fb ? -1 : 1;
+      const ha = String(a.hora_chile || ''), hb = String(b.hora_chile || '');
+      return ha < hb ? -1 : 1;
+    });
+
+  Logger.log(`Procesando ${partidos.length} partidos FT...`);
+
+  let ok = 0, skip = 0;
+  partidos.forEach(r => {
+    const gL = r.goles_local     !== '' && r.goles_local     != null ? Number(r.goles_local)     : -1;
+    const gV = r.goles_visitante !== '' && r.goles_visitante != null ? Number(r.goles_visitante) : -1;
+    if (gL < 0 || gV < 0) { skip++; return; }
+
+    // Construir objeto compatible con updateEloAfterMatch_
+    const fakeFixture = {
+      fixture: { status: { short: r.status || 'FT' } },
+      teams:   { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
+      goals:   { home: gL, away: gV },
+      league:  { round: r.ronda || '' }
+    };
+    try {
+      updateEloAfterMatch_(fakeFixture);
+      ok++;
+    } catch(e_) {
+      Logger.log(`  ⚠️ ELO error ${r.local} vs ${r.visitante}: ${e_.message}`);
+    }
+  });
+
+  Logger.log(`\n=== FIN RECALCULO ELO: ${ok} partidos procesados, ${skip} sin resultado ===`);
+}
