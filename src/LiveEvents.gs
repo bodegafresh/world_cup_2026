@@ -76,16 +76,24 @@ function savePlayerSummaryFromEvents_(fixtureId, fixture, events) {
   const sheet = getSheet_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO);
   const values = sheet.getDataRange().getValues();
   const headers = values.length ? values[0] : [];
-  const fidIdx = headers.indexOf('fixture_id');
-  const pidIdx = headers.indexOf('jugador_id');
+
+  // Detect column indices; rows built as [match_id, fixture_id, jugador_id, ...]
+  // Use indexOf for flexibility, but fallback to known positions 0 and 2
+  let fidIdx = headers.indexOf('fixture_id');
+  let pidIdx = headers.indexOf('jugador_id');
+  // New rows: r[0]=match_id/fixture_id, r[1]=fixture_id, r[2]=jugador_id
+  // If header lookup fails, use raw row positions matching the row builder above
+  const getExistingKey = (row) => {
+    if (fidIdx >= 0 && pidIdx >= 0) return `${row[fidIdx]}_${row[pidIdx]}`;
+    // Fallback: try common positions
+    return `${row[0]}_${row[2]}`;
+  };
+  const getNewKey = (r) => `${r[0]}_${r[2]}`;
 
   const existingPairs = {};
-  values.slice(1).forEach(row => {
-    const k = `${row[fidIdx]}_${row[pidIdx]}`;
-    existingPairs[k] = true;
-  });
+  values.slice(1).forEach(row => { existingPairs[getExistingKey(row)] = true; });
 
-  const newRows = rows.filter(r => !existingPairs[`${r[0]}_${r[2]}`]);
+  const newRows = rows.filter(r => !existingPairs[getNewKey(r)]);
   appendRows_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO, newRows);
 }
 

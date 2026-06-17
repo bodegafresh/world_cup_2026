@@ -1151,8 +1151,21 @@ function buildGoleadoresText_() {
   // Fuente primaria: ResumenJugadorPartido acumulado
   const rows = readAll_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO || 'ResumenJugadorPartido');
 
-  const totals = {};
+  // Dedup: fixture_id + jugador_id → keep latest
+  const dedupMap = {};
   rows.forEach(r => {
+    const fid = r.fixture_id || r.match_id || '';
+    const pid = r.jugador_id || '';
+    if (fid && pid) {
+      const k = `${fid}_${pid}`;
+      const ts = r.timestamp_carga || r.updated_at || '';
+      if (!dedupMap[k] || String(ts) > String(dedupMap[k].timestamp_carga || '')) dedupMap[k] = r;
+    }
+  });
+  const deduped = Object.values(dedupMap);
+
+  const totals = {};
+  deduped.forEach(r => {
     const key = `${r.jugador_id || r.jugador}`;
     if (!totals[key]) totals[key] = { nombre: r.jugador || '', equipo: r.equipo || '', goles: 0, asistencias: 0 };
     totals[key].goles       += Number(r.goles || 0);

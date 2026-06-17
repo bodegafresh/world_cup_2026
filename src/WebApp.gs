@@ -543,8 +543,22 @@ function getWebPlayers_() {
   // Top goleadores y estadísticas desde ResumenJugadorPartido (agrupado por jugador)
   const resumen = readAll_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO);
 
-  const byPlayer = {};
+  // Dedup: fixture_id + jugador_id → keep latest by timestamp_carga
+  const dedupMap = {};
   resumen.forEach(r => {
+    const fid = r.fixture_id || r.match_id || '';
+    const pid = r.jugador_id || '';
+    if (!fid || !pid) return;
+    const k = `${fid}_${pid}`;
+    const ts = r.timestamp_carga || r.updated_at || '';
+    if (!dedupMap[k] || String(ts) > String(dedupMap[k].timestamp_carga || '')) {
+      dedupMap[k] = r;
+    }
+  });
+  const deduped = Object.values(dedupMap);
+
+  const byPlayer = {};
+  deduped.forEach(r => {
     const name = r.jugador || '';
     if (!name) return;
     if (!byPlayer[name]) {
