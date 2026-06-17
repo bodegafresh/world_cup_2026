@@ -33,7 +33,8 @@ function appendRows_(sheetName, rows) {
 }
 
 function readAll_(sheetName) {
-  const sheet = getSheet_(sheetName);
+  let sheet;
+  try { sheet = getSheet_(sheetName); } catch(e_) { return []; }
   const values = sheet.getDataRange().getValues();
 
   if (values.length <= 1) return [];
