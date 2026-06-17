@@ -330,11 +330,76 @@ function cargarEquipos()  { return loadTeamsFromCurrentData_(); }
 function cargarPlanteles() { return loadSquadsForKnownTeams_(); }
 
 /**
- * Carga planteles desde ESPN para todos los equipos que a\u00fan no tienen jugadores
- * en la hoja Jugadores. Usa los summaries de los partidos ya disputados.
+ * Carga los team_id_api_football para los 48 equipos del Mundial usando el
+ * endpoint de todos los fixtures de API-Football (1 sola llamada).
  *
- * No requiere API-Football. Usa espn_{athleteId} como player_id sint\u00e9tico.
- * Ejecutar manualmente despu\u00e9s de backfillEspnHistorical().
+ * El endpoint por fecha retorna 0 para WC2026, pero el endpoint por liga+season
+ * sí funciona y tiene todos los 104 partidos con IDs de los 48 equipos.
+ *
+ * Ejecutar UNA VEZ antes de cargarPlanteles() para que funcione
+ * para todos los equipos, no solo los 16 que tuvieron datos previos.
+ */
+function cargarIdsEquiposDesdeApiFootball() {
+  Logger.log('=== CARGANDO TEAM IDs DESDE API-FOOTBALL (fixtures all) ===');
+
+  const data = fetchAllWorldCupFixtures_();
+  const fixtures = (data.response || []);
+
+  if (!fixtures.length) {
+    Logger.log('❌ API-Football no retornó fixtures. Verifica league_id y season en Config.gs.');
+    return;
+  }
+  Logger.log(`${fixtures.length} fixtures recibidos`);
+
+  // Construir mapa nombre_normalizado → team_id
+  const idMap = {}; // nombre_normalizado → { id, nombre }
+  fixtures.forEach(f => {
+    const home = (f.teams || {}).home || {};
+    const away = (f.teams || {}).away || {};
+    [home, away].forEach(t => {
+      if (!t.id || !t.name) return;
+      const norm = normalizeTeamNameStrong_(t.name);
+      if (!idMap[norm]) idMap[norm] = { id: String(t.id), nombre: t.name };
+    });
+  });
+  Logger.log(`${Object.keys(idMap).length} equipos únicos encontrados`);
+
+  // Actualizar la hoja Equipos: solo escribir team_id_api_football donde esté vacío
+  const sheet  = getSheet_(CONFIG.SHEETS.EQUIPOS);
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0];
+  const normIdx = headers.indexOf('nombre_normalizado');
+  const afIdx   = headers.indexOf('team_id_api_football');
+
+  if (normIdx === -1 || afIdx === -1) {
+    Logger.log('❌ Equipos no tiene columnas nombre_normalizado o team_id_api_football');
+    return;
+  }
+
+  let actualizados = 0, noEncontrados = 0;
+  values.slice(1).forEach((row, i) => {
+    const norm = String(row[normIdx] || '');
+    if (!norm) return;
+    const entry = idMap[norm];
+    if (!entry) { noEncontrados++; return; }
+    if (row[afIdx]) return; // ya tiene ID, no sobreescribir
+    sheet.getRange(i + 2, afIdx + 1).setValue(entry.id);
+    Logger.log(`  ✅ ${row[headers.indexOf('nombre') !== -1 ? headers.indexOf('nombre') : 0] || norm} → team_id=${entry.id}`);
+    actualizados++;
+  });
+
+  Logger.log(`\n=== FIN: ${actualizados} equipos con nuevo team_id_api_football, ${noEncontrados} no encontrados ===`);
+  Logger.log('Ahora puedes ejecutar cargarPlanteles() para cargar todos los planteles.');
+}
+
+/**
+ * FALLBACK \u2014 Solo usar si cargarIdsEquiposDesdeApiFootball() + cargarPlanteles()
+ * no funcionan (API-Football sin cuota o equipo sin ID).
+ *
+ * Carga planteles desde ESPN para equipos que A\u00daN no tienen jugadores.
+ * Usa espn_{athleteId} como player_id sint\u00e9tico (no es ID oficial de API-Football).
+ * Las fotos y datos seguir\u00e1n funcionando en la web, pero no habr\u00e1 cross-reference
+ * con datos de API-Football para ese jugador.
  */
 function cargarPlantelesDesdeEspn() {
   Logger.log('=== CARGANDO PLANTELES DESDE ESPN ===');
