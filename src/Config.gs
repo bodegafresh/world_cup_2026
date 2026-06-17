@@ -37,13 +37,32 @@ const CONFIG = {
     ESPN_STATS:       'EspnStats',
     FORMA_EQUIPOS:    'FormaEquipos',
     SOFA_STATS:       'SofaStats',
-    POISSON_ODDS:     'PoissonOdds'
+    POISSON_ODDS:     'PoissonOdds',
+    BETFAIR_ODDS:     'BetfairOdds',
+    GOAL_SCORER_ODDS: 'GoalScorerOdds'
   },
 
   API_FOOTBALL: {
     BASE_URL: 'https://v3.football.api-sports.io',
     WORLD_CUP_LEAGUE_ID: 1,
     SEASON: 2026
+  },
+
+  LEAGUES: {
+    // Liga activa (se sobreescribe en runtime con setActiveLeague_)
+    ACTIVE: 'WC2026',
+
+    // Catálogo de ligas soportadas
+    CATALOG: {
+      WC2026:       { id: 1,   season: 2026, name: 'Mundial FIFA 2026',     sport_key: 'soccer_fifa_world_cup',      country: 'World',    type: 'cup',    home_adv: 1.0  },
+      CHAMPIONS:    { id: 2,   season: 2025, name: 'UEFA Champions League', sport_key: 'soccer_uefa_champs_league',  country: 'Europe',   type: 'cup',    home_adv: 1.10 },
+      PREMIER:      { id: 39,  season: 2025, name: 'Premier League',        sport_key: 'soccer_epl',                 country: 'England',  type: 'league', home_adv: 1.15 },
+      LA_LIGA:      { id: 140, season: 2025, name: 'La Liga',               sport_key: 'soccer_spain_la_liga',       country: 'Spain',    type: 'league', home_adv: 1.20 },
+      CHAMPIONS_L:  { id: 3,   season: 2025, name: 'UEFA Europa League',    sport_key: 'soccer_uefa_europa_league',  country: 'Europe',   type: 'cup',    home_adv: 1.10 },
+      LIGA_MX:      { id: 262, season: 2025, name: 'Liga MX',               sport_key: 'soccer_mexico_ligamx',       country: 'Mexico',   type: 'league', home_adv: 1.20 },
+      MLS:          { id: 253, season: 2025, name: 'MLS',                   sport_key: 'soccer_usa_mls',             country: 'USA',      type: 'league', home_adv: 1.15 },
+      LIBERTADORES: { id: 13,  season: 2025, name: 'Copa Libertadores',     sport_key: 'soccer_conmebol_copa_lib',   country: 'S.America',type: 'cup',    home_adv: 1.25 }
+    }
   },
 
   FOOTBALL_DATA: {
@@ -72,6 +91,27 @@ const CONFIG = {
 
   TIMEZONE: 'America/Santiago'
 };
+
+/**
+ * Cambia la liga activa y persiste en Script Properties.
+ * @param {string} leagueKey — clave del catálogo, ej. 'PREMIER', 'LA_LIGA', 'WC2026'
+ */
+function setActiveLeague_(leagueKey) {
+  if (!CONFIG.LEAGUES.CATALOG[leagueKey]) throw new Error('Liga no encontrada: ' + leagueKey);
+  PropertiesService.getScriptProperties().setProperty('ACTIVE_LEAGUE', leagueKey);
+  CONFIG.LEAGUES.ACTIVE = leagueKey;
+  Logger.log('Liga activa cambiada a: ' + leagueKey);
+}
+
+/**
+ * Retorna el objeto de la liga activa desde el catálogo.
+ * Fallback a WC2026 si no hay ninguna configurada.
+ * @returns {{ id, season, name, sport_key, country, type, home_adv }}
+ */
+function getActiveLeague_() {
+  const key = PropertiesService.getScriptProperties().getProperty('ACTIVE_LEAGUE') || 'WC2026';
+  return CONFIG.LEAGUES.CATALOG[key] || CONFIG.LEAGUES.CATALOG.WC2026;
+}
 
 function getProp_(key) {
   const value = PropertiesService.getScriptProperties().getProperty(key);

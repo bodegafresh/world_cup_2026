@@ -96,7 +96,7 @@ const ELO_DEFAULTS = {
 
 const ELO_HEADERS = [
   'equipo', 'elo_actual', 'elo_anterior', 'partidos',
-  'victorias', 'empates', 'derrotas', 'updated_at'
+  'victorias', 'empates', 'derrotas', 'updated_at', 'league_id', 'season'
 ];
 
 // ─── Consulta de ELO ──────────────────────────────────────────────────────────
@@ -111,6 +111,36 @@ function getTeamElo_(teamName) {
     const rows = readAll_(CONFIG.SHEETS.ELO_RATINGS);
     const row  = rows.find(r => teamNameMatches_(r.equipo, teamName));
     if (row && row.elo_actual) return Number(row.elo_actual);
+  } catch (e) { /* hoja no existe aún */ }
+
+  const key = Object.keys(ELO_DEFAULTS).find(k => teamNameMatches_(k, teamName));
+  return key ? ELO_DEFAULTS[key] : 1500;
+}
+
+/**
+ * Retorna el ELO más reciente de un equipo para una liga específica.
+ * Filtra por league_id; si no hay datos de esa liga, cae a ELO_DEFAULTS.
+ *
+ * @param {string} teamName
+ * @param {number|string} leagueId  — id numérico de la liga (ej: 39 para Premier)
+ * @returns {number}
+ */
+function getTeamEloForLeague_(teamName, leagueId) {
+  try {
+    const rows = readAll_(CONFIG.SHEETS.ELO_RATINGS);
+    // Filtrar por equipo y liga (si la fila tiene league_id)
+    const leagueRows = rows.filter(r =>
+      teamNameMatches_(r.equipo, teamName) &&
+      r.league_id && String(r.league_id) === String(leagueId)
+    );
+    if (leagueRows.length) {
+      // Tomar el más reciente por updated_at
+      leagueRows.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+      return Number(leagueRows[0].elo_actual);
+    }
+    // Fallback: cualquier fila del equipo sin filtro de liga
+    const anyRow = rows.find(r => teamNameMatches_(r.equipo, teamName));
+    if (anyRow && anyRow.elo_actual) return Number(anyRow.elo_actual);
   } catch (e) { /* hoja no existe aún */ }
 
   const key = Object.keys(ELO_DEFAULTS).find(k => teamNameMatches_(k, teamName));
@@ -179,10 +209,14 @@ function updateEloAfterMatch_(fixture) {
 }
 
 /**
- * Upsert de ELO en la hoja. Si existe la fila para ese equipo, actualiza;
- * si no, agrega. Nunca duplica.
+ * Upsert de ELO en la hoja. Si existe la fila para ese equipo (misma liga), actualiza;
+ * si no, agrega. Nunca duplica dentro de la misma liga.
+ *
+ * Incluye league_id y season para soportar multi-liga.
  */
 function upsertElo_(equipo, eloNuevo, eloAnterior, resultado) {
+  const liga = getActiveLeague_();
+
   getOrCreateSheet_(CONFIG.SHEETS.ELO_RATINGS, ELO_HEADERS);
 
   const ss     = SpreadsheetApp.openById(getSpreadsheetId_());
@@ -190,8 +224,17 @@ function upsertElo_(equipo, eloNuevo, eloAnterior, resultado) {
   const vals   = sheet.getLastRow() > 0 ? sheet.getDataRange().getValues() : [ELO_HEADERS];
   const headers = vals[0];
   const eqIdx   = headers.indexOf('equipo');
+  const lgIdx   = headers.indexOf('league_id');
 
-  const rowIdx = vals.slice(1).findIndex(r => teamNameMatches_(String(r[eqIdx] || ''), equipo));
+  // Buscar fila del equipo para ESTA liga (si hay columna league_id) o cualquier fila del equipo
+  const rowIdx = vals.slice(1).findIndex(r => {
+    if (!teamNameMatches_(String(r[eqIdx] || ''), equipo)) return false;
+    // Si la hoja ya tiene columna league_id, filtrar por liga
+    if (lgIdx !== -1 && r[lgIdx] !== '' && r[lgIdx] !== null && r[lgIdx] !== undefined) {
+      return String(r[lgIdx]) === String(liga.id);
+    }
+    return true; // compatibilidad: fila sin league_id → asumir que es de esta liga
+  });
 
   if (rowIdx !== -1) {
     const r        = vals[rowIdx + 1];
@@ -210,13 +253,18 @@ function upsertElo_(equipo, eloNuevo, eloAnterior, resultado) {
     sheet.getRange(sheetRow, idx('empates')      + 1).setValue(empates);
     sheet.getRange(sheetRow, idx('derrotas')     + 1).setValue(derrotas);
     sheet.getRange(sheetRow, idx('updated_at')   + 1).setValue(nowChile_());
+    // Actualizar league_id/season si la columna existe (puede faltar en hojas viejas)
+    if (idx('league_id') !== -1) sheet.getRange(sheetRow, idx('league_id') + 1).setValue(liga.id);
+    if (idx('season')    !== -1) sheet.getRange(sheetRow, idx('season')    + 1).setValue(liga.season);
   } else {
     appendRows_(CONFIG.SHEETS.ELO_RATINGS, [[
       equipo, eloNuevo, eloAnterior, 1,
       resultado === 1   ? 1 : 0,
       resultado === 0.5 ? 1 : 0,
       resultado === 0   ? 1 : 0,
-      nowChile_()
+      nowChile_(),
+      liga.id,
+      liga.season
     ]]);
   }
 }

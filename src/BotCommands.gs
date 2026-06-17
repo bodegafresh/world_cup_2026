@@ -140,10 +140,12 @@ function handleTelegramCommand_(text) {
     case '/grupos':      return buildGroupSimText_(args);
     // ── Comandos nuevos ───────────────────────────────────────────────────────
     case '/goleadores':  return buildGoleadoresText_();
+    case '/goleador':   return buildScorerCommandText_(args);
     case '/grupo':       return buildGrupoDetalleText_(args);
     case '/partido':     return buildPartidoDirectoText_(args);
     case '/alertas':     return buildAlertasToggleText_(args, chatId);
     case '/eliminados':  return buildEliminadosText_();
+    case '/liga':        return buildLeagueManagerText_(args);
     case '/ayuda':       return buildHelpCommandResponse_();
     default:             return null;
   }
@@ -479,6 +481,8 @@ function buildHelpCommandResponse_() {
     '/jugador Messi — Stats del jugador en el torneo',
     '/stats Argentina — Stats acumuladas del equipo',
     '/goleadores — Top 15 goleadores del torneo',
+    '/goleador Ecuador — Probables anotadores del equipo',
+    '/goleador partido Ecuador — Goleadores en próximo partido',
     '',
     '📊 <b>Clasificación y grupos</b>',
     '/tabla — Tabla de posiciones de los 12 grupos',
@@ -496,6 +500,7 @@ function buildHelpCommandResponse_() {
     '🔔 <b>Alertas y configuración</b>',
     '/alertas on — Recibir alertas de goles y tarjetas rojas',
     '/alertas off — Desactivar alertas automáticas',
+    '/liga — Ver y cambiar la liga activa (Premier, La Liga, Champions...)',
     '',
     '📈 <b>Modelo y apuestas</b>',
     '/ev — Apuestas con valor esperado positivo (EV+)',

@@ -23,7 +23,8 @@
 
 // ─── Parámetros del modelo ────────────────────────────────────────────────────
 
-const POISSON_HOME_ADV   = 1.15;   // ventaja de local (histórico mundiales)
+// home_adv base — sobreescrito en runtime por getActiveLeague_().home_adv
+const POISSON_HOME_ADV   = 1.15;   // fallback si getActiveLeague_ no disponible
 const POISSON_MAX_GOALS  = 8;      // goles máximos a considerar por lado
 const POISSON_MIN_GAMES  = 1;      // partidos mínimos para incluir equipo en modelo
 const POISSON_ELO_BLEND  = 0.4;    // peso del ELO cuando hay pocos partidos (0=solo Poisson, 1=solo ELO)
@@ -59,11 +60,33 @@ function dcCorrection_(i, j, lh, la, rho) {
  * listo para alimentar predictMatch_.
  *
  * Se puede llamar cada vez que se necesite (es rápido: solo lee la Sheet).
+ *
+ * @param {number|string} [leagueId]  — filtrar por liga; si no se pasa, usa la liga activa.
+ *                                      Pasar null explícito para no filtrar (todos los datos).
  */
-function buildPoissonStrengths_() {
+function buildPoissonStrengths_(leagueId) {
+  // Determinar qué league_id aplicar como filtro
+  let filtroLeague;
+  if (leagueId === null) {
+    filtroLeague = null; // sin filtro explícito
+  } else {
+    try {
+      const liga = getActiveLeague_();
+      filtroLeague = leagueId !== undefined ? leagueId : liga.id;
+    } catch (e_) {
+      filtroLeague = 1; // fallback WC2026
+    }
+  }
+
   const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
     .filter(r => String(r.status || '').toUpperCase() === 'FT')
-    .filter(r => r.goles_local !== '' && r.goles_visitante !== '');
+    .filter(r => r.goles_local !== '' && r.goles_visitante !== '')
+    .filter(r => {
+      // Si no hay filtro de liga o la fila no tiene league_id, incluir siempre
+      if (!filtroLeague) return true;
+      if (!r.league_id || r.league_id === '') return true; // compatibilidad filas antiguas
+      return String(r.league_id) === String(filtroLeague);
+    });
 
   if (partidos.length === 0) return null;
 
@@ -145,7 +168,11 @@ function predictMatch_(homeTeam, awayTeam, strengths) {
   const atkA = (strengths && strengths.ataque[away])  || 1;
   const defA = (strengths && strengths.defensa[away]) || 1;
 
-  const lambdaH = mu * atkH * defA * POISSON_HOME_ADV;
+  // Usar home_adv de la liga activa; fallback a la constante si getActiveLeague_ no existe
+  let homeAdv = POISSON_HOME_ADV;
+  try { homeAdv = getActiveLeague_().home_adv || POISSON_HOME_ADV; } catch (e_) {}
+
+  const lambdaH = mu * atkH * defA * homeAdv;
   const lambdaA = mu * atkA * defH;
 
   // Blend con ELO cuando hay pocos datos
