@@ -120,7 +120,12 @@ function calculatePlayerImpact_(p) {
 
 function cronLiveEventsMonitor() {
   const liveFixtures = getFixturesLikelyLive_();
-  if (!liveFixtures.length) return;
+  if (!liveFixtures.length) {
+    Logger.log('cronLiveEventsMonitor: sin partidos en ventana live — ' + nowChile_());
+    return;
+  }
+  Logger.log('cronLiveEventsMonitor: monitoreando ' + liveFixtures.length + ' partido(s): ' +
+    liveFixtures.map(f => `${f.local} vs ${f.visitante} ${f.hora_chile || f.hora}`).join(', '));
 
   liveFixtures.forEach(fixture => {
     try {
@@ -307,14 +312,12 @@ function getFixturesLikelyLive_() {
 
     if (!hora || hora.length < 4) return false;
 
-    // Construir datetime completo: fecha + hora en timezone Chile
-    const [hh, mm]    = hora.split(':').map(Number);
+    // hora_chile es hora local Chile (UTC-4 en junio).
+    // Para comparar con now (UTC) hay que sumar 4h: kickoffUTC = kickoffChile + 4h
+    const [hh, mm]     = hora.split(':').map(Number);
     const [yy, mo, dd] = fecha.split('-').map(Number);
-    // Crear fecha en UTC desde componentes Chile (America/Santiago = UTC-4 o UTC-3 según DST)
-    // Usamos un string ISO que Apps Script parsea como hora local del script (que es UTC)
-    // En cambio, calculamos el offset manualmente: Chile en junio = UTC-4
-    const CHILE_OFFSET_MS = -4 * 60 * 60 * 1000; // UTC-4 en junio (sin horario de verano)
-    const kickoffUtc = Date.UTC(yy, mo - 1, dd, hh, mm) - CHILE_OFFSET_MS;
+    const CHILE_OFFSET_MS = 4 * 60 * 60 * 1000; // Chile UTC-4 → sumar para obtener UTC
+    const kickoffUtc = Date.UTC(yy, mo - 1, dd, hh, mm) + CHILE_OFFSET_MS;
     const kickoff    = new Date(kickoffUtc);
 
     const diffMinutes = (now.getTime() - kickoff.getTime()) / 60000;

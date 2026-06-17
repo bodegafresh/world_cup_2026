@@ -157,17 +157,20 @@ function getVenueInfo_(venueName, cityName) {
     return VENUE_CATALOG[foundKey];
   }
 
-  // Fallback: buscar solo por nombre de estadio, ignorando la ciudad.
-  // Útil cuando API-Football usa nombres de ciudad distintos al catálogo
-  // (ej: "San Francisco Bay Area" en vez de "Santa Clara").
+  // Fallback 1: buscar solo por nombre de estadio, ignorando la ciudad.
   const venueOnlyKey = Object.keys(VENUE_CATALOG).find(key => {
     const catalogVenue = normalizeVenueKey_(key.split('|')[0]);
     return catalogVenue === normalizedVenue;
   });
+  if (venueOnlyKey) return VENUE_CATALOG[venueOnlyKey];
 
-  if (venueOnlyKey) {
-    return VENUE_CATALOG[venueOnlyKey];
-  }
+  // Fallback 2: coincidencia parcial — el nombre ESPN puede ser abreviado o distinto
+  // Ej: "AT&T Stadium" matchea "AT&T Stadium|Arlington"
+  const partialKey = Object.keys(VENUE_CATALOG).find(key => {
+    const catalogVenue = normalizeVenueKey_(key.split('|')[0]);
+    return catalogVenue.includes(normalizedVenue) || normalizedVenue.includes(catalogVenue);
+  });
+  if (partialKey) return VENUE_CATALOG[partialKey];
 
   return {
     pais_estadio: '',
