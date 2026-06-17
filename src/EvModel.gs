@@ -438,16 +438,10 @@ function calcularEV() {
 
   const today    = todayChile_();
   const tomorrow = tomorrowChile_();
-  const sheet    = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEETS.EV_OPPORTUNITIES);
-
-  // Limpiar oportunidades anteriores de hoy/mañana
-  try {
-    const existing = readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES);
-    // No borramos todo — mantenemos historial de días anteriores
-  } catch(e_) {}
 
   let totalOpps = 0;
   const now = nowChile_();
+  const newRows = [];
 
   oddsEvents.forEach(ev => {
     const homeEn = ev.home_team || '';
@@ -508,7 +502,7 @@ function calcularEV() {
       const ev_val = (m.prob * m.cuota) - 1;
       const kelly  = Math.max(0, Math.min(((m.prob * m.cuota - 1) / (m.cuota - 1)) / KELLY_DIVISOR, KELLY_MAX_FRACTION));
 
-      appendRow_(CONFIG.SHEETS.EV_OPPORTUNITIES, {
+      newRows.push({
         fixture_id:   mkKey,
         timestamp:    now,
         fecha:        commence,
@@ -529,5 +523,6 @@ function calcularEV() {
     });
   });
 
+  if (newRows.length) appendRows_(CONFIG.SHEETS.EV_OPPORTUNITIES, newRows);
   Logger.log(`✅ calcularEV completado: ${totalOpps} mercados calculados para ${oddsEvents.length} eventos.`);
 }
