@@ -137,8 +137,8 @@ const SHEET_HEADERS = {
     'victorias','empates','derrotas','updated_at'
   ],
   EvOpportunities: [
-    'fixture_id','timestamp','mercado','seleccion','cuota',
-    'prob_modelo','ev','edge','kelly','ev_positivo','confianza'
+    'fixture_id','timestamp','fecha','local','visitante','mercado','seleccion','cuota',
+    'prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo'
   ],
   BettingHistory: [
     'bet_id','fixture_id','fecha','equipo_local','equipo_visitante',

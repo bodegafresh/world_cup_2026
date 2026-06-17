@@ -439,6 +439,21 @@ function calcularEV() {
   const today    = todayChile_();
   const tomorrow = tomorrowChile_();
 
+  // Limpiar oportunidades antiguas (solo de hoy/mañana — deja historial)
+  try {
+    const existing = readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES);
+    const toKeep = existing.filter(r => {
+      const f = String(r.fecha || '');
+      return f !== today && f !== tomorrow;
+    });
+    clearDataKeepHeader_(CONFIG.SHEETS.EV_OPPORTUNITIES);
+    if (toKeep.length) {
+      const headers = ['fixture_id','timestamp','fecha','local','visitante','mercado','seleccion','cuota',
+                       'prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo'];
+      appendRows_(CONFIG.SHEETS.EV_OPPORTUNITIES, toKeep.map(r => headers.map(h => r[h] !== undefined ? r[h] : '')));
+    }
+  } catch(ec_) {}
+
   let totalOpps = 0;
   const now = nowChile_();
   const newRows = [];
@@ -523,6 +538,11 @@ function calcularEV() {
     });
   });
 
-  if (newRows.length) appendRows_(CONFIG.SHEETS.EV_OPPORTUNITIES, newRows);
+  if (newRows.length) {
+    const headers = ['fixture_id','timestamp','fecha','local','visitante','mercado','seleccion','cuota',
+                     'prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo'];
+    const rowArrays = newRows.map(r => headers.map(h => r[h] !== undefined ? r[h] : ''));
+    appendRows_(CONFIG.SHEETS.EV_OPPORTUNITIES, rowArrays);
+  }
   Logger.log(`✅ calcularEV completado: ${totalOpps} mercados calculados para ${oddsEvents.length} eventos.`);
 }
