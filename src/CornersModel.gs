@@ -515,32 +515,32 @@ function buildCornersEVText_(homeTeam, awayTeam) {
   txt += `  ${aFlag}${away} +4.5: <b>${pct(cornersRow.away_over_4_5)}</b>\n`;
   txt += `  Más córners: ${home} <b>${pct(cornersRow.prob_home_more)}</b> · ${away} ${pct(100 - parseFloat(cornersRow.prob_home_more || 0))}\n`;
 
-  // Buscar cuotas reales en BetfairOdds
+  txt += `\n<b>Cuotas justas O/U 9.5 (sin margen de casa)</b>\n`;
+  txt += `  Over 9.5  → <b>${fairOver95 ? fairOver95.toFixed(2) : 'N/A'}</b>\n`;
+  txt += `  Under 9.5 → <b>${fairUnd95  ? fairUnd95.toFixed(2)  : 'N/A'}</b>\n`;
+
+  // Buscar cuotas reales en OddsApuestas (Pinnacle vía The Odds API)
   try {
-    const betRows = readAll_(CONFIG.SHEETS.BETFAIR_ODDS);
-    const matchBet = betRows.find(r => {
+    const oddsRows = readAll_(CONFIG.SHEETS.ODDS);
+    const matchOdds = oddsRows.find(r => {
       const h = normN(r.home_team || r.local || '');
       const a = normN(r.away_team || r.visitante || '');
-      const mt = String(r.market_type || '').toLowerCase();
-      return (h.includes(qH) || qH.includes(h)) && (a.includes(qA) || qA.includes(a))
-          && mt.includes('corner');
+      return (h.includes(qH) || qH.includes(h)) && (a.includes(qA) || qA.includes(a));
     });
-
-    if (matchBet) {
-      const bookOver  = parseFloat(matchBet.odds_over || matchBet.cuota_over  || 0);
-      const bookUnder = parseFloat(matchBet.odds_under || matchBet.cuota_under || 0);
-
-      if (bookOver > 0 && fairOver95 > 0) {
-        const evOver  = (over95prob * bookOver) - 1;
-        const evUnder = ((1 - over95prob) * bookUnder) - 1;
+    if (matchOdds) {
+      const bookOver  = parseFloat(matchOdds.corners_over95  || matchOdds.bookmaker_corners_over  || 0);
+      const bookUnder = parseFloat(matchOdds.corners_under95 || matchOdds.bookmaker_corners_under || 0);
+      if (bookOver > 1 && fairOver95 > 0) {
+        const evOver  = over95prob       * bookOver  - 1;
+        const evUnder = (1 - over95prob) * bookUnder - 1;
         txt += `\n<b>EV vs mercado (O/U 9.5)</b>\n`;
-        txt += `  Over:  cuota ${bookOver.toFixed(2)} → EV <b>${(evOver * 100).toFixed(1)}%</b>${evOver > 0 ? ' ✅' : ''}\n`;
-        txt += `  Under: cuota ${bookUnder.toFixed(2)} → EV <b>${(evUnder * 100).toFixed(1)}%</b>${evUnder > 0 ? ' ✅' : ''}\n`;
+        txt += `  Over  9.5 @ ${bookOver.toFixed(2)}  → EV ${evOver  > 0 ? '✅' : '❌'} <b>${(evOver  * 100).toFixed(1)}%</b>\n`;
+        txt += `  Under 9.5 @ ${bookUnder.toFixed(2)} → EV ${evUnder > 0 ? '✅' : '❌'} <b>${(evUnder * 100).toFixed(1)}%</b>\n`;
       }
     }
   } catch (e_) {}
 
-  txt += `\n<i>⚠️ Cuotas justas sin margen. Compara con cuotas reales.</i>`;
+  txt += `\n<i>Compara las cuotas justas con las de tu casa de apuestas para detectar value.</i>`;
   return txt;
 }
 

@@ -536,16 +536,6 @@ function buildCardsEVText_(homeTeam, awayTeam) {
   const under45prob = 1 - over45prob;
   const probRoja    = Number(cardsRow.prob_roja_si || 0) / 100;
 
-  // Buscar cuotas reales en BetfairOdds
-  let betfairRow;
-  try {
-    const bfRows = readAll_(CONFIG.SHEETS.BETFAIR_ODDS);
-    betfairRow = bfRows.find(r =>
-      norm_(r.home_team || r.local     || '').includes(norm_(home)) &&
-      norm_(r.away_team || r.visitante || '').includes(norm_(away))
-    );
-  } catch (e_) {}
-
   const hFlag = teamFlag_(home);
   const aFlag = teamFlag_(away);
 
@@ -554,40 +544,38 @@ function buildCardsEVText_(homeTeam, awayTeam) {
   txt += `  Local: ${cardsRow.lambda_home} · Visitante: ${cardsRow.lambda_away}\n`;
   txt += `  Árbitro: ${cardsRow.arbitro || 'No asignado'}\n\n`;
 
-  txt += `<b>Mercados calculados</b>\n`;
+  txt += `<b>Probabilidades del modelo</b>\n`;
   txt += `  O/U 3.5 → Over ${cardsRow.over_3_5}% · Under ${(100 - Number(cardsRow.over_3_5)).toFixed(1)}%\n`;
   txt += `  O/U 4.5 → Over ${cardsRow.over_4_5}% · Under ${(100 - Number(cardsRow.over_4_5)).toFixed(1)}%\n`;
   txt += `  O/U 5.5 → Over ${cardsRow.over_5_5}% · Under ${(100 - Number(cardsRow.over_5_5)).toFixed(1)}%\n`;
   txt += `  Tarjeta roja: Sí ${cardsRow.prob_roja_si}% · No ${(100 - Number(cardsRow.prob_roja_si)).toFixed(1)}%\n\n`;
 
-  // EV si hay cuotas reales
-  if (betfairRow) {
-    const bfOver45  = parseFloat(betfairRow.cards_over45  || betfairRow.over45_cards  || 0);
-    const bfUnder45 = parseFloat(betfairRow.cards_under45 || betfairRow.under45_cards || 0);
+  txt += `<b>Cuotas justas (sin margen de casa)</b>\n`;
+  txt += `  Over 4.5  → <b>${cardsRow.cuota_fair_over45  || 'N/A'}</b>\n`;
+  txt += `  Under 4.5 → <b>${cardsRow.cuota_fair_under45 || 'N/A'}</b>\n`;
 
-    if (bfOver45 > 1 && bfUnder45 > 1) {
-      const evOver  = over45prob  * bfOver45  - 1;
-      const evUnder = under45prob * bfUnder45 - 1;
-      const kellyOver  = evOver  > 0 ? ((over45prob  * (bfOver45  - 1) - (1 - over45prob))  / (bfOver45  - 1)).toFixed(3) : 0;
-      const kellyUnder = evUnder > 0 ? ((under45prob * (bfUnder45 - 1) - (1 - under45prob)) / (bfUnder45 - 1)).toFixed(3) : 0;
-
-      txt += `<b>EV vs Betfair (O/U 4.5)</b>\n`;
-      txt += `  Over  4.5 @ ${bfOver45} → EV ${evOver  > 0 ? '✅' : '❌'} ${(evOver  * 100).toFixed(1)}%`;
-      if (Number(kellyOver)  > 0) txt += ` · Kelly: ${(Number(kellyOver)  * 100).toFixed(1)}%`;
-      txt += `\n`;
-      txt += `  Under 4.5 @ ${bfUnder45} → EV ${evUnder > 0 ? '✅' : '❌'} ${(evUnder * 100).toFixed(1)}%`;
-      if (Number(kellyUnder) > 0) txt += ` · Kelly: ${(Number(kellyUnder) * 100).toFixed(1)}%`;
-      txt += `\n`;
-    } else {
-      txt += `<i>Sin cuotas de tarjetas en Betfair para este partido.</i>\n`;
+  // Buscar cuotas reales en OddsApuestas (Pinnacle vía The Odds API)
+  try {
+    const oddsRows = readAll_(CONFIG.SHEETS.ODDS);
+    const n = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z]/g, '');
+    const matchOdds = oddsRows.find(r =>
+      n(r.home_team || r.local || '').includes(n(home)) &&
+      n(r.away_team || r.visitante || '').includes(n(away))
+    );
+    if (matchOdds) {
+      const pinnOver  = parseFloat(matchOdds.cards_over45  || matchOdds.bookmaker_cards_over  || 0);
+      const pinnUnder = parseFloat(matchOdds.cards_under45 || matchOdds.bookmaker_cards_under || 0);
+      if (pinnOver > 1) {
+        const evOver  = over45prob  * pinnOver  - 1;
+        const evUnder = under45prob * pinnUnder - 1;
+        txt += `\n<b>EV vs mercado (O/U 4.5)</b>\n`;
+        txt += `  Over  4.5 @ ${pinnOver.toFixed(2)}  → EV ${evOver  > 0 ? '✅' : '❌'} <b>${(evOver  * 100).toFixed(1)}%</b>\n`;
+        txt += `  Under 4.5 @ ${pinnUnder.toFixed(2)} → EV ${evUnder > 0 ? '✅' : '❌'} <b>${(evUnder * 100).toFixed(1)}%</b>\n`;
+      }
     }
-  } else {
-    txt += `<b>Cuotas justas (sin margen):</b>\n`;
-    txt += `  Over 4.5: ${cardsRow.cuota_fair_over45 || 'N/A'} · Under 4.5: ${cardsRow.cuota_fair_under45 || 'N/A'}\n`;
-    txt += `<i>Sin cuotas reales disponibles para comparar.</i>\n`;
-  }
+  } catch (e_) {}
 
-  txt += `\n<i>⚠️ Modelo basado en árbitro + historial equipos + contexto ronda.</i>`;
+  txt += `\n<i>Compara las cuotas justas con las de tu casa de apuestas para detectar value.</i>`;
   return txt;
 }
 

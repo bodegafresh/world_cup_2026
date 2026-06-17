@@ -47,6 +47,11 @@ function getBetfairAppKey_() {
   return PropertiesService.getScriptProperties().getProperty('BETFAIR_APP_KEY') || null;
 }
 
+/** @returns {boolean} true si Betfair está configurado y listo para usar */
+function isBetfairConfigured_() {
+  return !!(getBetfairAppKey_() && getBetfairSessionToken_());
+}
+
 /**
  * Obtiene el Session Token de Script Properties.
  * @returns {string|null}
@@ -327,6 +332,7 @@ function fetchBetfairOdds_(marketId) {
  * @returns {Object|null}
  */
 function getBetfairAHOdds_(homeTeam, awayTeam, date) {
+  if (!isBetfairConfigured_()) return null;
   const eventId = findBetfairEventId_(homeTeam, awayTeam, date);
   if (!eventId) return null;
 
@@ -430,6 +436,7 @@ function getBetfairCorrectScoreOdds_(homeTeam, awayTeam, date) {
  * @returns {number} Filas guardadas
  */
 function saveBetfairOddsForMatch_(fixture) {
+  if (!isBetfairConfigured_()) return 0;
   const homeTeam = fixture.local  || fixture.home_team || '';
   const awayTeam = fixture.visitante || fixture.away_team || '';
   const date     = fixture.fecha  || fixture.date || todayChile_();
@@ -527,6 +534,7 @@ function saveBetfairOddsForMatch_(fixture) {
  *   [{ mercado, seleccion, prob_modelo, cuota, ev, edge, kelly, source }]
  */
 function calculateBetfairEV_(homeTeam, awayTeam, matchKey) {
+  if (!isBetfairConfigured_()) return [];
   const opportunities = [];
 
   // 1. Obtener probabilidades Poisson

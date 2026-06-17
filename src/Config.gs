@@ -77,7 +77,7 @@ const CONFIG = {
     BASE_URL: 'https://api.the-odds-api.com/v4',
     SPORT_KEY: 'soccer_fifa_world_cup',
     REGIONS: 'us,uk,eu',
-    MARKETS: 'h2h,totals,btts',
+    MARKETS: 'h2h,totals,btts,spreads',
     ODDS_FORMAT: 'decimal',
     PINNACLE_BOOKMAKER: 'pinnacle'
   },
