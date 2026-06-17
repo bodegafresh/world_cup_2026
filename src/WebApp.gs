@@ -511,6 +511,7 @@ function getWebLive_() {
     'final':'FT','full time':'FT','final/aet':'AET','final/pen':'PEN'
   };
   const liveScoreMap = {};
+  const espnSummaryMap = {}; // normKey → summary data (lineup, weather, venue)
   try {
     const espnData = espnGet_('/scoreboard');
     (espnData.events || []).forEach(ev => {
@@ -524,12 +525,29 @@ function getWebLive_() {
         goles_local:     home.score !== undefined ? home.score : null,
         goles_visitante: away.score !== undefined ? away.score : null,
         status:          ESPN_STATUS[desc] || null,
-        minuto:          short
+        minuto:          short,
+        espn_event_id:   String(ev.id || '')
       };
       const hEn = (home.team || {}).displayName || '';
       const aEn = (away.team || {}).displayName || '';
-      liveScoreMap[normN(hEn) + '_' + normN(aEn)] = entry;
-      liveScoreMap[normN(teamNameToSpanish_(hEn)) + '_' + normN(teamNameToSpanish_(aEn))] = entry;
+      const k1 = normN(hEn) + '_' + normN(aEn);
+      const k2 = normN(teamNameToSpanish_(hEn)) + '_' + normN(teamNameToSpanish_(aEn));
+      liveScoreMap[k1] = entry;
+      liveScoreMap[k2] = entry;
+
+      // Fetch ESPN summary for live matches to get lineup + weather + venue
+      if (entry.status && ev.id) {
+        try {
+          const summary = fetchEspnSummary_(ev.id);
+          const summaryData = {
+            rosters:  summary.rosters || [],
+            weather:  summary.weather || null,
+            gameInfo: summary.gameInfo || null
+          };
+          espnSummaryMap[k1] = summaryData;
+          espnSummaryMap[k2] = summaryData;
+        } catch(es_) {}
+      }
     });
   } catch(e_) {}
 
@@ -585,8 +603,11 @@ function getWebLive_() {
       }
     } catch(e_) {}
 
-    // Alineaciones del partido
-    const matchAlin = alineaciones
+    // ESPN summary (lineup + weather + venue)
+    const espnSummary = espnSummaryMap[espnKey] || null;
+
+    // Alineaciones: prioridad ESPN summary en tiempo real, fallback a hoja
+    let matchAlin = alineaciones
       .filter(a => String(a.fixture_id || '') === fid)
       .map(a => ({
         equipo:   teamNameToSpanish_(a.equipo   || ''),
@@ -597,15 +618,57 @@ function getWebLive_() {
         grid:     a.grid     || ''
       }));
 
+    if (!matchAlin.length && espnSummary && espnSummary.rosters.length) {
+      try {
+        const localEs = teamNameToSpanish_(m.local || '');
+        const visitEs = teamNameToSpanish_(m.visitante || '');
+        ['home','away'].forEach(side => {
+          const entry = espnSummary.rosters.find(r => r.homeAway === side);
+          if (!entry) return;
+          const equipoEs = side === 'home' ? localEs : visitEs;
+          (entry.roster || []).forEach(p => {
+            const ath = p.athlete || {};
+            matchAlin.push({
+              equipo:   equipoEs,
+              rol:      p.starter ? 'titular' : 'suplente',
+              numero:   Number(ath.jersey || 0),
+              jugador:  ath.shortName || ath.displayName || '',
+              posicion: ((p.position || {}).abbreviation || '').toUpperCase(),
+              grid:     ''
+            });
+          });
+        });
+      } catch(ea_) {}
+    }
+
+    // Clima: prioridad hoja, fallback ESPN summary weather
+    let climaFinal = climaMap[fid] || null;
+    if (!climaFinal && espnSummary && espnSummary.weather) {
+      try {
+        const w = espnSummary.weather;
+        climaFinal = {
+          temperatura: w.temperature != null ? Math.round((w.temperature - 32) * 5/9) : null,
+          humedad:     w.humidity    || null,
+          condicion:   w.displayValue || w.condition || '',
+          viento:      w.windSpeed   != null ? Math.round(w.windSpeed * 1.609) : null
+        };
+      } catch(ew_) {}
+    }
+
     // Hora local en el estadio
     let hora_local = '';
     try {
-      const horaChile = formatHoraChile_(m.hora_chile);
-      const tz = m.timezone_estadio || '';
-      if (tz && horaChile) {
-        const today = todayChile_();
-        const utcMs = new Date(`${today}T${horaChile}:00`).getTime() + 4 * 3600000;
-        hora_local = Utilities.formatDate(new Date(utcMs), tz, 'HH:mm');
+      // Intentar desde ESPN summary gameInfo venue
+      const venueEs = espnSummary && espnSummary.gameInfo && espnSummary.gameInfo.venue;
+      const espnTz  = venueEs ? (venueEs.address && venueEs.address.country ? null : null) : null;
+      const tz = m.timezone_estadio || espnTz || '';
+      if (tz) {
+        const horaChile = formatHoraChile_(m.hora_chile);
+        if (horaChile) {
+          const today = todayChile_();
+          const utcMs = new Date(`${today}T${horaChile}:00`).getTime() + 4 * 3600000;
+          hora_local = Utilities.formatDate(new Date(utcMs), tz, 'HH:mm');
+        }
       }
     } catch(e_) {}
 
@@ -634,7 +697,7 @@ function getWebLive_() {
       hora_local:      hora_local,
       grupo:           m.grupo   || '',
       ronda:           m.ronda   || '',
-      clima:           climaMap[fid] || null,
+      clima:           climaFinal,
       eventos:         evs,
       alineaciones:    matchAlin,
       arbitro:         arbitro,
