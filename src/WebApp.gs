@@ -162,7 +162,7 @@ function getWebEvOpps_() {
       confianza:   r.confianza || r.confidence || '',
       fuente:      r.fuente_modelo || ''
     }))
-    .filter(r => r.ev > 0)
+    .filter(r => r.cuota > 1)
     .sort((a, b) => b.ev - a.ev)
     .slice(0, 20);
 }
@@ -177,6 +177,13 @@ function getWebElo_() {
       const n = teamNameToSpanish_(r.equipo || '');
       if (n) wc2026Teams.add(n);
     });
+    // Also add from Partidos (local/visitante) to catch all 48 teams
+    readAll_(CONFIG.SHEETS.PARTIDOS).forEach(r => {
+      const l = teamNameToSpanish_(r.local     || '');
+      const v = teamNameToSpanish_(r.visitante || '');
+      if (l) wc2026Teams.add(l);
+      if (v) wc2026Teams.add(v);
+    });
   } catch (e_) {}
 
   const rows = readAll_(CONFIG.SHEETS.ELO_RATINGS);
@@ -184,14 +191,15 @@ function getWebElo_() {
   rows.forEach(r => {
     const name = teamNameToSpanish_(r.equipo || r.team || '');
     if (!name) return;
-    if (wc2026Teams.size && !wc2026Teams.has(name)) return;
+    // Only filter if we have a reasonable set of WC teams (>= 20)
+    if (wc2026Teams.size >= 20 && !wc2026Teams.has(name)) return;
     const elo = Number(r.elo_actual || r.elo || r.rating || 0);
     if (elo && (!byTeam[name] || elo > byTeam[name])) byTeam[name] = elo;
   });
 
   return Object.entries(byTeam)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 32)
+    .slice(0, 48)
     .map(([equipo, elo], i) => ({ pos: i + 1, equipo, elo }));
 }
 
@@ -492,9 +500,54 @@ function getWebLive_() {
     });
   } catch (e_) {}
 
+  // ESPN real-time scoreboard override (same as getWebHoy_)
+  const normN = s => String(s || '').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+    .replace(/[^a-z]/g,'');
+  const ESPN_STATUS = {
+    'in progress':'1H','halftime':'HT','end period':'2H',
+    'final':'FT','full time':'FT','final/aet':'AET','final/pen':'PEN'
+  };
+  const liveScoreMap = {};
+  try {
+    const espnData = espnGet_('/scoreboard');
+    (espnData.events || []).forEach(ev => {
+      const comp  = (ev.competitions || [])[0] || {};
+      const comps = comp.competitors || [];
+      const home  = comps.find(c => c.homeAway === 'home') || {};
+      const away  = comps.find(c => c.homeAway === 'away') || {};
+      const desc  = String((ev.status && ev.status.type && ev.status.type.description) || '').toLowerCase();
+      const short = String((ev.status && ev.status.type && ev.status.type.shortDetail) || '');
+      const entry = {
+        goles_local:     home.score !== undefined ? home.score : null,
+        goles_visitante: away.score !== undefined ? away.score : null,
+        status:          ESPN_STATUS[desc] || null,
+        minuto:          short
+      };
+      const hEn = (home.team || {}).displayName || '';
+      const aEn = (away.team || {}).displayName || '';
+      liveScoreMap[normN(hEn) + '_' + normN(aEn)] = entry;
+      liveScoreMap[normN(teamNameToSpanish_(hEn)) + '_' + normN(teamNameToSpanish_(aEn))] = entry;
+    });
+  } catch(e_) {}
+
+  // Alineaciones
+  const alineaciones = readAll_(CONFIG.SHEETS.ALINEACIONES);
+
   return liveMatches.map(m => {
-    const fid      = String(m.fixture_id_af || m.match_id || m.espn_id || '');
+    const fid      = String(m.fixture_id_af || m.fixture_id || m.match_id || m.espn_id || '');
     const matchKey = m.match_key || '';
+
+    // Override con ESPN en tiempo real
+    const espnKey = normN(teamNameToSpanish_(m.local||'')) + '_' + normN(teamNameToSpanish_(m.visitante||''));
+    const espnLive = liveScoreMap[espnKey] || null;
+    if (espnLive) {
+      if (espnLive.status) m.status = espnLive.status;
+      if (espnLive.goles_local     !== null) m.goles_local     = espnLive.goles_local;
+      if (espnLive.goles_visitante !== null) m.goles_visitante = espnLive.goles_visitante;
+      if (espnLive.minuto)                   m.minuto          = espnLive.minuto;
+    }
 
     const evs = eventos
       .filter(e => String(e.fixture_id || '') === fid)
@@ -510,6 +563,18 @@ function getWebLive_() {
 
     const statsRow = espnStats.find(s => String(s.fixture_id || '') === fid) || null;
 
+    // Alineaciones del partido
+    const matchAlin = alineaciones
+      .filter(a => String(a.fixture_id || '') === fid)
+      .map(a => ({
+        equipo:   teamNameToSpanish_(a.equipo   || ''),
+        rol:      a.rol      || '',
+        numero:   Number(a.numero || 0),
+        jugador:  a.jugador  || '',
+        posicion: a.posicion || '',
+        grid:     a.grid     || ''
+      }));
+
     // Hora local en el estadio
     let hora_local = '';
     try {
@@ -522,12 +587,24 @@ function getWebLive_() {
       }
     } catch(e_) {}
 
+    // Poisson/ELO probabilities
+    let poisson = null;
+    try {
+      const px = getPoissonOdds_(m.local, m.visitante, matchKey);
+      if (px && px.markets) poisson = {
+        prob_home: Number((px.markets['1'] || 0) * 100).toFixed(1),
+        prob_draw: Number((px.markets['X'] || 0) * 100).toFixed(1),
+        prob_away: Number((px.markets['2'] || 0) * 100).toFixed(1),
+        over25:    Number((px.markets['over_2.5'] || 0) * 100).toFixed(1)
+      };
+    } catch(e_) {}
+
     return {
       match_key:       matchKey,
       local:           teamNameToSpanish_(m.local     || ''),
       visitante:       teamNameToSpanish_(m.visitante || ''),
-      goles_local:     m.goles_local     ?? null,
-      goles_visitante: m.goles_visitante ?? null,
+      goles_local:     m.goles_local !== undefined && m.goles_local !== '' ? m.goles_local : null,
+      goles_visitante: m.goles_visitante !== undefined && m.goles_visitante !== '' ? m.goles_visitante : null,
       status:          m.status  || '',
       minuto:          m.minuto  || '',
       estadio:         m.estadio || '',
@@ -537,6 +614,8 @@ function getWebLive_() {
       ronda:           m.ronda   || '',
       clima:           climaMap[fid] || null,
       eventos:         evs,
+      alineaciones:    matchAlin,
+      poisson:         poisson,
       stats: statsRow ? {
         posesion_local:       Number(statsRow.posesion_local     || 0),
         posesion_visitante:   Number(statsRow.posesion_visitante || 0),
@@ -710,6 +789,7 @@ function getWebTeams_() {
     clasMap[k] = { grupo: r.grupo || '', pos: Number(r.posicion || r.pos || 0), pts: Number(r.puntos || r.pts || 0) };
   });
 
+  const seenNombres = new Set();
   return equipos.map(eq => {
     const nombre = teamNameToSpanish_(eq.nombre || eq.name || eq.equipo || '');
     const k = nombre.toLowerCase();
@@ -724,7 +804,12 @@ function getWebTeams_() {
       entrenador:  eq.entrenador || eq.coach || '',
       espn_id:     eq.espn_id || ''
     };
-  }).filter(eq => eq.nombre).sort((a, b) => (b.elo || 0) - (a.elo || 0));
+  }).filter(eq => {
+    if (!eq.nombre) return false;
+    if (seenNombres.has(eq.nombre)) return false;
+    seenNombres.add(eq.nombre);
+    return true;
+  }).sort((a, b) => (b.elo || 0) - (a.elo || 0));
 }
 
 // ─── Tab: players ────────────────────────────────────────────────────────────
