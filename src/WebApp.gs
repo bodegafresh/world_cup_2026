@@ -1239,14 +1239,27 @@ function getWebStats_() {
     }
   });
 
-  // Agregar W/D/L y GF/GA desde Partidos (deduplicar por match_id/fixture_id)
+  // Agregar W/D/L y GF/GA desde Partidos (deduplicar por par de equipos, priorizando filas con match_id)
   var wdlMap = {};
   var FINAL_STATUS = ['FT', 'AET', 'PEN'];
+  var normTeam = function(s) {
+    return teamNameToSpanish_(String(s || '')).toLowerCase()
+      .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+      .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+      .replace(/[^a-z]/g,'');
+  };
   var partidosDedup = {};
   partidos.forEach(function(r) {
-    var fid = String(r.match_id || r.fixture_id_api_football || r.match_key || '');
-    if (!fid) return;
-    if (!partidosDedup[fid]) partidosDedup[fid] = r;
+    var status = String(r.status || '').toUpperCase();
+    if (!FINAL_STATUS.includes(status)) return; // solo contar partidos terminados
+    // Clave por par de equipos (independiente de fuente o fecha)
+    var pairKey = normTeam(r.local) + '_' + normTeam(r.visitante);
+    var hasId = !!(r.match_id || r.fixture_id_api_football);
+    var existing = partidosDedup[pairKey];
+    // Preferir la fila que tenga match_id
+    if (!existing || (hasId && !(existing.match_id || existing.fixture_id_api_football))) {
+      partidosDedup[pairKey] = r;
+    }
   });
   Object.values(partidosDedup).forEach(function(r) {
     var status = String(r.status || '').toUpperCase();

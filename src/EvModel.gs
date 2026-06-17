@@ -383,3 +383,36 @@ function buildFixtureFromSheetRow_(row) {
     goals:  { home: row.goles_local || null, away: row.goles_visitante || null }
   };
 }
+
+// ── Función pública para ejecutar desde el editor ─────────────────────────────
+function calcularEV() {
+  const today    = todayChile_();
+  const tomorrow = tomorrowChile_();
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
+    .filter(r => {
+      const f = normalizeFecha_(r.fecha);
+      return (f === today || f === tomorrow) &&
+             !['FT','AET','PEN'].includes(String(r.status || '').toUpperCase());
+    });
+
+  if (!partidos.length) {
+    Logger.log('No hay partidos pendientes para hoy/mañana.');
+    return;
+  }
+
+  let total = 0;
+  partidos.forEach(row => {
+    try {
+      const fixture = buildFixtureFromSheetRow_(row);
+      const opps    = calculateEvForFixture_(fixture);
+      if (opps.length) {
+        saveAndAlertEvOpportunities_(fixture, opps);
+        total += opps.length;
+      }
+    } catch (e) {
+      Logger.log(`Error EV ${row.local} vs ${row.visitante}: ${e.message}`);
+    }
+  });
+  Logger.log(`calcularEV completado: ${total} oportunidades para ${partidos.length} partidos.`);
+  Logger.log('Nota: requiere cuotas en hoja Odds (fuente THE_ODDS_API). Sin cuotas → sin oportunidades.');
+}
