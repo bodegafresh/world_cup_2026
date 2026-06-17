@@ -368,15 +368,328 @@ async function renderPerformance() {
   }
 }
 
+// ─── Sección: EN VIVO ─────────────────────────────────────────────────────────
+let liveInterval = null;
+
+async function renderLive() {
+  document.getElementById('section-live').innerHTML = loadingHtml();
+  try {
+    const matches = await fetchTab('live');
+    if (!matches.length) {
+      document.getElementById('section-live').innerHTML =
+        `<div class="error-state"><div class="icon">📡</div><p>No hay partidos en vivo ahora mismo.</p></div>`;
+      return;
+    }
+    document.getElementById('live-badge').style.display = 'inline-flex';
+    document.getElementById('section-live').innerHTML = matches.map(m => buildLiveCard(m)).join('');
+  } catch(e) {
+    document.getElementById('section-live').innerHTML = errorHtml('Error en vivo: ' + e.message);
+  }
+}
+
+function buildLiveCard(m) {
+  const eventIcons = { Goal:'⚽', subst:'🔄', yellowcard:'🟨', yellowredcard:'🟨🟥', redcard:'🟥', var:'📺' };
+  const evHtml = m.eventos.map(ev => {
+    const icon = eventIcons[ev.tipo] || eventIcons[ev.detalle] || '•';
+    const min  = ev.extra ? `${ev.minuto}+${ev.extra}'` : `${ev.minuto}'`;
+    return `<div class="live-event">
+      <span class="live-min">${min}</span>
+      <span class="live-icon">${icon}</span>
+      <span class="live-team">${ev.equipo}</span>
+      <span class="live-player">${ev.jugador}${ev.asistente ? ` <small>(${ev.asistente})</small>` : ''}</span>
+    </div>`;
+  }).join('') || `<p style="color:var(--text3);font-size:.8rem;padding:.5rem 0">Sin eventos registrados aún</p>`;
+
+  const statsHtml = m.stats ? buildStatsBars(m.local, m.visitante, m.stats) : '';
+
+  return `<div class="match-detail-card live">
+    <div class="md-header">
+      <span class="live-pill">🔴 EN VIVO</span>
+      <span style="color:var(--text3);font-size:.8rem">${m.status} · ${m.estadio||''}</span>
+    </div>
+    <div class="md-score">
+      <div class="md-team">${flag(m.local)} <span>${m.local}</span></div>
+      <div class="md-scorebox">${m.goles_local ?? '–'} – ${m.goles_visitante ?? '–'}</div>
+      <div class="md-team right">${flag(m.visitante)} <span>${m.visitante}</span></div>
+    </div>
+    <div class="live-events-list">${evHtml}</div>
+    ${statsHtml}
+  </div>`;
+}
+
+// ─── Sección: DETALLE DE PARTIDO ─────────────────────────────────────────────
+async function showMatchDetail(matchKey) {
+  const el = document.getElementById(`detail-${matchKey}`);
+  if (!el) return;
+  if (el.dataset.loaded) { el.style.display = el.style.display === 'none' ? '' : 'none'; return; }
+  el.style.display = '';
+  el.innerHTML = loadingHtml();
+  try {
+    const key = getSavedKey();
+    const url = `${WORKER_URL}/api?tab=match&match_key=${encodeURIComponent(matchKey)}&key=${encodeURIComponent(key)}`;
+    const res  = await fetch(url);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Error');
+    el.dataset.loaded = '1';
+    el.innerHTML = buildMatchDetail(json.data);
+  } catch(e) {
+    el.innerHTML = errorHtml('No se pudo cargar el detalle: ' + e.message);
+  }
+}
+
+function buildMatchDetail(m) {
+  const eventIcons = { Goal:'⚽', subst:'🔄', yellowcard:'🟨', yellowredcard:'🟨🟥', redcard:'🟥', var:'📺' };
+
+  const evHtml = m.eventos && m.eventos.length
+    ? m.eventos.map(ev => {
+        const icon = eventIcons[ev.tipo] || '•';
+        const min  = ev.extra ? `${ev.minuto}+${ev.extra}'` : `${ev.minuto}'`;
+        return `<div class="live-event">
+          <span class="live-min">${min}</span>
+          <span class="live-icon">${icon}</span>
+          <span class="live-team">${ev.equipo}</span>
+          <span class="live-player">${ev.jugador}${ev.asistente ? ` <small>(${ev.asistente})</small>` : ''}</span>
+        </div>`;
+      }).join('')
+    : '';
+
+  const statsHtml = m.stats ? buildStatsBars(m.local, m.visitante, m.stats) : '';
+
+  const poissonHtml = m.poisson ? `
+    <div style="margin-top:1rem">
+      <div class="section-title" style="font-size:.75rem">🎯 Predicción Poisson</div>
+      <div class="prob-bar" style="height:10px;margin-bottom:.5rem">
+        <div class="ph" style="width:${m.poisson.prob_home}%"></div>
+        <div class="pd" style="width:${m.poisson.prob_draw}%"></div>
+        <div class="pa" style="width:${m.poisson.prob_away}%"></div>
+      </div>
+      <div class="prob-labels">
+        <span class="ph-l">${m.poisson.prob_home}%</span>
+        <span style="color:var(--text3)">${m.poisson.prob_draw}%</span>
+        <span class="pa-l">${m.poisson.prob_away}%</span>
+      </div>
+      <div class="match-xg" style="margin-top:.4rem">
+        xG: <span>${m.poisson.lambda_h}</span>–<span>${m.poisson.lambda_a}</span>
+        &nbsp;·&nbsp; O2.5: <span>${m.poisson.over25}%</span>
+        &nbsp;·&nbsp; BTTS: <span>${m.poisson.btts}%</span>
+      </div>
+    </div>` : '';
+
+  const alinHtml = buildLineups(m.local, m.visitante, m.alineaciones || []);
+
+  const aiHtml = m.ai && m.ai.resumen ? `
+    <div style="margin-top:1rem">
+      <div class="section-title" style="font-size:.75rem">🤖 Análisis IA</div>
+      <p style="font-size:.82rem;color:var(--text2);line-height:1.6">${m.ai.resumen}</p>
+      ${m.ai.factores ? `<p style="font-size:.78rem;color:var(--text3);margin-top:.4rem">📌 ${m.ai.factores}</p>` : ''}
+    </div>` : '';
+
+  const h2hHtml = m.h2h && m.h2h.length ? `
+    <div style="margin-top:1rem">
+      <div class="section-title" style="font-size:.75rem">🔁 Historial H2H</div>
+      ${m.h2h.map(h => `<div style="display:flex;justify-content:space-between;font-size:.78rem;padding:.3rem 0;border-bottom:1px solid var(--border)">
+        <span>${flag(h.local)} ${h.local}</span>
+        <strong style="color:var(--gold)">${h.goles_local} – ${h.goles_visitante}</strong>
+        <span>${flag(h.visitante)} ${h.visitante}</span>
+      </div>`).join('')}
+    </div>` : '';
+
+  return `<div style="padding:1rem;background:var(--bg2);border-top:1px solid var(--border)">
+    ${evHtml ? `<div class="section-title" style="font-size:.75rem">📋 Eventos</div><div class="live-events-list">${evHtml}</div>` : ''}
+    ${statsHtml}
+    ${poissonHtml}
+    ${alinHtml}
+    ${aiHtml}
+    ${h2hHtml}
+  </div>`;
+}
+
+function buildStatsBars(local, visitante, s) {
+  const rows = [
+    ['Posesión %',    s.posesion_local,    s.posesion_visitante,    100],
+    ['Tiros',         s.tiros_local,       s.tiros_visitante,       null],
+    ['Al arco',       s.tiros_arco_local,  s.tiros_arco_visitante,  null],
+    ['Corners',       s.corners_local,     s.corners_visitante,     null],
+    ['Faltas',        s.faltas_local,      s.faltas_visitante,      null],
+    ['Amarillas 🟨', s.amarillas_local,   s.amarillas_visitante,   null],
+    ['Rojas 🟥',     s.rojas_local,       s.rojas_visitante,       null],
+  ].filter(([,l,v]) => (l||0) + (v||0) > 0);
+
+  if (!rows.length) return '';
+  return `<div style="margin-top:1rem">
+    <div class="section-title" style="font-size:.75rem">📊 Estadísticas</div>
+    <div class="stats-compare">
+      <div class="stats-header">
+        <span class="stats-team-l">${flag(local)} ${local}</span>
+        <span></span>
+        <span class="stats-team-r">${flag(visitante)} ${visitante}</span>
+      </div>
+      ${rows.map(([label, lv, rv, max]) => {
+        const total = max || (Number(lv||0) + Number(rv||0)) || 1;
+        const lPct  = Math.round(Number(lv||0) / total * 100);
+        const rPct  = Math.round(Number(rv||0) / total * 100);
+        return `<div class="stat-row">
+          <span class="stat-val-l">${lv||0}</span>
+          <div class="stat-bar-wrap">
+            <div class="stat-bar-l" style="width:${lPct}%"></div>
+            <span class="stat-label">${label}</span>
+            <div class="stat-bar-r" style="width:${rPct}%"></div>
+          </div>
+          <span class="stat-val-r">${rv||0}</span>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function buildLineups(local, visitante, alineaciones) {
+  if (!alineaciones.length) return '';
+  const local11  = alineaciones.filter(a => a.equipo === local  && a.rol === 'titular').sort((a,b)=>a.numero-b.numero);
+  const visit11  = alineaciones.filter(a => a.equipo === visitante && a.rol === 'titular').sort((a,b)=>a.numero-b.numero);
+  const localSub = alineaciones.filter(a => a.equipo === local  && a.rol !== 'titular');
+  const visitSub = alineaciones.filter(a => a.equipo === visitante && a.rol !== 'titular');
+
+  if (!local11.length && !visit11.length) return '';
+
+  const playerRow = p => `<div class="lineup-player"><span class="lineup-num">${p.numero}</span><span>${p.jugador}</span><span class="lineup-pos">${p.posicion||''}</span></div>`;
+
+  return `<div style="margin-top:1rem">
+    <div class="section-title" style="font-size:.75rem">👥 Alineaciones</div>
+    <div class="lineups-grid">
+      <div class="lineup-col">
+        <div class="lineup-team">${flag(local)} ${local}</div>
+        ${local11.map(playerRow).join('')}
+        ${localSub.length ? `<div class="lineup-subs">Suplentes: ${localSub.map(p=>p.jugador).join(', ')}</div>` : ''}
+      </div>
+      <div class="lineup-col">
+        <div class="lineup-team">${flag(visitante)} ${visitante}</div>
+        ${visit11.map(playerRow).join('')}
+        ${visitSub.length ? `<div class="lineup-subs">Suplentes: ${visitSub.map(p=>p.jugador).join(', ')}</div>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ─── Sección: EQUIPOS ─────────────────────────────────────────────────────────
+async function renderTeams() {
+  document.getElementById('section-teams').innerHTML = loadingHtml();
+  try {
+    const teams = await getData('teams', 10 * 60 * 1000);
+    if (!teams.length) {
+      document.getElementById('section-teams').innerHTML =
+        `<div class="error-state"><div class="icon">🏳️</div><p>No hay datos de equipos aún.</p></div>`;
+      return;
+    }
+
+    const grupos = {};
+    teams.forEach(t => {
+      const g = t.grupo || 'Sin grupo';
+      if (!grupos[g]) grupos[g] = [];
+      grupos[g].push(t);
+    });
+
+    const formaColor = r => ({ W:'var(--green)', D:'var(--text3)', L:'var(--red)' })[r] || 'var(--text3)';
+
+    document.getElementById('section-teams').innerHTML = Object.keys(grupos).sort().map(g => `
+      <div style="margin-bottom:1.5rem">
+        <h3 class="section-title">Grupo ${g}</h3>
+        <div class="teams-grid">
+          ${grupos[g].map(t => `
+            <div class="team-card">
+              <div class="team-card-top">
+                <span class="team-flag-big">${flag(t.nombre)}</span>
+                <div>
+                  <div class="team-name-big">${t.nombre}</div>
+                  <div style="font-size:.72rem;color:var(--text3)">${t.confederacion||''} ${t.entrenador ? `· ${t.entrenador}` : ''}</div>
+                </div>
+                ${t.pos ? `<div class="team-pos">#${t.pos} <small style="color:var(--text3)">${t.pts}pts</small></div>` : ''}
+              </div>
+              ${t.elo ? `<div class="team-elo">ELO <strong style="color:var(--gold)">${Math.round(t.elo)}</strong></div>` : ''}
+              ${t.forma ? `<div class="team-forma">${t.forma.split('').slice(-5).map(r =>
+                `<span class="forma-dot" style="background:${formaColor(r)}">${r}</span>`
+              ).join('')}</div>` : ''}
+            </div>`).join('')}
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    document.getElementById('section-teams').innerHTML = errorHtml('Error equipos: ' + e.message);
+  }
+}
+
+// ─── Sección: JUGADORES ──────────────────────────────────────────────────────
+async function renderPlayers() {
+  document.getElementById('section-players').innerHTML = loadingHtml();
+  try {
+    const players = await getData('players', 10 * 60 * 1000);
+    if (!players.length) {
+      document.getElementById('section-players').innerHTML =
+        `<div class="error-state"><div class="icon">👤</div><p>No hay estadísticas de jugadores aún. Se cargan al terminar los partidos.</p></div>`;
+      return;
+    }
+    document.getElementById('section-players').innerHTML = `
+    <div style="overflow-x:auto">
+    <table class="standings-table">
+      <thead><tr>
+        <th>#</th><th>Jugador</th><th>Equipo</th>
+        <th title="Goles">⚽</th><th title="Asistencias">🎯</th>
+        <th title="Partidos">PJ</th><th title="Minutos">Min</th>
+        <th title="Amarillas">🟨</th><th title="Rojas">🟥</th>
+      </tr></thead>
+      <tbody>${players.map((p, i) => `
+        <tr>
+          <td style="color:var(--text3)">${i+1}</td>
+          <td><strong>${p.jugador}</strong></td>
+          <td>${flag(p.equipo)} ${p.equipo}</td>
+          <td><strong style="color:var(--gold)">${p.goles}</strong></td>
+          <td>${p.asistencias}</td>
+          <td style="color:var(--text2)">${p.partidos}</td>
+          <td style="color:var(--text3)">${p.minutos}'</td>
+          <td>${p.amarillas||0}</td>
+          <td>${p.rojas||0}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>`;
+  } catch(e) {
+    document.getElementById('section-players').innerHTML = errorHtml('Error jugadores: ' + e.message);
+  }
+}
+
+// ─── Override renderHoy para añadir click → detalle ──────────────────────────
+const _origRenderMatchCard = renderMatchCard;
+function renderMatchCardClickable(m, poissonRows) {
+  const inner = _origRenderMatchCard(m, poissonRows);
+  const mk = m.match_key || '';
+  if (!mk) return inner;
+  const wrapped = inner.replace('<div class="match-card', `<div class="match-card" onclick="showMatchDetail('${mk}')" style="cursor:pointer"`);
+  return wrapped + `<div id="detail-${mk}" class="match-detail-inline" style="display:none"></div>`;
+}
+
 // ─── Navegación ───────────────────────────────────────────────────────────────
+let liveRefreshInterval = null;
+
 const renderers = {
-  hoy: renderHoy, tabla: renderStandings, ev: renderEV,
-  elo: renderElo, simulacion: renderSimulation, rendimiento: renderPerformance
+  hoy:         renderHoy,
+  live:        renderLive,
+  tabla:       renderStandings,
+  ev:          renderEV,
+  elo:         renderElo,
+  simulacion:  renderSimulation,
+  rendimiento: renderPerformance,
+  equipos:     renderTeams,
+  jugadores:   renderPlayers
 };
 
 function showSection(id) {
   document.querySelectorAll('.section-panel').forEach(s => s.style.display = s.id === `panel-${id}` ? '' : 'none');
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('active', a.dataset.section === id));
+
+  // Auto-polling en vivo cada 30s
+  if (liveRefreshInterval) { clearInterval(liveRefreshInterval); liveRefreshInterval = null; }
+  if (id === 'live') {
+    liveRefreshInterval = setInterval(() => { delete cache['live']; renderLive(); }, 30 * 1000);
+  }
+
   if (renderers[id]) renderers[id]();
 }
 
@@ -394,8 +707,10 @@ function initApp() {
   document.getElementById('login-screen').style.display  = 'none';
   document.getElementById('config-banner').style.display = 'none';
   document.getElementById('app-content').style.display   = '';
-  document.getElementById('torneo-nombre').textContent   = TORNEO_NOMBRE;
-  document.getElementById('torneo-emoji').textContent    = TORNEO_EMOJI;
+  const tnEl = document.getElementById('torneo-nombre');
+  const teEl = document.getElementById('torneo-emoji');
+  if (tnEl) tnEl.textContent = TORNEO_NOMBRE;
+  if (teEl) teEl.textContent = TORNEO_EMOJI;
 
   document.querySelectorAll('nav a').forEach(a =>
     a.addEventListener('click', e => { e.preventDefault(); showSection(a.dataset.section); })
