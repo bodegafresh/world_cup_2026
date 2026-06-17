@@ -22,8 +22,18 @@
  * @returns {TextOutput} JSON con CORS
  */
 function routeWebRequest_(e) {
-  const tab  = (e.parameter && e.parameter.tab) ? e.parameter.tab.toLowerCase() : 'dashboard';
-  const cors = { 'Access-Control-Allow-Origin': '*' };
+  // Validar clave secreta si está configurada en Script Properties
+  const secretKey = PropertiesService.getScriptProperties().getProperty('WEB_SECRET_KEY') || '';
+  if (secretKey) {
+    const provided = (e.parameter && e.parameter.key) ? e.parameter.key : '';
+    if (provided !== secretKey) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: false, error: 'Unauthorized' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  const tab = (e.parameter && e.parameter.tab) ? e.parameter.tab.toLowerCase() : 'dashboard';
 
   try {
     let data;

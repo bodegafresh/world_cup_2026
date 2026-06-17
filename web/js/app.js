@@ -59,46 +59,36 @@ function simBarColor(p) {
   return '#ff7043';
 }
 
-// ─── gviz fetcher ─────────────────────────────────────────────────────────────
-// Google Sheets Visualization API — funciona sin CORS cuando el Sheet es público.
-// URL: https://docs.google.com/spreadsheets/d/{ID}/gviz/tq?tqx=out:json&sheet={NAME}
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+const KEY_STORAGE = 'wc2026_key';
 
-async function gvizFetch(sheetName) {
-  const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq`
-            + `?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+function getSavedKey() { return localStorage.getItem(KEY_STORAGE) || ''; }
+function saveKey(k)    { localStorage.setItem(KEY_STORAGE, k); }
+function clearKey()    { localStorage.removeItem(KEY_STORAGE); }
+
+// ─── API fetcher (via Cloudflare Worker) ─────────────────────────────────────
+
+async function fetchTab(tab) {
+  const key = getSavedKey();
+  const url = `${WORKER_URL}/api?tab=${encodeURIComponent(tab)}&key=${encodeURIComponent(key)}`;
   const res  = await fetch(url);
-  const text = await res.text();
-  // Respuesta: /*O_o*/\ngoogle.visualization.Query.setResponse({...});
-  const json = JSON.parse(text.replace(/^[^(]+\(/, '').replace(/\);\s*$/, ''));
-  if (json.status === 'error') {
-    const msg = (json.errors && json.errors[0] && json.errors[0].detailed_message) || 'Error gviz';
-    throw new Error(msg);
+  const json = await res.json();
+  if (res.status === 401 || (json && json.error === 'Unauthorized')) {
+    clearKey();
+    showLogin('Clave incorrecta. Inténtalo de nuevo.');
+    throw new Error('Unauthorized');
   }
-  return gvizToObjects(json.table);
-}
-
-function gvizToObjects(table) {
-  if (!table || !table.cols || !table.rows) return [];
-  const cols = table.cols.map(c => (c.label || c.id || '').trim());
-  return table.rows
-    .filter(row => row.c && row.c.some(cell => cell && cell.v != null))
-    .map(row => {
-      const obj = {};
-      cols.forEach((col, i) => {
-        const cell = row.c && row.c[i];
-        obj[col] = cell ? (cell.v != null ? cell.v : null) : null;
-      });
-      return obj;
-    });
+  if (!json.ok) throw new Error(json.error || 'Error del servidor');
+  return json.data;
 }
 
 // ─── Cache simple ─────────────────────────────────────────────────────────────
 const cache = {};
-async function getSheet(name, ttlMs = 5 * 60 * 1000) {
+async function getData(tab, ttlMs = 5 * 60 * 1000) {
   const now = Date.now();
-  if (cache[name] && (now - cache[name].ts) < ttlMs) return cache[name].data;
-  const data = await gvizFetch(name);
-  cache[name] = { data, ts: now };
+  if (cache[tab] && (now - cache[tab].ts) < ttlMs) return cache[tab].data;
+  const data = await fetchTab(tab);
+  cache[tab] = { data, ts: now };
   return data;
 }
 
@@ -186,31 +176,26 @@ function renderMatchCard(m, poissonRows) {
 async function renderHoy() {
   document.getElementById('section-hoy').innerHTML = skeletons(3);
   try {
-    const [partidos, poisson] = await Promise.all([
-      getSheet('Partidos', 2 * 60 * 1000),
-      getSheet('PoissonOdds').catch(() => [])
-    ]);
+    const dash  = await getData('dashboard', 2 * 60 * 1000);
+    const preds = await getData('predictions').catch(() => []);
 
-    const hoy     = today();
-    const manana  = tomorrow();
-    const matchHoy   = partidos.filter(r => normDate(r.fecha) === hoy);
-    const matchMan   = partidos.filter(r => normDate(r.fecha) === manana);
-    const enVivo     = matchHoy.filter(r => ['1H','2H','HT','ET','BT','P'].includes(String(r.status||'').toUpperCase()));
-    const pendientes = matchHoy.filter(r => !['FT','AET','PEN'].includes(String(r.status||'').toUpperCase()));
+    const enVivo     = dash.en_vivo  || [];
+    const pendientes = dash.hoy      || [];
+    const matchMan   = dash.mañana   || [];
 
     let html = '';
     if (enVivo.length) {
       html += `<h3 class="section-title">🔴 En vivo</h3>
-               <div class="matches-grid">${enVivo.map(m => renderMatchCard(m, poisson)).join('')}</div>`;
+               <div class="matches-grid">${enVivo.map(m => renderMatchCard(m, preds)).join('')}</div>`;
       document.getElementById('live-badge').style.display = 'inline-flex';
     }
     if (pendientes.length) {
       html += `<h3 class="section-title" style="margin-top:1.5rem">⚽ Hoy</h3>
-               <div class="matches-grid">${pendientes.map(m => renderMatchCard(m, poisson)).join('')}</div>`;
+               <div class="matches-grid">${pendientes.map(m => renderMatchCard(m, preds)).join('')}</div>`;
     }
     if (matchMan.length) {
       html += `<h3 class="section-title" style="margin-top:1.5rem">📅 Mañana</h3>
-               <div class="matches-grid">${matchMan.map(m => renderMatchCard(m, poisson)).join('')}</div>`;
+               <div class="matches-grid">${matchMan.map(m => renderMatchCard(m, preds)).join('')}</div>`;
     }
     if (!html) {
       html = `<div class="error-state"><div class="icon">📅</div><p>No hay partidos para hoy ni mañana.</p></div>`;
@@ -225,19 +210,7 @@ async function renderHoy() {
 async function renderStandings(groupKey) {
   document.getElementById('standings-content').innerHTML = `<div class="skeleton skel-row"></div>`.repeat(4);
   try {
-    const rows = await getSheet('Clasificacion');
-    const grupos = {};
-    rows.forEach(r => {
-      const g = String(r.grupo || r.group || '?').toUpperCase();
-      if (!grupos[g]) grupos[g] = [];
-      grupos[g].push({
-        equipo: r.equipo || r.team || '',
-        pj: +r.pj||0, pg: +r.pg||0, pe: +r.pe||0, pp: +r.pp||0,
-        gf: +r.gf||0, gc: +r.gc||0, gd: +r.gd||0, pts: +r.pts||0
-      });
-    });
-    Object.values(grupos).forEach(g => g.sort((a,b) => b.pts-a.pts || b.gd-a.gd || b.gf-a.gf));
-
+    const grupos = await getData('standings');
     const letras = Object.keys(grupos).sort();
     const tabsEl = document.getElementById('groups-tabs');
     if (!tabsEl.children.length) {
@@ -277,12 +250,7 @@ function switchGroup(g) {
 async function renderEV() {
   document.getElementById('section-ev').innerHTML = `<div class="skeleton skel-row"></div>`.repeat(5);
   try {
-    const rows = await getSheet('EvOpportunities');
-    const hoy  = today();
-    const opps = rows
-      .filter(r => normDate(r.fecha || r.date) >= hoy && Number(r.ev || r.expected_value || 0) > 0)
-      .sort((a, b) => Number(b.ev||0) - Number(a.ev||0))
-      .slice(0, 20);
+    const opps = await getData('ev');
 
     if (!opps.length) {
       document.getElementById('section-ev').innerHTML = `<div class="error-state"><div class="icon">🔍</div><p>Sin oportunidades EV+ por ahora.</p></div>`;
@@ -295,12 +263,12 @@ async function renderEV() {
       <tbody>${opps.map(r => `
         <tr>
           <td>${flag(r.local||'')}${r.local||''} vs ${flag(r.visitante||'')}${r.visitante||''}<br>
-              <small style="color:var(--text3)">${normDate(r.fecha||r.date)}</small></td>
-          <td><small>${r.mercado||r.market||''}</small></td>
-          <td><strong>${r.seleccion||r.selection||''}</strong></td>
+              <small style="color:var(--text3)">${r.fecha||''}</small></td>
+          <td><small>${r.mercado||''}</small></td>
+          <td><strong>${r.seleccion||''}</strong></td>
           <td>${fmt.pct(Number(r.prob_modelo||0)*100)}</td>
-          <td><strong style="color:var(--gold)">${fmt.dec(r.cuota||r.odds)}</strong></td>
-          <td><span class="ev-badge ${evColor(r.ev||r.expected_value)}">+${(Number(r.ev||0)*100).toFixed(1)}%</span></td>
+          <td><strong style="color:var(--gold)">${fmt.dec(r.cuota)}</strong></td>
+          <td><span class="ev-badge ${evColor(r.ev)}">+${(Number(r.ev||0)*100).toFixed(1)}%</span></td>
           <td style="color:var(--text2)">${(Number(r.kelly||0)*100).toFixed(1)}%</td>
         </tr>`).join('')}
       </tbody>
@@ -316,14 +284,8 @@ async function renderEV() {
 async function renderElo() {
   document.getElementById('section-elo').innerHTML = loadingHtml();
   try {
-    const rows = await getSheet('EloRatings');
-    const byTeam = {};
-    rows.forEach(r => {
-      const name = r.team || r.equipo || '';
-      const elo  = Number(r.elo || r.rating || 0);
-      if (name && elo > (byTeam[name] || 0)) byTeam[name] = elo;
-    });
-    const top20 = Object.entries(byTeam).sort((a,b) => b[1]-a[1]).slice(0,20);
+    const rows  = await getData('elo');
+    const top20 = rows.slice(0, 20).map(r => [r.equipo, r.elo]);
 
     document.getElementById('section-elo').innerHTML = `<div class="elo-chart-wrap"><canvas id="elo-chart"></canvas></div>`;
     new Chart(document.getElementById('elo-chart').getContext('2d'), {
@@ -353,24 +315,18 @@ async function renderElo() {
 async function renderSimulation() {
   document.getElementById('section-sim').innerHTML = loadingHtml();
   try {
-    const rows = await getSheet('SimulacionGrupos');
-    const grupos = {};
-    rows.forEach(r => {
-      const g = String(r.grupo||r.group||'X').toUpperCase();
-      if (!grupos[g]) grupos[g] = [];
-      grupos[g].push({ equipo: r.equipo||r.team||'', prob: Number(r.prob_clasificar||r.prob_qualify||0) });
-    });
+    const grupos = await getData('simulation');
     const letras = Object.keys(grupos).sort();
     if (!letras.length) {
       document.getElementById('section-sim').innerHTML = `<div class="error-state"><div class="icon">🎲</div><p>Simulación aún no disponible. Ejecuta runGroupSimulation() en Apps Script.</p></div>`;
       return;
     }
     document.getElementById('section-sim').innerHTML = `<div class="sim-grid">${letras.map(g => {
-      const teams = grupos[g].sort((a,b)=>b.prob-a.prob);
+      const teams = grupos[g];
       return `<div class="sim-group-card">
         <div class="sim-group-title">Grupo ${g}</div>
         ${teams.map(t => {
-          const p = t.prob > 1 ? t.prob : t.prob * 100;
+          const p = Number(t.prob_clasificar || 0);
           return `<div class="sim-row">
             <div class="team-name">${flag(t.equipo)} ${t.equipo}</div>
             <div class="sim-prob-bar-wrap"><div class="sim-prob-bar" style="width:${Math.min(p,100)}%;background:${simBarColor(p)}"></div></div>
@@ -389,22 +345,16 @@ async function renderSimulation() {
 async function renderPerformance() {
   document.getElementById('section-perf').innerHTML = loadingHtml();
   try {
-    const [calRows, betRows] = await Promise.all([
-      getSheet('ModelCalibration').catch(() => []),
-      getSheet('BettingHistory').catch(() => [])
-    ]);
-    const cal  = calRows.length ? calRows[calRows.length-1] : {};
-    const settled = betRows.filter(b => ['GANADA','PERDIDA'].includes(String(b.resultado||b.result||'').toUpperCase()));
-    const ganadas = settled.filter(b => String(b.resultado||b.result||'').toUpperCase() === 'GANADA');
-    const stake   = settled.reduce((s,b) => s + Number(b.stake||0), 0);
-    const ret     = ganadas.reduce((s,b) => s + Number(b.ganancia||b.profit||0) + Number(b.stake||0), 0);
-    const roi     = stake > 0 ? (ret-stake)/stake*100 : null;
-    const wr      = settled.length > 0 ? ganadas.length/settled.length*100 : null;
+    const perf = await getData('performance');
+    const cal  = perf.calibration  || {};
+    const bets = perf.bettingStats || {};
+    const roi  = bets.roi  != null ? bets.roi  : null;
+    const wr   = bets.win_rate != null ? bets.win_rate : null;
 
     const cards = [
       { label:'Brier Score', val: cal.brier_score ? Number(cal.brier_score).toFixed(3) : '—', type:'blue',  note:'Calibración · menor = mejor' },
       { label:'Accuracy',    val: cal.accuracy    ? fmt.pct(Number(cal.accuracy)*100)  : '—', type:'green', note:'Predicciones correctas' },
-      { label:'Win Rate',    val: wr !== null      ? fmt.pct(wr)                        : '—', type:'gold',  note:`${ganadas.length}/${settled.length} apuestas` },
+      { label:'Win Rate',    val: wr !== null      ? fmt.pct(wr)                        : '—', type:'gold',  note:`${bets.ganadas||0}/${bets.total||0} apuestas` },
       { label:'ROI',         val: roi !== null     ? fmt.sign(roi)                      : '—', type: roi>=0?'green':'red', note:'Retorno sobre inversión' },
     ];
     document.getElementById('section-perf').innerHTML = `<div class="perf-grid">${cards.map(c =>`
@@ -430,13 +380,18 @@ function showSection(id) {
   if (renderers[id]) renderers[id]();
 }
 
-// ─── Init ─────────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  if (!SPREADSHEET_ID) {
-    document.getElementById('config-banner').style.display = '';
-    document.getElementById('app-content').style.display   = 'none';
-    return;
-  }
+// ─── Login ────────────────────────────────────────────────────────────────────
+function showLogin(errorMsg) {
+  document.getElementById('app-content').style.display   = 'none';
+  document.getElementById('config-banner').style.display = 'none';
+  document.getElementById('login-screen').style.display  = '';
+  const errEl = document.getElementById('login-error');
+  errEl.textContent    = errorMsg || '';
+  errEl.style.display  = errorMsg ? '' : 'none';
+}
+
+function initApp() {
+  document.getElementById('login-screen').style.display  = 'none';
   document.getElementById('config-banner').style.display = 'none';
   document.getElementById('app-content').style.display   = '';
   document.getElementById('torneo-nombre').textContent   = TORNEO_NOMBRE;
@@ -445,15 +400,42 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('nav a').forEach(a =>
     a.addEventListener('click', e => { e.preventDefault(); showSection(a.dataset.section); })
   );
-
   showSection('hoy');
 
-  // Auto-refresh 5 min en secciones en vivo
   setInterval(() => {
-    delete cache['Partidos'];
-    delete cache['EvOpportunities'];
-    const active = document.querySelector('nav a.active');
-    const sec = active && active.dataset.section;
+    delete cache['dashboard'];
+    delete cache['ev'];
+    const sec = document.querySelector('nav a.active')?.dataset.section;
     if (sec && renderers[sec]) renderers[sec]();
   }, 5 * 60 * 1000);
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  if (!WORKER_URL) {
+    document.getElementById('config-banner').style.display = '';
+    document.getElementById('app-content').style.display   = 'none';
+    document.getElementById('login-screen').style.display  = 'none';
+    return;
+  }
+
+  document.getElementById('login-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const key = document.getElementById('login-key').value.trim();
+    saveKey(key);
+    try {
+      await fetchTab('dashboard');
+      initApp();
+    } catch (err) {
+      if (err.message !== 'Unauthorized') initApp(); // error de red, dejar pasar
+    }
+  });
+
+  if (getSavedKey()) {
+    fetchTab('dashboard')
+      .then(() => initApp())
+      .catch(err => err.message === 'Unauthorized' ? showLogin() : initApp());
+  } else {
+    showLogin();
+  }
 });

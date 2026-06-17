@@ -43,16 +43,28 @@
 
   <!-- Banner: configuración pendiente -->
   <div id="config-banner" class="config-banner" style="display:none">
-    <h2>⚙️ Un paso para activar el dashboard</h2>
-    <p>Edita <strong>web/js/config.js</strong> con el ID de tu Google Sheet.</p>
-    <code>SPREADSHEET_ID = '1BxiMVs0XRA5...'</code>
-    <p style="margin-top:.75rem;font-size:.82rem">
-      El ID está en la URL de tu Sheet:<br>
-      <span style="color:var(--text3)">docs.google.com/spreadsheets/d/<strong style="color:var(--gold)">ID_AQUI</strong>/edit</span>
-    </p>
-    <p style="margin-top:.75rem;font-size:.8rem;color:var(--text3)">
-      El Sheet debe estar compartido como <strong>"Cualquier persona con el enlace puede ver"</strong>.
-    </p>
+    <h2>⚙️ Configuración requerida</h2>
+    <p>Edita <strong>web/js/config.js</strong> con la URL de tu Cloudflare Worker.</p>
+    <code>WORKER_URL = 'https://mundial2026.tu-usuario.workers.dev'</code>
+  </div>
+
+  <!-- Login screen -->
+  <div id="login-screen" style="display:none">
+    <div class="config-banner" style="max-width:400px;margin:4rem auto">
+      <h2 style="margin-bottom:1rem">🔐 Mundial FIFA 2026</h2>
+      <p style="margin-bottom:1.5rem">Ingresa la clave de acceso</p>
+      <form id="login-form" style="display:flex;gap:.75rem;justify-content:center;flex-wrap:wrap">
+        <input id="login-key" type="password" placeholder="Clave de acceso"
+          style="padding:.6rem 1rem;border-radius:8px;border:1px solid var(--border);
+                 background:var(--bg);color:var(--text);font-size:1rem;flex:1;min-width:180px">
+        <button type="submit"
+          style="padding:.6rem 1.5rem;background:var(--green);color:#000;border:none;
+                 border-radius:8px;font-weight:700;font-size:1rem;cursor:pointer">
+          Entrar
+        </button>
+      </form>
+      <p id="login-error" style="color:var(--red);margin-top:.75rem;font-size:.85rem;display:none"></p>
+    </div>
   </div>
 
   <!-- Contenido principal -->
