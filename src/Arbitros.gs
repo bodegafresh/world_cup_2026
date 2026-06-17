@@ -133,6 +133,73 @@ function saveRefereeForFixture_(fixture, events) {
   ]]);
 }
 
+/**
+ * Guarda el árbitro de un partido usando datos del ESPN summary.
+ * Alternativa a saveRefereeForFixture_ cuando no hay objeto API-Football.
+ *
+ * @param {string} fakeId    - fixture_id a usar (ej: 'espn_12345')
+ * @param {string} fecha     - 'yyyy-MM-dd'
+ * @param {string} homeTeam  - nombre en español
+ * @param {string} awayTeam  - nombre en español
+ * @param {string} ronda     - ronda del partido (ej: 'Grupo A')
+ * @param {Object} summary   - respuesta cruda de fetchEspnSummary_
+ */
+function saveRefereeFromEspnSummary_(fakeId, fecha, homeTeam, awayTeam, ronda, summary) {
+  // Extraer árbitro de summary.header.competitions[0].officials
+  let nombre = '';
+  try {
+    const comp = ((summary.header || {}).competitions || [])[0] || {};
+    const officials = comp.officials || [];
+    const ref = officials.find(o => {
+      const pos = String((o.position || {}).displayName || o.position || '').toLowerCase();
+      return pos.includes('referee') || pos === 'referee';
+    }) || officials[0];
+    if (ref) {
+      const names = ref.names || ref.officials || [];
+      nombre = names.length ? (names[0].displayName || names[0].shortName || '') : (ref.displayName || '');
+    }
+  } catch(e_) { return; }
+
+  if (!nombre) return;
+
+  // Dedup por fakeId
+  try {
+    const existing = readAll_(CONFIG.SHEETS.ARBITROS).find(r => String(r.fixture_id) === fakeId);
+    if (existing) return;
+  } catch(e_) {}
+
+  // Contar tarjetas desde summary.plays o summary.scoringPlays (ESPN)
+  let amarillas = 0, rojas = 0, penales = 0;
+  try {
+    const plays = summary.plays || summary.keyEvents || [];
+    plays.forEach(p => {
+      const type = String(p.type && (p.type.text || p.type.id) || '').toLowerCase();
+      if (type.includes('yellow card')) amarillas++;
+      else if (type.includes('red card')) rojas++;
+      else if (type.includes('penalty')) penales++;
+    });
+  } catch(e_) {}
+
+  const info = getRefereeInfo_(nombre);
+  getOrCreateSheet_(CONFIG.SHEETS.ARBITROS, ARBITRO_HEADERS);
+  appendRows_(CONFIG.SHEETS.ARBITROS, [[
+    hash_(nombre),
+    nombre,
+    info.nacionalidad,
+    info.confederacion,
+    fakeId,
+    fecha,
+    homeTeam,
+    awayTeam,
+    ronda || '',
+    amarillas,
+    rojas,
+    penales,
+    nowChile_()
+  ]]);
+  Logger.log(`  Árbitro guardado: ${nombre} (${homeTeam} vs ${awayTeam})`);
+}
+
 // ─── Estadísticas acumuladas ──────────────────────────────────────────────────
 
 /**

@@ -535,15 +535,19 @@ function getWebLive_() {
       liveScoreMap[k1] = entry;
       liveScoreMap[k2] = entry;
 
-      // Registrar claves de partidos que ESPN considera en vivo
+      // Detectar si está en curso: por status mapeado O por state==='in' de ESPN
+      const espnState = String((ev.status && ev.status.type && ev.status.type.state) || '');
       const espnLiveStatuses = ['1H','2H','HT','ET','BT','P','LIVE'];
-      if (entry.status && espnLiveStatuses.includes(entry.status)) {
+      const isInProgress = espnState === 'in' || (entry.status && espnLiveStatuses.includes(entry.status));
+      if (isInProgress) {
+        // Asegurarse de que status tenga un valor (puede fallar el mapeo si la desc es distinta)
+        if (!entry.status) entry.status = '1H';
         espnLiveKeys.add(k1);
         espnLiveKeys.add(k2);
       }
 
       // Fetch ESPN summary for live matches to get lineup + weather + venue
-      if (entry.status && ev.id) {
+      if (isInProgress && ev.id) {
         try {
           const summary = fetchEspnSummary_(ev.id);
           const summaryData = {

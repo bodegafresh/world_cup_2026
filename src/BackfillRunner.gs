@@ -69,7 +69,7 @@ function backfillWorldCupOpeningWeek() {
  * Prerequisito: correr loadFullWorldCupCalendarFromEspn() antes para tener Partidos base.
  */
 function backfillEspnHistorical() {
-  const dateFrom = '2026-06-12'; // primer día con partidos
+  const dateFrom = '2026-06-11'; // primer día con partidos (México vs Sudáfrica)
   const dateTo   = yesterdayChile_(); // solo partidos ya terminados
   Logger.log(`=== BACKFILL ESPN HISTÓRICO: ${dateFrom} → ${dateTo} ===`);
 
@@ -162,6 +162,17 @@ function backfillEspnHistorical() {
 
         // 5. Guardar FormaEquipos
         _saveEspnForma_(summary);
+
+        // 6. Guardar árbitro desde ESPN summary
+        try {
+          const sheetRow = partidos.find(r => {
+            const k = normName(teamNameToSpanish_(r.local||'')) + '_' + normName(teamNameToSpanish_(r.visitante||''));
+            return k === (normName(teamNameToSpanish_(ev.home_team)) + '_' + normName(teamNameToSpanish_(ev.away_team)));
+          });
+          saveRefereeFromEspnSummary_(fakeId, date,
+            teamNameToSpanish_(ev.home_team), teamNameToSpanish_(ev.away_team),
+            (sheetRow && sheetRow.ronda) || '', summary);
+        } catch(er_) {}
 
         processed++;
         Logger.log(`  ✅ ${ev.home_team} vs ${ev.away_team} (${date})`);
