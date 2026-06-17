@@ -141,10 +141,12 @@ function fetchAllOddsFromApi_() {
     return null;
   }
 
+  // Use only h2h+totals to avoid 422 when bookmakers don't offer all markets
+  const markets = 'h2h,totals';
   const params = [
     `apiKey=${key}`,
     `regions=${CONFIG.THE_ODDS_API.REGIONS}`,
-    `markets=${CONFIG.THE_ODDS_API.MARKETS}`,
+    `markets=${markets}`,
     `oddsFormat=${CONFIG.THE_ODDS_API.ODDS_FORMAT}`
   ].join('&');
 
