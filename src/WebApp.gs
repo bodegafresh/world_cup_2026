@@ -1506,6 +1506,24 @@ function getWebSquad_(e) {
 
   if (!squad.length) return { equipo: equipoParam, jugadores: [] };
 
+  // Deduplicar jugadores por nombre normalizado: múltiples fuentes (API-Football + ESPN)
+  // pueden cargar el mismo jugador con distinto equipo_id y player_id format.
+  // Prioridad: player_id numérico (API-Football) > espn_ prefixed > cualquier otro.
+  var dedupSquad = {};
+  squad.forEach(function(r) {
+    var nomKey = String(r.nombre || '').toLowerCase().replace(/\s+/g,' ').trim();
+    if (!nomKey) return;
+    var existing = dedupSquad[nomKey];
+    if (!existing) { dedupSquad[nomKey] = r; return; }
+    // Prefiere API-Football (player_id numérico) sobre ESPN (espn_ prefixed)
+    var curPid  = String(r.player_id_api_football || '');
+    var exPid   = String(existing.player_id_api_football || '');
+    var curIsAF = curPid && !curPid.startsWith('espn_');
+    var exIsAF  = exPid  && !exPid.startsWith('espn_');
+    if (curIsAF && !exIsAF) dedupSquad[nomKey] = r;
+  });
+  squad = Object.values(dedupSquad);
+
   var equipoName = teamNameToSpanish_(squad[0].equipo || equipoParam);
 
   // Acumular stats de ResumenJugadorPartido (deduplicado por fixture_id+jugador_id)
