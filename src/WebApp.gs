@@ -762,7 +762,15 @@ function getWebLive_() {
     });
     if (sheetRow) {
       liveFromEspnOnly.push(sheetRow);
-      liveFromSheetKeys.add(key); // evitar duplicados si k1 y k2 apuntan al mismo partido
+      // Marcar AMBAS keys (inglés y español) para evitar que la segunda key duplique el partido
+      const espnEntry = liveScoreMap[key];
+      if (espnEntry) {
+        const k1 = normN(espnEntry.home_en) + '_' + normN(espnEntry.away_en);
+        const k2 = normN(teamNameToSpanish_(espnEntry.home_en)) + '_' + normN(teamNameToSpanish_(espnEntry.away_en));
+        liveFromSheetKeys.add(k1);
+        liveFromSheetKeys.add(k2);
+      }
+      liveFromSheetKeys.add(key);
     } else {
       // No está en la hoja — construir desde datos ESPN
       const entry = liveScoreMap[key];

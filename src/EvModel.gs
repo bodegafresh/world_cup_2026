@@ -92,12 +92,42 @@ function calculateEvForFixture_(fixture) {
   const oddsRows = allOddsRows || [];
   if (!oddsRows.length) return [];
 
-  // 2. Obtener probabilidades del modelo Poisson (independiente del mercado)
-  let poisson = null;
-  try { poisson = getPoissonOdds_(home, away); } catch (e_) {}
+  // 2. Probabilidades del modelo — prioridad: IA ajustada > Poisson > ELO
+  let poisson   = null;
+  let eloProbs  = null;
+  let iaProbs   = null; // probabilidades ajustadas por IA (AnalisisIA fresco de hoy)
 
-  // 3. Fallback: si Poisson no tiene datos, usar ELO
-  let eloProbs = null;
+  // 2a. AnalisisIA: si hay análisis de hoy con fuente ia_ajustada, úsarlo como primario
+  try {
+    const today   = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
+    const aiRows  = readAll_(CONFIG.SHEETS.AI_ANALYSIS);
+    const aiRow   = aiRows.find(r => {
+      const updatedToday = String(r.updated_at || '').substring(0, 10) === today;
+      const matchesHome  = teamNameMatches_(r.equipo_local    || '', home);
+      const matchesAway  = teamNameMatches_(r.equipo_visitante|| '', away);
+      return updatedToday && matchesHome && matchesAway;
+    });
+    if (aiRow && aiRow.prob_local && Number(aiRow.prob_local) > 0) {
+      const pH = Number(aiRow.prob_local);
+      const pD = Number(aiRow.prob_empate);
+      const pA = Number(aiRow.prob_visitante);
+      const s  = pH + pD + pA;
+      if (s > 0.5 && s < 1.5) { // sanity check: suma razonable
+        iaProbs = {
+          home_win: pH / s,
+          draw:     pD / s,
+          away_win: pA / s,
+          over_2_5: Number(aiRow.over_2_5) || null,
+          btts_yes: Number(aiRow.btts)     || null,
+          fuente:   String(aiRow.fuente    || 'ia_ajustada'),
+          confianza: String(aiRow.confianza || 'media')
+        };
+      }
+    }
+  } catch (e_) { console.warn('EvModel IA probs:', e_.message); }
+
+  // 2b. Poisson y ELO siempre se cargan como respaldo
+  try { poisson = getPoissonOdds_(home, away); } catch (e_) {}
   if (!poisson) {
     try { eloProbs = getEloProbabilities_(home, away); } catch (e_) {}
   }
@@ -112,11 +142,9 @@ function calculateEvForFixture_(fixture) {
 
     // Resultado 1X2
     if (mkt === '1x2' || mkt === 'h2h' || mkt === 'match winner') {
-      // Normalizar selección y nombres de equipo (sin tildes, solo a-z)
       const selN  = normT(sel);
       const hNorm = normT(teamNameToSpanish_(home));
       const aNorm = normT(teamNameToSpanish_(away));
-      // Primero detectar empate explícitamente para evitar falsos positivos
       const isDraw = selN === 'draw' || selN === 'empate' || selN === 'x' || selN === 'tie';
       const isHome = !isDraw && (selN === 'home' || selN === '1' ||
                      selN.includes(hNorm) || hNorm.includes(selN) ||
@@ -124,8 +152,15 @@ function calculateEvForFixture_(fixture) {
       const isAway = !isDraw && !isHome && (selN === 'away' || selN === '2' ||
                      selN.includes(aNorm) || aNorm.includes(selN) ||
                      normT(away).includes(selN) || selN.includes(normT(away)));
-      // Cap: ningún resultado 1X2 puede ser < 4% ni > 92% en fútbol real
+
       const capP = (p, lo, hi) => Math.min(Math.max(p, lo), hi);
+
+      // Prioridad: IA ajustada → Poisson → ELO
+      if (iaProbs) {
+        if (isHome) return capP(iaProbs.home_win, 0.04, 0.92);
+        if (isAway) return capP(iaProbs.away_win, 0.04, 0.92);
+        return capP(iaProbs.draw, 0.04, 0.60);
+      }
       if (poisson) {
         let pH = capP(poisson.prob_home/100, 0.04, 0.92);
         let pD = capP(poisson.prob_draw/100, 0.04, 0.60);
@@ -146,19 +181,26 @@ function calculateEvForFixture_(fixture) {
       }
     }
 
-    // Over/Under
+    // Over/Under — IA tiene over_2_5, fallback Poisson
     if (mkt.includes('total') || mkt.includes('over') || mkt.includes('under')) {
-      if (!poisson) return null;
       const lineMatch = mkt.match(/(\d+\.?\d*)/);
       const line = lineMatch ? parseFloat(lineMatch[1]) : 2.5;
-      // Usamos 2.5 como aproximación si no hay línea exacta
+      if (line === 2.5) {
+        if (iaProbs && iaProbs.over_2_5) {
+          return sel.includes('over') ? iaProbs.over_2_5 : (1 - iaProbs.over_2_5);
+        }
+      }
+      if (!poisson) return null;
       const lineKey = line === 1.5 ? 'over_1_5' : line === 3.5 ? 'over_3_5' : 'over_2_5';
       if (sel.includes('over')) return (poisson[lineKey] || poisson.over_2_5) / 100;
       if (sel.includes('under')) return (poisson[`under_${lineKey.replace('over_','')}`] || poisson.under_2_5) / 100;
     }
 
-    // BTTS
+    // BTTS — IA tiene btts_yes, fallback Poisson
     if (mkt.includes('btts') || mkt.includes('both teams')) {
+      if (iaProbs && iaProbs.btts_yes) {
+        return (sel === 'yes' || sel === 'si' || sel === 'ambos') ? iaProbs.btts_yes : (1 - iaProbs.btts_yes);
+      }
       if (!poisson) return null;
       if (sel === 'yes' || sel === 'si' || sel === 'ambos') return poisson.prob_btts_si / 100;
       return poisson.prob_btts_no / 100;
@@ -183,10 +225,13 @@ function calculateEvForFixture_(fixture) {
     const kellyRaw = (prob * cuota - 1) / (cuota - 1);
     const kelly    = Math.max(0, Math.min(kellyRaw / KELLY_DIVISOR, KELLY_MAX_FRACTION));
 
-    // Confianza basada en fuente del modelo
-    const confianza = poisson
-      ? (poisson.source === 'poisson_cache' ? 'ALTA' : 'MEDIA')
-      : (eloProbs ? 'MEDIA' : 'BAJA');
+    // Confianza y fuente: IA ajustada > Poisson > ELO
+    const fuenteModelo = iaProbs
+      ? (iaProbs.fuente === 'ia_ajustada' ? 'IA_AJUSTADA' : ('IA_' + String(iaProbs.fuente).toUpperCase()))
+      : (poisson ? 'POISSON' : (eloProbs ? 'ELO' : 'N/A'));
+    const confianza = iaProbs
+      ? (iaProbs.confianza === 'alta' ? 'ALTA' : iaProbs.confianza === 'baja' ? 'BAJA' : 'MEDIA')
+      : (poisson ? (poisson.source === 'poisson_cache' ? 'ALTA' : 'MEDIA') : (eloProbs ? 'MEDIA' : 'BAJA'));
 
     opportunities.push({
       fixture_id:       fixtureId,
@@ -201,7 +246,7 @@ function calculateEvForFixture_(fixture) {
       edge,
       kelly,
       confianza,
-      fuente_modelo:    poisson ? 'POISSON' : (eloProbs ? 'ELO' : 'N/A'),
+      fuente_modelo:    fuenteModelo,
       es_positivo:      ev > EV_POSITIVE_THRESHOLD && edge > EDGE_MIN_THRESHOLD
     });
   });
@@ -236,23 +281,38 @@ function saveAndAlertEvOpportunities_(fixture, opportunities) {
   } catch (e) { /* hoja no existe aún, se crea abajo */ }
 
   getOrCreateSheet_(CONFIG.SHEETS.EV_OPPORTUNITIES, [
-    'fixture_id','timestamp','mercado','seleccion','cuota',
-    'prob_modelo','ev','edge','kelly','ev_positivo','confianza'
+    'fixture_id','local','visitante','fecha','timestamp',
+    'mercado','seleccion','cuota','cuota_justa',
+    'prob_modelo','ev','edge','kelly','ev_positivo',
+    'confianza','fuente_modelo','sospechoso','outlier'
   ]);
 
-  const rows = opportunities.map(o => [
-    fixtureId,
-    nowChile_(),
-    o.mercado,
-    o.seleccion,
-    o.cuota,
-    o.prob_modelo,
-    Math.round(o.ev    * 10000) / 10000,
-    Math.round(o.edge  * 10000) / 10000,
-    Math.round(o.kelly * 10000) / 10000,
-    o.es_positivo ? 'SI' : 'NO',
-    o.confianza
-  ]);
+  const rows = opportunities.map(o => {
+    const cuotaJusta = o.prob_modelo > 0 ? Math.round((1/o.prob_modelo)*100)/100 : '';
+    const ev = Math.round(o.ev   * 10000) / 10000;
+    const sospechoso = !o.outlier && ev > EV_SUSPICIOUS_THRESHOLD;
+    const outlier    = ev > EV_OUTLIER_THRESHOLD;
+    return [
+      fixtureId,
+      o.equipo_local    || fixture.teams.home.name,
+      o.equipo_visitante|| fixture.teams.away.name,
+      String(fixture.fixture.date || '').substring(0,10),
+      nowChile_(),
+      o.mercado,
+      o.seleccion,
+      o.cuota,
+      cuotaJusta,
+      o.prob_modelo,
+      ev,
+      Math.round(o.edge  * 10000) / 10000,
+      Math.round(o.kelly * 10000) / 10000,
+      o.es_positivo ? 'SI' : 'NO',
+      o.confianza,
+      o.fuente_modelo || '',
+      sospechoso ? 'SI' : 'NO',
+      outlier    ? 'SI' : 'NO'
+    ];
+  });
 
   appendRows_(CONFIG.SHEETS.EV_OPPORTUNITIES, rows);
 
