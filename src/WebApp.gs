@@ -745,10 +745,42 @@ function getWebLive_() {
     });
   } catch(e_) {}
 
-  // Partidos live: los que la hoja ya tiene status live
-  const liveFromSheet = partidos.filter(r =>
-    liveStatuses.includes(String(r.status || '').toUpperCase())
-  );
+  // Partidos live: los que la hoja ya tiene status live.
+  // Dedup por nombre canónico en español: Partidos puede tener 2 filas por partido
+  // (fuente ESPN + fuente API-Football). Preferir la fila con más datos.
+  {
+    const seenLiveMap = new Map();
+    partidos.filter(r => liveStatuses.includes(String(r.status || '').toUpperCase())).forEach(r => {
+      const k = normN(teamNameToSpanish_(r.local||'')) + '_' + normN(teamNameToSpanish_(r.visitante||''));
+      if (!seenLiveMap.has(k)) { seenLiveMap.set(k, r); return; }
+      // Preferir la fila con fixture_id_af, luego con estadio, luego con goles
+      const cur = seenLiveMap.get(k);
+      const scoreNew = (r.fixture_id_af ? 10 : 0) + (r.estadio ? 3 : 0) + (r.arbitro ? 2 : 0) +
+                       (r.goles_local !== '' && r.goles_local != null ? 1 : 0);
+      const scoreOld = (cur.fixture_id_af ? 10 : 0) + (cur.estadio ? 3 : 0) + (cur.arbitro ? 2 : 0) +
+                       (cur.goles_local !== '' && cur.goles_local != null ? 1 : 0);
+      if (scoreNew >= scoreOld) {
+        // Fusionar: tomar el campo que tenga datos del otro
+        const merged = Object.assign({}, r);
+        Object.keys(cur).forEach(col => {
+          if ((merged[col] === '' || merged[col] == null) && cur[col] !== '' && cur[col] != null) {
+            merged[col] = cur[col];
+          }
+        });
+        seenLiveMap.set(k, merged);
+      } else {
+        // Fusionar sobre la fila existente
+        const merged = Object.assign({}, cur);
+        Object.keys(r).forEach(col => {
+          if ((merged[col] === '' || merged[col] == null) && r[col] !== '' && r[col] != null) {
+            merged[col] = r[col];
+          }
+        });
+        seenLiveMap.set(k, merged);
+      }
+    });
+    var liveFromSheet = [...seenLiveMap.values()];
+  }
 
   // Agregar partidos que ESPN ve en vivo pero la hoja aún tiene NS/otro status
   const liveFromSheetKeys = new Set();

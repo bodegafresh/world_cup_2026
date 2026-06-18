@@ -195,9 +195,30 @@ function _monitorEspnEvents_(fixture, espnId, matchKey) {
   const competitors = comp.competitors || [];
   const homeComp   = competitors.find(c => c.homeAway === 'home') || competitors[0] || {};
   const awayComp   = competitors.find(c => c.homeAway === 'away') || competitors[1] || {};
-  const scoreHome  = parseInt(homeComp.score || 0);
-  const scoreAway  = parseInt(awayComp.score || 0);
+  const scoreHome  = parseInt(homeComp.score ?? 0);
+  const scoreAway  = parseInt(awayComp.score ?? 0);
   const score      = { home: scoreHome, away: scoreAway };
+
+  // Mapear status ESPN → código interno
+  const espnStatusMap = {
+    '1st half':'1H','2nd half':'2H','halftime':'HT','extra time':'ET',
+    'break time':'BT','penalties':'P','in progress':'1H','live':'LIVE',
+    'final':'FT','full time':'FT','final/aet':'AET','final/pen':'PEN',
+    'halftime':'HT','end of period':'HT'
+  };
+  const statusDesc = String(((comp.status || {}).type || {}).description || '').toLowerCase();
+  const statusCode = espnStatusMap[statusDesc] || null;
+  const minutoStr  = String(((comp.status || {}).type || {}).shortDetail || '');
+
+  // Actualizar Partidos sheet con score y status actual (crítico para standings)
+  if (statusCode) {
+    try { _updatePartidoLiveRow_(fixture, scoreHome, scoreAway, statusCode, minutoStr); } catch(e_) {}
+    // Si terminó, recalcular tabla y % clasificación
+    if (['FT','AET','PEN'].includes(statusCode)) {
+      try { recalcularTablaDesdePartidos(); } catch(e_) {}
+      try { runGroupSimulation(); }           catch(e_) {}
+    }
+  }
 
   // Recolectar eventos importantes desde todas las fuentes ESPN disponibles
   const espnEvents = _extractEspnAlertEvents_(summary);
@@ -868,4 +889,59 @@ function calculateEventImpact_(event) {
   if (event.type === 'Card' && event.detail === 'Yellow Card') return 'MEDIO';
   if (event.type === 'subst') return 'MEDIO';
   return 'BAJO';
+}
+
+// Escribe score + status del partido en la hoja Partidos para que
+// recalcularTablaDesdePartidos() pueda contar el resultado correctamente.
+function _updatePartidoLiveRow_(fixture, goalsHome, goalsAway, statusCode, minuto) {
+  try {
+    const sheet   = getOrCreateSheet_(CONFIG.SHEETS.PARTIDOS, null);
+    const headers = getHeaders_(CONFIG.SHEETS.PARTIDOS);
+    const allVals = sheet.getDataRange().getValues();
+
+    const mkIdx  = headers.indexOf('match_key');
+    const locIdx = headers.indexOf('local');
+    const visIdx = headers.indexOf('visitante');
+    const glIdx  = headers.indexOf('goles_local');
+    const gvIdx  = headers.indexOf('goles_visitante');
+    const stIdx  = headers.indexOf('status');
+    const resIdx = headers.indexOf('resultado');
+
+    if (stIdx === -1) return;
+
+    const fixtureLocalEs = teamNameToSpanish_(fixture.local     || '');
+    const fixtureVisitEs = teamNameToSpanish_(fixture.visitante || '');
+    const fixtureKey     = String(fixture.match_key || '');
+    const isFinal        = ['FT','AET','PEN'].includes(statusCode);
+    const resultado      = isFinal ? `${goalsHome}-${goalsAway}` : null;
+
+    const normN = s => String(s||'').toLowerCase().normalize('NFD')
+      .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+
+    let updated = 0;
+    for (let i = 1; i < allVals.length; i++) {
+      const row    = allVals[i];
+      const rowKey = String(row[mkIdx] || '');
+      const rowLoc = String(row[locIdx] || '');
+      const rowVis = String(row[visIdx] || '');
+
+      const matchByKey  = fixtureKey && rowKey && rowKey === fixtureKey;
+      const matchByName = normN(teamNameToSpanish_(rowLoc)) === normN(fixtureLocalEs) &&
+                          normN(teamNameToSpanish_(rowVis)) === normN(fixtureVisitEs);
+
+      if (!matchByKey && !matchByName) continue;
+
+      const sheetRow = i + 1;
+      if (glIdx  !== -1) sheet.getRange(sheetRow, glIdx  + 1).setValue(goalsHome);
+      if (gvIdx  !== -1) sheet.getRange(sheetRow, gvIdx  + 1).setValue(goalsAway);
+      if (stIdx  !== -1) sheet.getRange(sheetRow, stIdx  + 1).setValue(statusCode);
+      if (resIdx !== -1 && resultado) sheet.getRange(sheetRow, resIdx + 1).setValue(resultado);
+      updated++;
+    }
+    if (updated > 0) {
+      console.log(`_updatePartidoLiveRow_: ${updated} fila(s) → ${fixtureLocalEs} vs ${fixtureVisitEs} [${statusCode}] ${goalsHome}-${goalsAway}`);
+    }
+  } catch(e) {
+    console.warn('_updatePartidoLiveRow_ error:', e.message);
+  }
 }
