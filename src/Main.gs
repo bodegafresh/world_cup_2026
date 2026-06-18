@@ -168,6 +168,8 @@ function cronPostMatch() {
 
     // Recalcular tabla después de partidos terminados
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla post:', e.message); }
+    // Refrescar horas de partidos NS desde ESPN (corrige valores :42 del backfill)
+    try { refreshNSMatchTimes(); } catch (e) { console.warn('RefreshNS:', e.message); }
     try { refreshDashboard(); } catch (e) {}
   });
 }

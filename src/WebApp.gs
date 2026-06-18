@@ -1060,6 +1060,29 @@ function getWebTeams_() {
     }
   });
 
+  // Mapa equipo → sus partidos del torneo (para el panel de detalle Y para forma_detail WC)
+  const teamMatchesMap = {};
+  partidos.forEach(r => {
+    const fecha = normalizeFecha_(r.fecha);
+    if (!fecha || fecha < TORNEO_START) return;
+    const l = teamNameToSpanish_(r.local     || '');
+    const v = teamNameToSpanish_(r.visitante || '');
+    const entry = {
+      fecha,
+      hora:    formatHoraChile_(r.hora_chile || r.hora),
+      local:   l, visitante: v,
+      goles_l: r.goles_local    !== '' && r.goles_local    != null ? Number(r.goles_local)    : null,
+      goles_v: r.goles_visitante!== '' && r.goles_visitante!= null ? Number(r.goles_visitante): null,
+      status:  String(r.status  || '').toUpperCase(),
+      estadio: r.estadio || '', ciudad: r.ciudad || ''
+    };
+    [l, v].forEach(eq => {
+      if (!eq) return;
+      if (!teamMatchesMap[eq]) teamMatchesMap[eq] = [];
+      teamMatchesMap[eq].push(entry);
+    });
+  });
+
   const formaMap = {};
   forma.forEach(r => {
     const nombre   = teamNameToSpanish_(r.equipo || '');
@@ -1068,14 +1091,26 @@ function getWebTeams_() {
     const rivales  = String(r.ultimos_5_rivales    || '').split(',');
     const marcadores = String(r.ultimos_5_marcadores || '').split(',');
 
-    const detail = results.map((res, i) => {
-      const rival = teamNameToSpanish_((rivales[i] || '').trim());
-      const rivalKey = norm(rival);
-      const wc = rival ? wcPairs.has(teamKey + '|' + rivalKey) : false;
-      return { r: res, wc, rival, score: (marcadores[i] || '').trim() };
-    });
+    // WC results from Partidos directly (authoritative — FormaEquipos may lag updates)
+    const wcEntries = (teamMatchesMap[nombre] || [])
+      .filter(m => m.goles_l !== null && m.goles_v !== null)
+      .sort((a, b) => (a.fecha < b.fecha ? -1 : 1))
+      .map(m => {
+        const isHome = norm(m.local) === teamKey;
+        const myG  = isHome ? m.goles_l : m.goles_v;
+        const oppG = isHome ? m.goles_v : m.goles_l;
+        const res  = myG > oppG ? 'W' : myG < oppG ? 'L' : 'D';
+        return { r: res, wc: true, rival: isHome ? m.visitante : m.local, score: `${myG}-${oppG}` };
+      });
 
-    formaMap[teamKey] = { raw: results.join(','), detail };
+    // Exclude WC opponents from FormaEquipos history to avoid duplicates
+    const wcRivalKeys = new Set(wcEntries.map(e => norm(e.rival)));
+    const prevEntries = results.map((res, i) => {
+      const rival = teamNameToSpanish_((rivales[i] || '').trim());
+      return { r: res, wc: false, rival, score: (marcadores[i] || '').trim(), _rk: norm(rival) };
+    }).filter(d => !wcRivalKeys.has(d._rk)).map(({ _rk, ...rest }) => rest);
+
+    formaMap[teamKey] = { raw: results.join(','), detail: [...wcEntries, ...prevEntries] };
   });
 
   const clasMap = {};
@@ -1110,29 +1145,6 @@ function getWebTeams_() {
   equipos.forEach(eq => {
     const n = teamNameToSpanish_(eq.nombre || eq.name || eq.equipo || '');
     if (n) allTeams.add(n);
-  });
-
-  // Mapa equipo → sus partidos del torneo (para el panel de detalle)
-  const teamMatchesMap = {};
-  partidos.forEach(r => {
-    const fecha = normalizeFecha_(r.fecha);
-    if (!fecha || fecha < TORNEO_START) return;
-    const l = teamNameToSpanish_(r.local     || '');
-    const v = teamNameToSpanish_(r.visitante || '');
-    const entry = {
-      fecha:     fecha,
-      hora:      formatHoraChile_(r.hora_chile || r.hora),
-      local:     l, visitante: v,
-      goles_l:   r.goles_local    !== '' && r.goles_local    != null ? Number(r.goles_local)    : null,
-      goles_v:   r.goles_visitante!== '' && r.goles_visitante!= null ? Number(r.goles_visitante): null,
-      status:    String(r.status  || '').toUpperCase(),
-      estadio:   r.estadio || '', ciudad: r.ciudad || ''
-    };
-    [l, v].forEach(eq => {
-      if (!eq) return;
-      if (!teamMatchesMap[eq]) teamMatchesMap[eq] = [];
-      teamMatchesMap[eq].push(entry);
-    });
   });
 
   const seenNombres = new Set();
