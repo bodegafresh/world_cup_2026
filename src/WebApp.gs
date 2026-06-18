@@ -1001,10 +1001,30 @@ function getWebTeams_() {
     eloMap[norm(r.equipo || '')] = Number(r.elo_actual || r.elo || 0); // also store raw
   });
 
+  // Set de nombres de equipos WC para cruzar rivales
+  const wcTeams = new Set();
+  partidos.forEach(r => {
+    if (r.local)     wcTeams.add(norm(teamNameToSpanish_(r.local)));
+    if (r.visitante) wcTeams.add(norm(teamNameToSpanish_(r.visitante)));
+  });
+
   const formaMap = {};
   forma.forEach(r => {
-    const nombre = teamNameToSpanish_(r.equipo || '');
-    formaMap[norm(nombre)] = r.ultimos_5_resultados || '';
+    const nombre   = teamNameToSpanish_(r.equipo || '');
+    const results  = String(r.ultimos_5_resultados || '').split(',').filter(x => /^[WDL]$/.test(x));
+    const rivales  = String(r.ultimos_5_rivales    || '').split(',');
+    const marcadores = String(r.ultimos_5_marcadores || '').split(',');
+
+    const detail = results.map((res, i) => {
+      const rival = teamNameToSpanish_((rivales[i] || '').trim());
+      const wc    = rival ? wcTeams.has(norm(rival)) : false;
+      return { r: res, wc, rival, score: (marcadores[i] || '').trim() };
+    });
+
+    formaMap[norm(nombre)] = {
+      raw:    results.join(','),
+      detail: detail
+    };
   });
 
   const clasMap = {};
@@ -1054,7 +1074,8 @@ function getWebTeams_() {
       pos:           cData.pos  || 0,
       pts:           cData.pts  || 0,
       elo:           eloMap[k]  || 0,
-      forma:         formaMap[k]|| '',
+      forma:         (formaMap[k] && formaMap[k].raw)    || '',
+      forma_detail:  (formaMap[k] && formaMap[k].detail) || [],
       confederacion: meta.confederacion || '',
       entrenador:    meta.entrenador    || '',
       espn_id:       meta.espn_id       || ''
