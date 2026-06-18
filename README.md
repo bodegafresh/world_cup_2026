@@ -51,20 +51,26 @@ cronPostMatch (c/hora)
 ### Día siguiente (D+1 a las 6 AM)
 ```
 cronDailySetup
-  └─ loadWorldCupDay_(ayer)
-     ├─ API-Football /fixtures?date= → si retorna 0 (WC2026 plan free):
-     │    └─ Fallback: lee fixture_id_af desde Partidos → usa endpoints por fixture
-     ├─ fetchEventsByFixture_()     → EventosLive (goles, tarjetas, VAR)
-     ├─ saveRefereeForFixture_()    → Arbitros (con stats de tarjetas)
-     ├─ fetchStatisticsByFixture_() → estadísticas en Partidos
-     ├─ loadPlayerStatsForFixture_()→ PlayerMatchStats
-     ├─ loadLineupsForFixture_()    → Alineaciones (con grid de posición)
-     ├─ updateEloAfterMatch_()      → EloRatings
-     ├─ autoSettleBetsForFixture_() → BettingHistory
-     └─ saveEspnDataForFixture_()   → complementa ESPN stats + árbitro si faltó
+  └─ loadWorldCupDay_(ayer) — 3 niveles de fallback:
+     │
+     ├─ [Nivel 1] API-Football /fixtures?date= 
+     │    → Bloqueado en plan free para WC2026 (solo 2022–2024)
+     │
+     ├─ [Nivel 2] fixture_id_af desde hoja Partidos → endpoints AF por fixture
+     │    → Solo funciona si se pagó plan superior de API-Football
+     │
+     └─ [Nivel 3] ESPN como fuente principal ← ACTIVO actualmente
+          └─ fetchEspnEventsByDate_(ayer) → partidos FT del día
+             └─ fetchEspnSummary_(espnId) por cada partido:
+                ├─ _saveEspnStats_()         → EspnStats
+                ├─ _saveEspnLineupsToSheet_() → Alineaciones
+                ├─ _saveEspnForma_()          → FormaEquipos
+                ├─ saveRefereeFromEspnSummary_() → Arbitros
+                ├─ updateEloAfterMatch_()     → EloRatings
+                └─ autoSettleBetsForFixture_() → BettingHistory
 ```
 
-> **Clave**: `loadWorldCupDay_` tiene un fallback que usa los `fixture_id_af` guardados en Partidos cuando el endpoint de fecha de API-Football retorna vacío (caso habitual en el plan gratuito). Requiere haber ejecutado `loadFullWorldCupCalendar()` una vez.
+> **API-Football free no tiene acceso a WC2026** (plan gratuito solo cubre temporadas 2022–2024). El sistema usa ESPN como fuente principal para datos post-partido. ESPN es gratis, sin cuota y sin registro.
 
 ---
 
@@ -80,7 +86,7 @@ cronDailySetup
 | `cronPostMatch` | Hour timer | **Cada hora** | ESPN stats para partidos terminados hace < 90 min → árbitros, alineaciones, FormaEquipos |
 | `cronLiveEventsMonitor` | Minute timer | **Cada 5 minutos** | Marcadores en tiempo real, alertas de goles/rojas por Telegram |
 | `cronEvCalculation` | Hour timer | **Cada 2 horas** | Cálculo de apuestas con EV positivo, simulación de grupos |
-| `cronWeeklyMaintenance` | Week timer | **Lunes 3:00 AM** | Limpieza de duplicados, recalibración del modelo, `cargarIdsEquiposDesdeApiFootball()` |
+| `cronWeeklyMaintenance` | Week timer | **Lunes 3:00 AM** | Limpieza de duplicados, recalibración del modelo, `cargarPlantelesDesdeEspn()` |
 
 ---
 
@@ -92,26 +98,27 @@ sheetEnsureAllWithHeaders()    → Crea las 30 hojas con sus columnas
 setupTelegramWebhook()         → Conecta el bot de Telegram
 ```
 
-### Paso 2 — Cargar calendario completo con fixture IDs
+### Paso 2 — Cargar calendario completo (ESPN, gratis)
 ```
-loadFullWorldCupCalendar()
+loadFullWorldCupCalendarFromEspn()
 ```
-Usa el endpoint `/fixtures?league=1&season=2026` de API-Football (retorna los 104 partidos con sus IDs). **Prerequisito para que `cronDailySetup` funcione** — sin esto el fallback no tiene fixture_id_af que leer.
+Carga los 104 partidos con `espn_event_id`, estadio, ciudad y hora Chile. **No requiere API-Football.**
+
+> ⚠️ `loadFullWorldCupCalendar()` (API-Football) **no funciona** — el plan free solo cubre temporadas 2022–2024. WC2026 está bloqueado.
 
 ### Paso 3 — Cargar datos históricos (partidos ya jugados)
 ```
 backfillEspnHistorical()
 ```
-Itera desde 2026-06-11 hasta ayer. Para cada partido FT: guarda alineaciones, FormaEquipos, árbitro y stats básicas usando ESPN (sin consumir cuota API-Football).
+Itera desde 2026-06-11 hasta ayer. Para cada partido FT: stats, alineaciones, FormaEquipos, árbitro y ELO desde ESPN. **Gratis, sin cuota.**
 
-### Paso 4 — Cargar equipos e imágenes de jugadores
+### Paso 4 — Cargar planteles con fotos (ESPN, gratis)
 ```
-cargarIdsEquiposDesdeApiFootball()   → Asocia team_id_api_football a los 48 equipos
-cargarEquipos()                       → Completa metadatos de equipos (escudos, países)
-cargarPlanteles()                     → Carga planteles con fotos para todos los equipos con ID
+cargarPlantelesDesdeEspn()
 ```
+Obtiene planteles completos con fotos de jugadores desde ESPN summary de partidos ya jugados. Guarda en hojas `Jugadores` y `Planteles`.
 
-> Las imágenes de jugadores vienen de la foto URL de API-Football y se guardan en la hoja `Jugadores`. El web dashboard las muestra en las pestañas Equipos y Jugadores.
+> `cargarIdsEquiposDesdeApiFootball()` y `cargarPlanteles()` **no funcionan** — bloqueados por el mismo motivo. `cargarPlantelesDesdeEspn()` es la fuente correcta para WC2026.
 
 ### Paso 5 — Recalcular ELO e inicializar tabla
 ```
@@ -123,18 +130,6 @@ recalcularTablaDesdePartidos()     → Genera tabla de posiciones desde resultad
 ```
 cronTomorrowPreview()              → Clima, noticias y cuotas
 cronTodayPreviewRefresh()          → Análisis IA para partidos de hoy
-```
-
----
-
-## Recuperación sin cuota API-Football
-
-Si la cuota diaria (100 req/día) se agotó:
-```
-1. loadFullWorldCupCalendarFromEspn()   → Actualiza calendario y marcadores via ESPN (gratis)
-2. backfillEspnHistorical()             → Carga historial de partidos terminados via ESPN
-3. recalcularTablaDesdePartidos()       → Recalcula tabla sin API
-4. recalcularElo()                      → Recalcula ELO desde los FT disponibles
 ```
 
 ---
