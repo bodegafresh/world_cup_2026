@@ -567,16 +567,20 @@ function getWebLive_() {
           const weather = summary.weather
             || (summary.gameInfo && summary.gameInfo.weather)
             || null;
-          // Formación de cada equipo desde competitors
-          const compHome = (comp.competitors || []).find(c => c.homeAway === 'home') || {};
-          const compAway = (comp.competitors || []).find(c => c.homeAway === 'away') || {};
+          // Formación: intentar desde rosters (más confiable), luego competitors, luego boxscore
+          const rosterHome = (summary.rosters || []).find(r => r.homeAway === 'home') || {};
+          const rosterAway = (summary.rosters || []).find(r => r.homeAway === 'away') || {};
+          const compHome   = (comp.competitors || []).find(c => c.homeAway === 'home') || {};
+          const compAway   = (comp.competitors || []).find(c => c.homeAway === 'away') || {};
+          const bsHome     = ((summary.boxscore || {}).teams || []).find(t => t.homeAway === 'home') || {};
+          const bsAway     = ((summary.boxscore || {}).teams || []).find(t => t.homeAway === 'away') || {};
           const summaryData = {
             rosters:         summary.rosters || [],
             weather:         weather,
             gameInfo:        summary.gameInfo || null,
             referee:         referee,
-            formacion_home:  compHome.formation || '',
-            formacion_away:  compAway.formation || ''
+            formacion_home:  rosterHome.formation || compHome.formation || bsHome.formation || '',
+            formacion_away:  rosterAway.formation || compAway.formation || bsAway.formation || ''
           };
           espnSummaryMap[k1] = summaryData;
           espnSummaryMap[k2] = summaryData;

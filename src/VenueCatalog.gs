@@ -132,6 +132,20 @@ const VENUE_CATALOG = {
     lat: 25.6682,
     lon: -100.2446,
     timezone_estadio: 'America/Monterrey'
+  },
+
+  'Estadio Banorte|Monterrey': {
+    pais_estadio: 'Mexico',
+    lat: 25.6923,
+    lon: -100.3161,
+    timezone_estadio: 'America/Monterrey'
+  },
+
+  'Estadio Banorte|Mexico City': {
+    pais_estadio: 'Mexico',
+    lat: 25.6923,
+    lon: -100.3161,
+    timezone_estadio: 'America/Monterrey'
   }
 };
 
