@@ -108,10 +108,18 @@ function calculateEvForFixture_(fixture) {
 
     // Resultado 1X2
     if (mkt === '1x2' || mkt === 'h2h' || mkt === 'match winner') {
-      const hName = teamNameToSpanish_(home).toLowerCase();
-      const aName = teamNameToSpanish_(away).toLowerCase();
-      const isHome = sel.includes('home') || sel.toLowerCase().includes(hName.split(' ')[0]);
-      const isAway = sel.includes('away') || sel.toLowerCase().includes(aName.split(' ')[0]);
+      // Normalizar selección y nombres de equipo (sin tildes, solo a-z)
+      const selN  = normT(sel);
+      const hNorm = normT(teamNameToSpanish_(home));
+      const aNorm = normT(teamNameToSpanish_(away));
+      // Primero detectar empate explícitamente para evitar falsos positivos
+      const isDraw = selN === 'draw' || selN === 'empate' || selN === 'x' || selN === 'tie';
+      const isHome = !isDraw && (selN === 'home' || selN === '1' ||
+                     selN.includes(hNorm) || hNorm.includes(selN) ||
+                     normT(home).includes(selN) || selN.includes(normT(home)));
+      const isAway = !isDraw && !isHome && (selN === 'away' || selN === '2' ||
+                     selN.includes(aNorm) || aNorm.includes(selN) ||
+                     normT(away).includes(selN) || selN.includes(normT(away)));
       if (poisson) {
         if (isHome) return poisson.prob_home / 100;
         if (isAway) return poisson.prob_away / 100;

@@ -92,10 +92,7 @@ function cronDailySetup() {
       });
     }
 
-    // 5. Modelo Poisson: recalibrar con partidos FT y precalcular todos los pendientes
-    try { recalcularPoissonOdds(); } catch (e) { console.warn('Poisson:', e.message); }
-    try { recalcularCornersOdds(); } catch (e) { console.warn('Corners:', e.message); }
-    try { recalcularCardsOdds();   } catch (e) { console.warn('Cards:', e.message); }
+    // 5. Modelo Poisson: movido a cronOddsCalc (trigger separado 7:15 AM) para evitar timeout
 
     // 6. EV y simulación de grupos (Poisson ya disponible → EV usa modelo independiente)
     try { runGroupSimulation(); } catch (e) { console.warn('GroupSim:', e.message); }
@@ -111,6 +108,21 @@ function cronDailySetup() {
     if (ctx.hayPartidosHoy) {
       try { broadcastMorningReport_(); } catch (e) { console.warn('MorningReport:', e.message); }
     }
+  });
+}
+
+/**
+ * CRON 1b — Day timer → 7:15 AM (separado de cronDailySetup para no exceder 6 min)
+ * Recalcula los 3 modelos de odds (Poisson, Corners, Cards) para los 86 partidos pendientes.
+ * Debe correr DESPUÉS de cronDailySetup (que carga datos del día anterior).
+ * Agregar trigger manual: Apps Script → Triggers → Day timer → 7:00–8:00 AM → cronOddsCalc
+ */
+function cronOddsCalc() {
+  runWithHealthCheck_('cronOddsCalc', () => {
+    try { recalcularPoissonOdds(); } catch (e) { console.warn('Poisson:', e.message); }
+    try { recalcularCornersOdds(); } catch (e) { console.warn('Corners:', e.message); }
+    try { recalcularCardsOdds();   } catch (e) { console.warn('Cards:', e.message); }
+    try { calcularEV();            } catch (e) { console.warn('EV:', e.message); }
   });
 }
 

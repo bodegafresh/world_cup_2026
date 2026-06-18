@@ -185,27 +185,101 @@ function updateEloAfterMatch_(fixture) {
   const goalsHome = Number(fixture.goals && fixture.goals.home != null ? fixture.goals.home : -1);
   const goalsAway = Number(fixture.goals && fixture.goals.away != null ? fixture.goals.away : -1);
 
-  if (goalsHome < 0 || goalsAway < 0) return; // resultado incompleto
+  if (goalsHome < 0 || goalsAway < 0) return;
 
   const eloHome = getTeamElo_(home);
   const eloAway = getTeamElo_(away);
 
-  // resultado: 1 = victoria local, 0.5 = empate, 0 = derrota local
-  const resultHome = goalsHome > goalsAway ? 1 : goalsHome === goalsAway ? 0.5 : 0;
+  // resultado binario: 1 = local gana, 0.5 = empate, 0 = visitante gana
+  const resultBinary = goalsHome > goalsAway ? 1 : goalsHome === goalsAway ? 0.5 : 0;
+
+  // ── xG weighting: ajustar resultado con tiros al arco como proxy de xG ──────
+  // Si el equipo dominó en tiros pero perdió/empató, el ELO castiga menos.
+  // Peso: 70% resultado real + 30% dominancia xG (tiros arco)
+  let resultHome = resultBinary;
+  try {
+    const espnStats = readAll_(CONFIG.SHEETS.ESPN_STATS);
+    const normT = s => String(s||'').toLowerCase()
+      .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+      .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n');
+    const fid = String(fixture.fixture && fixture.fixture.id || '');
+    const statsRow = espnStats.find(r =>
+      String(r.fixture_id || r.espn_id || '') === fid ||
+      (normT(r.local||'') === normT(home) && normT(r.visitante||'') === normT(away))
+    );
+    if (statsRow) {
+      const sotH = Number(statsRow.tiros_arco_local    || 0);
+      const sotA = Number(statsRow.tiros_arco_visitante || 0);
+      if (sotH + sotA > 0) {
+        const xgShare = sotH / (sotH + sotA); // 0..1, proporción del local
+        resultHome = 0.7 * resultBinary + 0.3 * xgShare;
+      }
+    }
+  } catch (e_) { /* xG no crítico, usar resultado binario */ }
   const resultAway = 1 - resultHome;
 
-  const expHome = eloExpected_(eloHome, eloAway);
-  const expAway = 1 - expHome;
+  // ── Importancia del partido: escala el K-factor ───────────────────────────
+  const round = String((fixture.league && fixture.league.round) || '');
+  const K = getKFactor_(round) * getMatchImportanceFactor_(fixture);
 
-  const K = getKFactor_(fixture.league && fixture.league.round);
+  const expHome = eloExpected_(eloHome + getHomeAdvantageElo_(home, away), eloAway);
+  const expAway = 1 - expHome;
 
   const newEloHome = Math.round(eloHome + K * (resultHome - expHome));
   const newEloAway = Math.round(eloAway + K * (resultAway - expAway));
 
-  upsertElo_(home, newEloHome, eloHome, resultHome);
-  upsertElo_(away, newEloAway, eloAway, resultAway);
+  upsertElo_(home, newEloHome, eloHome, resultBinary);
+  upsertElo_(away, newEloAway, eloAway, 1 - resultBinary);
 
-  Logger.log(`ELO: ${home} ${eloHome}→${newEloHome} | ${away} ${eloAway}→${newEloAway}`);
+  Logger.log(`ELO: ${home} ${eloHome}→${newEloHome} | ${away} ${eloAway}→${newEloAway} (xG-weighted, K=${K.toFixed(0)})`);
+}
+
+/**
+ * Ventaja de localía en ELO para el Mundial 2026.
+ * USA/Canadá/México juegan en su propio país → boost mayor.
+ * Resto: sede neutral (pequeño boost estándar de crowd effect).
+ * Se aplica solo al cálculo de expected (no al ELO almacenado).
+ */
+function getHomeAdvantageElo_(homeTeam, awayTeam) {
+  const normT = s => String(s||'').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').replace(/[^a-z]/g,'');
+  const HOST_NATIONS = new Set(['usa','estadosunidos','eeuu','canada','mexico']);
+  const h = normT(homeTeam);
+  const isHost = HOST_NATIONS.has(h) || HOST_NATIONS.has(normT(teamNameToSpanish_(homeTeam)));
+  return isHost ? 100 : 30; // host: +100 ELO equiv; neutral venue: +30
+}
+
+/**
+ * Factor de importancia del partido [0.8 – 1.5].
+ * Escala el K para que partidos decisivos muevan más el ELO.
+ */
+function getMatchImportanceFactor_(fixture) {
+  const round  = String((fixture.league && fixture.league.round) || '').toLowerCase();
+  if (round.includes('final') && !round.includes('quarter') && !round.includes('semi')) return 1.5;
+  if (round.includes('semi'))    return 1.3;
+  if (round.includes('quarter')) return 1.2;
+  if (round.includes('16') || round.includes('round of')) return 1.1;
+  // Fase de grupos jornada 3 — algunos partidos son "muertos" (ambos ya clasificados)
+  // Detección simple: si ambos equipos tienen >= 6 puntos en Clasificacion → reducir
+  if (round.includes('group') || round.includes('grupo') || round === '') {
+    try {
+      const clasRows = readAll_(CONFIG.SHEETS.CLASIFICACION);
+      const normT = s => String(s||'').toLowerCase()
+        .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+        .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n');
+      const hName = normT(fixture.teams && fixture.teams.home && fixture.teams.home.name || '');
+      const aName = normT(fixture.teams && fixture.teams.away && fixture.teams.away.name || '');
+      const hRow  = clasRows.find(r => normT(teamNameToSpanish_(r.equipo||'')) === hName || normT(r.equipo||'') === hName);
+      const aRow  = clasRows.find(r => normT(teamNameToSpanish_(r.equipo||'')) === aName || normT(r.equipo||'') === aName);
+      if (hRow && aRow) {
+        const hPts = Number(hRow.puntos || hRow.pts || 0);
+        const aPts = Number(aRow.puntos || aRow.pts || 0);
+        if (hPts >= 6 && aPts >= 6) return 0.8; // ambos clasificados probablemente → partido con rotaciones
+      }
+    } catch (e_) {}
+  }
+  return 1.0;
 }
 
 /**
@@ -284,7 +358,9 @@ function getEloProbabilities_(homeTeam, awayTeam) {
   const eloHome = getTeamElo_(homeTeam);
   const eloAway = getTeamElo_(awayTeam);
 
-  const expHome = eloExpected_(eloHome, eloAway);
+  // Aplicar ventaja de localía real (host nations USA/Canadá/México tienen boost mayor)
+  const homeAdvantage = getHomeAdvantageElo_(homeTeam, awayTeam);
+  const expHome = eloExpected_(eloHome + homeAdvantage, eloAway);
   const expAway = 1 - expHome;
 
   // Probabilidad de empate: mayor cuando fuerzas similares (expHome ≈ 0.5)
@@ -297,12 +373,13 @@ function getEloProbabilities_(homeTeam, awayTeam) {
   const awayProb = remaining - homeProb;
 
   return {
-    home_win: Math.round(homeProb * 1000) / 1000,
-    draw:     Math.round(drawProb * 1000) / 1000,
-    away_win: Math.round(awayProb * 1000) / 1000,
-    elo_home: eloHome,
-    elo_away: eloAway,
-    source:   'ELO'
+    home_win:      Math.round(homeProb * 1000) / 1000,
+    draw:          Math.round(drawProb * 1000) / 1000,
+    away_win:      Math.round(awayProb * 1000) / 1000,
+    elo_home:      eloHome,
+    elo_away:      eloAway,
+    home_advantage: homeAdvantage,
+    source:        'ELO'
   };
 }
 

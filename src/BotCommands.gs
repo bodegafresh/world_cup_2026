@@ -136,6 +136,7 @@ function handleTelegramCommand_(text) {
     case '/ev':          return buildEvSummaryText_();
     case '/elo':         return buildEloRankingText_();
     case '/historial':   return buildBettingHistoryText_();
+    case '/rendimiento': return buildPerformanceByMarket_();
     case '/calibrar':    return buildCalibrationText_();
     case '/en_vivo':     return buildLiveMatchesText_();
     case '/grafico':     return null; // manejado antes del switch (necesita chatId)
@@ -516,6 +517,9 @@ function buildHelpCommandResponse_() {
     '/elo — Ranking ELO de los 48 equipos',
     '/grafico Argentina — Gráfico de probabilidades',
     '/portafolio — P&L de apuestas registradas',
+    '/historial — Últimas apuestas y ROI acumulado',
+    '/rendimiento — ROI + hit rate + CLV por mercado',
+    '/calibrar — Brier Score y calibración del modelo',
     '',
     '/ayuda — Ver este menú',
     '',

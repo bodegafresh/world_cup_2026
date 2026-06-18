@@ -17,7 +17,8 @@
 const BET_HEADERS = [
   'bet_id','fixture_id','fecha','equipo_local','equipo_visitante',
   'mercado','seleccion','cuota','prob_modelo','ev',
-  'kelly_fraction','stake','resultado','profit_loss','roi_acum','notas'
+  'kelly_fraction','stake','resultado','profit_loss','roi_acum','notas',
+  'closing_cuota','clv'  // Closing Line Value: CLV = (cuota_apostada / cuota_cierre) - 1
 ];
 
 const CALIBRATION_HEADERS = [
@@ -143,6 +144,34 @@ function settleBet_(betId, resultado) {
   sheet.getRange(sheetRow, idx('resultado')   + 1).setValue(resultado);
   sheet.getRange(sheetRow, idx('profit_loss') + 1).setValue(pl.toFixed(2));
   sheet.getRange(sheetRow, idx('roi_acum')    + 1).setValue(`${roi}%`);
+
+  // Closing Line Value: buscar cuota de cierre en OddsApuestas al momento de liquidar
+  // La cuota de cierre es la mejor aproximación disponible de la "probabilidad real"
+  if (idx('closing_cuota') !== -1 && idx('clv') !== -1) {
+    try {
+      const betLocal  = String(r[idx('equipo_local')]  || '');
+      const betAway   = String(r[idx('equipo_visitante')] || '');
+      const betMkt    = String(r[idx('mercado')]  || '').toLowerCase();
+      const betSel    = String(r[idx('seleccion')] || '').toLowerCase();
+      const normT     = s => String(s||'').toLowerCase()
+        .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+        .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').replace(/[^a-z0-9]/g,'');
+      const oddsRows  = readAll_(CONFIG.SHEETS.ODDS).filter(od => {
+        return (normT(od.home_team) === normT(betLocal) && normT(od.away_team) === normT(betAway)) ||
+               (normT(od.home_team) === normT(betAway)  && normT(od.away_team) === normT(betLocal));
+      }).filter(od => String(od.mercado||'').toLowerCase().includes(betMkt.split('/')[0].trim()) &&
+                      normT(od.seleccion||'').includes(normT(betSel.split(' ')[0])));
+      if (oddsRows.length) {
+        const closing = Number(oddsRows[0].cuota || 0);
+        if (closing > 1) {
+          const betCuota = Number(r[idx('cuota')] || 0);
+          const clv = betCuota > 0 ? ((betCuota / closing) - 1) : 0;
+          sheet.getRange(sheetRow, idx('closing_cuota') + 1).setValue(closing.toFixed(2));
+          sheet.getRange(sheetRow, idx('clv')           + 1).setValue((clv * 100).toFixed(2) + '%');
+        }
+      }
+    } catch (e_) { /* CLV no crítico */ }
+  }
 
   Logger.log(`Apuesta ${betId} resuelta: ${resultado} | P&L: ${pl.toFixed(2)} | ROI acum: ${roi}%`);
 }
@@ -582,6 +611,91 @@ function buildPortfolioText_() {
   if (!bets.length) {
     msg += '\n<i>No hay apuestas registradas aún.\nUsa registerBet_() para agregar la primera.</i>';
   }
+
+  return msg.trim();
+}
+
+// ─── ROI + Hit rate por mercado + Closing Line Value ──────────────────────────
+
+/**
+ * Rendimiento desglosado por mercado: ROI, hit rate, CLV promedio.
+ * Comando /rendimiento del bot.
+ */
+function buildPerformanceByMarket_() {
+  let bets;
+  try { bets = readAll_(CONFIG.SHEETS.BETTING_HISTORY); } catch (e) { bets = []; }
+
+  const settled = bets.filter(r => r.resultado === 'GANADA' || r.resultado === 'PERDIDA');
+  if (!settled.length) {
+    return '📊 <b>Rendimiento por mercado</b>\n\nSin apuestas liquidadas aún.';
+  }
+
+  // Agrupar por mercado normalizado
+  const byMkt = {};
+  settled.forEach(r => {
+    const mkt = String(r.mercado || 'Otro').split('/')[0].trim().toUpperCase();
+    if (!byMkt[mkt]) byMkt[mkt] = { ganadas: 0, total: 0, stake: 0, pl: 0, evSum: 0, evN: 0, clvSum: 0, clvN: 0 };
+    const m = byMkt[mkt];
+    m.total++;
+    m.stake += Number(r.stake || 0);
+    m.pl    += Number(r.profit_loss || 0);
+    if (r.resultado === 'GANADA') m.ganadas++;
+    if (r.ev) { m.evSum += Number(r.ev) * 100; m.evN++; }
+    if (r.clv) {
+      const clvNum = parseFloat(String(r.clv).replace('%',''));
+      if (!isNaN(clvNum)) { m.clvSum += clvNum; m.clvN++; }
+    }
+  });
+
+  // CLV global
+  const clvRows = settled.filter(r => r.clv);
+  const avgClvGlobal = clvRows.length
+    ? (clvRows.reduce((s, r) => s + parseFloat(String(r.clv).replace('%','')), 0) / clvRows.length).toFixed(1)
+    : null;
+
+  // Brier Score
+  let brierStr = '';
+  try {
+    const calRows = readAll_(CONFIG.SHEETS.MODEL_CALIBRATION);
+    if (calRows.length) {
+      const last = calRows[calRows.length - 1];
+      const emoji = last.interpretacion === 'Excelente' ? '🟢' : last.interpretacion === 'Bueno' ? '🟡' : '🔴';
+      brierStr = `\n${emoji} Brier Score: <code>${last.brier_score}</code> (${last.interpretacion})`;
+    }
+  } catch (e_) {}
+
+  const totalStake = settled.reduce((s, r) => s + Number(r.stake || 0), 0);
+  const totalPL    = settled.reduce((s, r) => s + Number(r.profit_loss || 0), 0);
+  const totalGan   = settled.filter(r => r.resultado === 'GANADA').length;
+  const roiGlobal  = totalStake > 0 ? (totalPL / totalStake * 100).toFixed(1) : '0.0';
+  const roiEmoji   = Number(roiGlobal) > 0 ? '📈' : Number(roiGlobal) < 0 ? '📉' : '➡️';
+
+  let msg = `📊 <b>Rendimiento por mercado</b>\n\n`;
+  msg += `${roiEmoji} ROI global: <code>${roiGlobal}%</code>  P&L: <code>${totalPL >= 0 ? '+' : ''}${totalPL.toFixed(2)}</code>\n`;
+  msg += `✅ Hit rate global: <code>${(totalGan / settled.length * 100).toFixed(0)}%</code> (${totalGan}/${settled.length})\n`;
+  if (avgClvGlobal !== null) {
+    const clvEmoji = Number(avgClvGlobal) > 0 ? '✅' : '⚠️';
+    msg += `${clvEmoji} CLV promedio: <code>${avgClvGlobal > 0 ? '+' : ''}${avgClvGlobal}%</code>\n`;
+    msg += `<i>CLV positivo = apostaste antes de que el mercado se moviera en tu contra</i>\n`;
+  }
+  msg += brierStr + '\n';
+  msg += '\n<b>Desglose por mercado:</b>\n';
+
+  Object.entries(byMkt)
+    .sort((a, b) => b[1].total - a[1].total)
+    .forEach(([mkt, m]) => {
+      const roi      = m.stake > 0 ? (m.pl / m.stake * 100).toFixed(1) : '0.0';
+      const hitRate  = (m.ganadas / m.total * 100).toFixed(0);
+      const roiSign  = Number(roi) >= 0 ? '+' : '';
+      const avgEv    = m.evN ? (m.evSum / m.evN).toFixed(1) : '–';
+      const avgClv   = m.clvN ? (m.clvSum / m.clvN).toFixed(1) : '–';
+      const rEmoji   = Number(roi) > 0 ? '✅' : Number(roi) < 0 ? '❌' : '➡️';
+      msg += `\n${rEmoji} <b>${mkt}</b> (${m.total} apuestas)\n`;
+      msg += `  ROI: <code>${roiSign}${roi}%</code>  Hit: <code>${hitRate}%</code>`;
+      if (avgEv !== '–') msg += `  EV prom: <code>+${avgEv}%</code>`;
+      if (avgClv !== '–') msg += `  CLV: <code>${Number(avgClv) >= 0 ? '+' : ''}${avgClv}%</code>`;
+      msg += '\n';
+    });
 
   return msg.trim();
 }
