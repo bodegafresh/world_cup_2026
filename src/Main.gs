@@ -95,7 +95,7 @@ function cronDailySetup() {
           teams:   { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
           league:  { round: r.ronda || '' }
         };
-        try { analyzeAndSaveFixture_(fakeFixture); } catch (e_) { console.warn('AnalisisIA:', r.local, 'vs', r.visitante, e_.message); }
+        try { analyzeAndSaveFixture_(fakeFixture); } catch (e_) { Logger.log('AnalisisIA ERROR ' + r.local + ' vs ' + r.visitante + ': ' + e_.message); }
         Utilities.sleep(1000);
       });
     }
@@ -346,6 +346,9 @@ function _loadWorldCupDayFromEspn_(date) {
       // Guardar jugadores en hoja Jugadores (foto incluida) si el equipo aún no tiene plantel
       try { _saveEspnRostersAsPlayers_(summary, ev.home_team, ev.away_team); } catch(ep_) {}
 
+      // Stats individuales temporales (goles, tarjetas) hasta que llegue fixture_id_af real
+      try { saveEspnPlayerEventsToResumen_(fakeId, summary); } catch(ep_) { Logger.log('ESPN ResumenJugador: ' + ep_.message); }
+
       // ELO update
       const statusFinal = STATUS_MAP[ev.espn_status] || 'FT';
       const fakeFixture = {
@@ -378,6 +381,7 @@ function _loadWorldCupDayFromEspn_(date) {
     Utilities.sleep(500);
   });
 }
+
 
 function loadWorldCupDay_(date) {
   const fixturesData = fetchWorldCupFixturesByDate_(date);
@@ -537,4 +541,143 @@ function analyzeAndSaveFixture_(fixture) {
   const aiResult = analyzeFixtureWithAi_(aiInput);
 
   saveAiAnalysis_(fixture, aiResult);
+}
+
+/**
+ * DIAGNÓSTICO: Corre el análisis IA para el primer partido de hoy y muestra el resultado/error.
+ * Ejecutar manualmente desde el editor de Apps Script para depurar.
+ */
+function diagnosticarAnalisisIA() {
+  const today = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
+    .filter(r => normalizeFecha_(r.fecha) === today);
+
+  if (!partidos.length) {
+    Logger.log('DIAGNOSTICO: No hay partidos hoy (' + today + ')');
+    return;
+  }
+
+  const r = partidos[0];
+  Logger.log('DIAGNOSTICO: Analizando ' + r.local + ' vs ' + r.visitante + ' fixture_id_af=' + r.fixture_id_af);
+
+  const fakeFixture = {
+    fixture: { id: r.fixture_id_af || 'TEST_' + r.local, date: r.fecha },
+    teams:   { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
+    league:  { round: r.ronda || '' }
+  };
+
+  try {
+    const weather  = fetchWeatherForFixture_(fakeFixture);
+    Logger.log('DIAGNOSTICO: weather OK');
+    const news     = fetchNewsForFixture_(fakeFixture);
+    Logger.log('DIAGNOSTICO: news OK, items=' + (news || []).length);
+    const baseOdds = calculateBasicOddsSignals_(fakeFixture);
+    Logger.log('DIAGNOSTICO: baseOdds OK');
+    const aiInput  = buildAiPreviewInput_(fakeFixture, weather, news, baseOdds);
+    Logger.log('DIAGNOSTICO: aiInput built, keys=' + Object.keys(aiInput).join(','));
+
+    const prompt = buildFixturePreviewPrompt_(aiInput);
+    Logger.log('DIAGNOSTICO: prompt length=' + prompt.length);
+
+    // Llamar directamente a OpenAI con logging
+    const payload = {
+      model: CONFIG.OPENAI.MODEL,
+      input: prompt,
+      temperature: 0.2,
+      text: { format: { type: 'json_object' } }
+    };
+    const response = UrlFetchApp.fetch(CONFIG.OPENAI.BASE_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + getOpenAiKey_() },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    const status = response.getResponseCode();
+    const text   = response.getContentText();
+    Logger.log('DIAGNOSTICO: OpenAI status=' + status);
+    Logger.log('DIAGNOSTICO: OpenAI response (primeros 500): ' + text.substring(0, 500));
+
+    if (status >= 200 && status < 300) {
+      const data = JSON.parse(text);
+      const outputText = extractOpenAiText_(data);
+      Logger.log('DIAGNOSTICO: outputText (primeros 300): ' + outputText.substring(0, 300));
+      Logger.log('DIAGNOSTICO: SUCCESS — análisis generado correctamente');
+    } else {
+      Logger.log('DIAGNOSTICO: ERROR HTTP ' + status + ': ' + text);
+    }
+  } catch (e) {
+    Logger.log('DIAGNOSTICO: EXCEPCION: ' + e.message + '\n' + e.stack);
+  }
+}
+
+/**
+ * Backfill único: carga ResumenJugadorPartido desde ESPN para partidos FT sin fixture_id_af.
+ * Ejecutar manualmente una vez para completar datos históricos de partidos ESPN.
+ * Cuando llegue fixture_id_af real, loadWorldCupDay_ carga datos API-Football que complementan.
+ */
+function backfillEspnPlayerStats() {
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => {
+    const s = String(r.status || '').toUpperCase();
+    return ['FT','AET','PEN'].includes(s) && !r.fixture_id_af;
+  });
+
+  const resumen = readAll_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO);
+  const fixturesConDatos = new Set(resumen.map(r => String(r.fixture_id || '')));
+
+  Logger.log('backfillEspnPlayerStats: ' + partidos.length + ' partidos sin fixture_id_af');
+
+  partidos.forEach(r => {
+    const matchId = String(r.match_id || r.espn_id || '');
+    const espnId  = matchId.replace(/^espn_/, '');
+    if (!espnId || isNaN(Number(espnId))) { Logger.log('  skip ' + r.local + ' — sin espn_id'); return; }
+    const fakeId = 'espn_' + espnId;
+    if (fixturesConDatos.has(fakeId)) { Logger.log('  skip ' + r.local + ' — ya tiene datos'); return; }
+    try {
+      Logger.log('  Cargando ' + r.local + ' vs ' + r.visitante + ' (espnId=' + espnId + ')');
+      const summary = fetchEspnSummary_(espnId);
+      saveEspnPlayerEventsToResumen_(fakeId, summary);
+      Utilities.sleep(500);
+    } catch(e_) {
+      Logger.log('  ERROR ' + r.local + ': ' + e_.message);
+    }
+  });
+  Logger.log('backfillEspnPlayerStats: completo');
+}
+
+/**
+ * DIAGNÓSTICO: Verifica el estado del pipeline de stats de jugadores.
+ * Muestra qué partidos terminados tienen/no tienen fixture_id_af y ResumenJugadorPartido.
+ * Ejecutar manualmente para entender por qué faltan stats de jugadores.
+ */
+function diagnosticarPlayerStats() {
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r => {
+    const s = String(r.status || '').toUpperCase();
+    return ['FT','AET','PEN'].includes(s);
+  });
+  const resumen = readAll_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO);
+  const fixturesConDatos = new Set(resumen.map(r => String(r.fixture_id || '')));
+
+  Logger.log('=== DIAGNÓSTICO PLAYER STATS ===');
+  Logger.log('Partidos terminados: ' + partidos.length);
+  Logger.log('Fixtures con datos en ResumenJugadorPartido: ' + fixturesConDatos.size);
+  Logger.log('');
+
+  partidos.forEach(r => {
+    const fid  = String(r.fixture_id_af || '');
+    const tiene = fid && fixturesConDatos.has(fid);
+    const status = tiene ? '✅' : (fid ? '❌ SIN DATOS API' : '⚠️ SIN fixture_id_af');
+    Logger.log(status + ' ' + r.local + ' vs ' + r.visitante + ' (fecha=' + r.fecha + ', fixture_id_af=' + (fid||'NULL') + ')');
+  });
+
+  Logger.log('');
+  Logger.log('CONCLUSIÓN:');
+  const sinId  = partidos.filter(r => !r.fixture_id_af).length;
+  const conId  = partidos.filter(r =>  r.fixture_id_af).length;
+  const conDatos = partidos.filter(r => r.fixture_id_af && fixturesConDatos.has(String(r.fixture_id_af))).length;
+  Logger.log('  Sin fixture_id_af: ' + sinId + ' → necesitan loadFullWorldCupCalendar()');
+  Logger.log('  Con fixture_id_af: ' + conId + ', de esos con stats: ' + conDatos);
+  if (conId > conDatos) {
+    Logger.log('  → ' + (conId - conDatos) + ' partido(s) tienen fixture_id_af pero sin stats. Ejecutar loadWorldCupDay_("YYYY-MM-DD")');
+  }
 }

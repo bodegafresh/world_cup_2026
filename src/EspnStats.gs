@@ -260,3 +260,97 @@ function formatEspnStatsText_(fixtureId) {
 
   return lines.join('\n');
 }
+
+/**
+ * Extrae eventos individuales (goles, asistencias, tarjetas) del summary ESPN
+ * y los guarda TEMPORALMENTE en ResumenJugadorPartido usando "espn_XXXXX" como jugador_id.
+ *
+ * Solo se llama cuando no hay fixture_id_af (path ESPN).
+ * Cuando llegue el fixture_id_af real y se carguen datos de API-Football,
+ * savePlayerSummaryFromEvents_ escribe filas con IDs reales que el frontend prioriza.
+ */
+function saveEspnPlayerEventsToResumen_(fixtureId, summary) {
+  const map = {};
+
+  const upsert = (espnAthId, name, teamEspnId, teamName) => {
+    const pid = 'espn_' + espnAthId;
+    if (!map[pid]) map[pid] = {
+      fixture_id:  fixtureId,
+      jugador_id:  pid,
+      jugador:     name || '',
+      equipo_id:   teamEspnId ? 'espn_' + teamEspnId : '',
+      equipo:      teamNameToSpanish_(teamName || ''),
+      goles: 0, asistencias: 0, amarillas: 0, rojas: 0, minutos: 0
+    };
+    return map[pid];
+  };
+
+  // Goles y asistencias desde header.competitions[0].details
+  const comp = ((summary.header || {}).competitions || [])[0] || {};
+  (comp.details || []).forEach(detail => {
+    const typeText = String((detail.type || {}).text || '').toLowerCase();
+    const isGoal = typeText.includes('goal') || typeText.includes('penalty - scored');
+    const isCard = typeText.includes('yellow card') || typeText.includes('red card') || typeText.includes('second yellow');
+    if (!isGoal && !isCard) return;
+
+    const teamId   = String((detail.team || {}).id || '');
+    const teamName = String((detail.team || {}).displayName || '');
+    const athletes = Array.isArray(detail.athletesInvolved) ? detail.athletesInvolved : [];
+
+    if (isGoal) {
+      if (athletes[0] && athletes[0].id) {
+        const p = upsert(athletes[0].id, athletes[0].displayName || athletes[0].shortName, teamId, teamName);
+        if (!typeText.includes('own')) p.goles++;
+      }
+      if (athletes[1] && athletes[1].id) {
+        upsert(athletes[1].id, athletes[1].displayName || athletes[1].shortName, teamId, teamName).asistencias++;
+      }
+    }
+    if (isCard && athletes[0] && athletes[0].id) {
+      const p = upsert(athletes[0].id, athletes[0].displayName || athletes[0].shortName, teamId, teamName);
+      if (typeText.includes('red') || typeText.includes('second yellow')) p.rojas++;
+      else p.amarillas++;
+    }
+  });
+
+  // Tarjetas desde plays como fallback si details no las tiene
+  (summary.plays || summary.keyEvents || []).forEach(play => {
+    const typeText = String((play.type || {}).text || '').toLowerCase();
+    if (!typeText.includes('yellow') && !typeText.includes('red card')) return;
+    const athletes = Array.isArray(play.athletes) ? play.athletes : (play.athlete ? [play.athlete] : []);
+    const teamId   = String((play.team || {}).id || '');
+    const teamName = String((play.team || {}).displayName || '');
+    athletes.slice(0, 1).forEach(a => {
+      const ath = a.athlete || a;
+      if (!ath || !ath.id) return;
+      const p = upsert(ath.id, ath.displayName || ath.shortName, teamId, teamName);
+      if (typeText.includes('red')) { if (!p.rojas) p.rojas++; }
+      else { if (!p.amarillas) p.amarillas++; }
+    });
+  });
+
+  const rows = Object.values(map);
+  if (!rows.length) return;
+
+  const sheet = getOrCreateSheet_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO,
+    ['fixture_id','jugador_id','jugador','equipo_id','equipo','goles','asistencias','amarillas','rojas','minutos','updated_at']);
+  const existing = sheet.getDataRange().getValues();
+  const existingKeys = new Set();
+  if (existing.length > 1) {
+    const h   = existing[0];
+    const fi  = h.indexOf('fixture_id');
+    const pi  = h.indexOf('jugador_id');
+    existing.slice(1).forEach(r => existingKeys.add(r[fi] + '_' + r[pi]));
+  }
+
+  const toSave = rows
+    .filter(r => !existingKeys.has(r.fixture_id + '_' + r.jugador_id))
+    .map(r => [r.fixture_id, r.jugador_id, r.jugador, r.equipo_id, r.equipo,
+               r.goles, r.asistencias, r.amarillas, r.rojas, r.minutos, nowChile_()]);
+
+  if (toSave.length) {
+    appendRows_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO, toSave);
+    Logger.log('saveEspnPlayerEventsToResumen_: ' + toSave.length + ' filas (temp) para fixture ' + fixtureId);
+  }
+}
+
