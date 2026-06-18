@@ -86,6 +86,12 @@ function saveEspnDataForFixture_(fixture, date) {
 
   _saveEspnStats_(fixtureId, espnId, date, homeTeam, awayTeam, summary);
   _saveEspnForma_(summary);
+
+  // Guardar árbitro usando el summary ya descargado (misma llamada, 0 cuota extra)
+  try {
+    const ronda = String((fixture.league || {}).round || '');
+    saveRefereeFromEspnSummary_(fixtureId, date, homeTeam, awayTeam, ronda, summary);
+  } catch (e_) { console.warn('ESPN referee:', e_.message); }
 }
 
 function _saveEspnStats_(fixtureId, espnId, date, homeTeam, awayTeam, summary) {

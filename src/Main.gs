@@ -67,8 +67,8 @@ function cronDailySetup() {
     // 1. Actualizar datos del día anterior con API-Football (estadísticas detalladas)
     try { loadWorldCupDay_(yesterdayChile_()); } catch (e) { console.warn('LoadDay ayer:', e.message); }
 
-    // 2. Precargar calendario ESPN de hoy y mañana en Partidos
-    try { loadFullWorldCupCalendarFromEspn(); } catch (e) { console.warn('ESPN calendar:', e.message); }
+    // 2. Actualizar solo hoy y mañana desde ESPN (rápido — 2 llamadas)
+    try { loadEspnMatchesForDays_([ctx.today, ctx.tomorrow]); } catch (e) { console.warn('ESPN hoy/mañana:', e.message); }
 
     // 3. Contexto de partidos de hoy (clima, noticias, H2H, cuotas) — fuentes gratuitas
     if (ctx.hayPartidosHoy) {
@@ -149,19 +149,15 @@ function cronPostMatch() {
     Logger.log(`cronPostMatch: ${recienTerminados.length} partido(s) recién terminados`);
 
     recienTerminados.forEach(r => {
-      // ESPN stats post-partido (goleadores, alineaciones, stats avanzadas)
-      const espnId = r.espn_id || r.espn_event_id;
-      if (espnId) {
-        try {
-          const summary = fetchEspnSummary_(espnId);
-          // Guardar goleadores en ResumenJugadorPartido si no están
-          // Guardar stats en EspnStats
-          const fakeFixture = { fixture: { id: r.fixture_id_af || '', date: r.fecha },
-            teams: { home: { name: r.local }, away: { name: r.visitante } } };
-          try { saveEspnDataForFixture_(fakeFixture, today); } catch (e_) {}
-        } catch (e_) { console.warn('PostMatch ESPN:', e_.message); }
-      }
-      // SofaScore: guardar métricas avanzadas post-partido
+      // ESPN stats + árbitro post-partido (usa findEspnEventId_ internamente)
+      const fakeFixture = {
+        fixture: { id: r.fixture_id_af || r.match_key || '', date: r.fecha, status: { short: r.status || 'FT' } },
+        teams: { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
+        league: { round: r.ronda || '' }
+      };
+      try { saveEspnDataForFixture_(fakeFixture, today); } catch (e_) { console.warn('PostMatch ESPN:', e_.message); }
+
+      // SofaScore deshabilitado (HTTP 403 desde GAS)
       try {
         const fecha = normalizeFecha_(r.fecha);
         saveSofaDataForMatch_(r.local, r.visitante, fecha, r.match_key);
@@ -188,6 +184,8 @@ function cronWeeklyMaintenance() {
     try { limpiarDuplicadosPartidos(); }   catch (e) { console.warn('LimpDup:', e.message); }
     try { limpiarDuplicadosResumen(); }    catch (e) { console.warn('LimpResumen:', e.message); }
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
+    // Sincronizar IDs de equipos desde API-Football (necesario para cargarPlanteles)
+    try { cargarIdsEquiposDesdeApiFootball(); } catch (e) { console.warn('EquiposIDs:', e.message); }
     try { calculateModelCalibration_(); }   catch (e) { console.warn('Calib:', e.message); }
     try { cronWeeklyPerformanceReport(); }  catch (e) { console.warn('WeekRep:', e.message); }
     try { refreshDashboard(); }             catch (e) {}
@@ -200,11 +198,63 @@ function cronDailyLoadTodayStats() {
   throw new Error('DEPRECATED: esta función fue consolidada en cronDailySetup(). Elimina el trigger si existe.');
 }
 
+/**
+ * Construye objetos fixture sintéticos desde la hoja Partidos cuando
+ * el endpoint de API-Football por fecha retorna vacío (caso WC2026 plan free).
+ * Requiere que fixture_id_af esté poblado (por loadFullWorldCupCalendar).
+ */
+function _buildFakeFixturesFromPartidos_(date) {
+  const rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r =>
+    String(r.fecha || '').substring(0, 10) === date &&
+    String(r.fixture_id_af || '').trim() !== '' &&
+    ['FT','AET','PEN'].includes(String(r.status || '').toUpperCase())
+  );
+  if (!rows.length) return [];
+
+  const equipos = readAll_(CONFIG.SHEETS.EQUIPOS);
+  const teamIdMap = {};
+  equipos.forEach(e => {
+    if (e.team_id_api_football) {
+      const k = String(e.nombre || '').toLowerCase().trim();
+      teamIdMap[k] = String(e.team_id_api_football);
+    }
+  });
+
+  return rows.map(r => ({
+    fixture: {
+      id: Number(r.fixture_id_af),
+      date: date,
+      referee: null,
+      status: { short: String(r.status || 'FT') }
+    },
+    league: { round: String(r.ronda || '') },
+    teams: {
+      home: { id: teamIdMap[String(r.local || '').toLowerCase().trim()] || '', name: r.local || '' },
+      away: { id: teamIdMap[String(r.visitante || '').toLowerCase().trim()] || '', name: r.visitante || '' }
+    },
+    goals: {
+      home: r.goles_local !== '' && r.goles_local != null ? Number(r.goles_local) : null,
+      away: r.goles_visitante !== '' && r.goles_visitante != null ? Number(r.goles_visitante) : null
+    }
+  }));
+}
+
 function loadWorldCupDay_(date) {
   const fixturesData = fetchWorldCupFixturesByDate_(date);
   const rawUrl = saveRawJson_(`fixtures/${date}`, `worldcup-fixtures-${date}.json`, fixturesData);
 
-  const fixtures = fixturesData.response || [];
+  let fixtures = fixturesData.response || [];
+
+  // API-Football /fixtures?date= no retorna datos para WC2026 en plan free.
+  // Fallback: usar fixture IDs guardados en Partidos (pobladlos por loadFullWorldCupCalendar).
+  if (!fixtures.length) {
+    fixtures = _buildFakeFixturesFromPartidos_(date);
+    if (!fixtures.length) {
+      Logger.log(`loadWorldCupDay_ ${date}: sin fixtures en API ni en Partidos con FT, skip`);
+      return;
+    }
+    Logger.log(`loadWorldCupDay_ ${date}: fallback Partidos → ${fixtures.length} fixture(s)`);
+  }
 
   upsertGoldenMatchesFromFixtures_(fixtures, date, createQuotaTracker_());
 
