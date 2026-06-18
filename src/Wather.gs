@@ -60,7 +60,9 @@ function fetchWeatherForFixture_(fixture) {
     return buildWeatherStub_(fixture, 'SIN_FECHA');
   }
 
-  const matchDate = matchDateUtc.substring(0, 10);
+  const matchDate = String(matchDateUtc instanceof Date
+    ? Utilities.formatDate(matchDateUtc, 'UTC', 'yyyy-MM-dd')
+    : matchDateUtc).substring(0, 10);
 
   let data;
   try {
