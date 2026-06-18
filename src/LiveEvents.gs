@@ -133,13 +133,35 @@ function cronLiveEventsMonitor() {
     return;
   }
   Logger.log('cronLiveEventsMonitor: monitoreando ' + liveFixtures.length + ' partido(s): ' +
-    liveFixtures.map(f => `${f.local} vs ${f.visitante} ${f.hora_chile || f.hora}`).join(', '));
+    liveFixtures.map(f => `${f.local} vs ${f.visitante} ${normalizeHora_(f.hora_chile || f.hora)}`).join(', '));
+
+  // Una sola llamada ESPN (gratuita) para obtener espn_id de todos los partidos de hoy
+  const espnToday = [];
+  try {
+    const evs = fetchEspnEventsByDate_(todayChile_());
+    evs.forEach(e => espnToday.push(e));
+  } catch(e_) { console.warn('ESPN today fetch:', e_.message); }
+
+  const normN = s => String(s||'').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
 
   liveFixtures.forEach(fixture => {
     try {
-      const fixtureId    = fixture.fixture_id_af || fixture.match_id || fixture.fixture_id || '';
-      const espnId       = fixture.espn_id || fixture.espn_event_id || '';
-      const matchKey     = fixture.match_key || `${fixture.local}_${fixture.visitante}`;
+      const matchKey = fixture.match_key || `${fixture.local}_${fixture.visitante}`;
+      const fixtureId = fixture.fixture_id_af || fixture.match_id || fixture.fixture_id || '';
+
+      // Buscar espn_id por nombre de equipos si no está en la fila
+      let espnId = fixture.espn_id || fixture.espn_event_id || '';
+      if (!espnId && espnToday.length) {
+        const normLocal  = normN(teamNameToSpanish_(fixture.local || ''));
+        const normVisit  = normN(teamNameToSpanish_(fixture.visitante || ''));
+        const espnMatch  = espnToday.find(e => {
+          const h = normN(teamNameToSpanish_(e.home_team || ''));
+          const a = normN(teamNameToSpanish_(e.away_team || ''));
+          return h === normLocal && a === normVisit;
+        });
+        if (espnMatch) espnId = espnMatch.espn_id || '';
+      }
 
       // ── Fuente primaria: ESPN (sin cuota) ───────────────────────────────────
       if (espnId) {

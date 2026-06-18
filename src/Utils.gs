@@ -73,7 +73,13 @@ function normalizeHora_(val) {
   if (val instanceof Date) {
     return Utilities.formatDate(val, CONFIG.TIMEZONE, 'HH:mm');
   }
-  return String(val).substring(0, 5);
+  const s = String(val).trim();
+  // "HH:mm" o "HH:mm:ss"
+  if (/^\d{1,2}:\d{2}/.test(s)) return s.substring(0, 5);
+  // "YYYY-MM-DD HH:mm" o "YYYY-MM-DD HH:mm:ss"
+  const m = s.match(/\d{4}-\d{2}-\d{2}[T ]\s*(\d{2}:\d{2})/);
+  if (m) return m[1];
+  return '';
 }
 
 /**
