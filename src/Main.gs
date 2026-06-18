@@ -443,6 +443,15 @@ function loadWorldCupDay_(date) {
     // Auto-liquidar apuestas pendientes de este fixture
     try { autoSettleBetsForFixture_(fixture); } catch (e) { console.warn(`AutoSettle fixture ${fixtureId}:`, e.message); }
 
+    // Resolver EV histórico para este fixture
+    try {
+      const hEs = teamNameToSpanish_(fixture.teams.home.name);
+      const aEs = teamNameToSpanish_(fixture.teams.away.name);
+      const gH  = fixture.goals ? Number(fixture.goals.home ?? -1) : -1;
+      const gA  = fixture.goals ? Number(fixture.goals.away ?? -1) : -1;
+      resolveEvHistorico_(hEs, aEs, gH, gA);
+    } catch(re_) {}
+
     // ESPN: stats avanzadas post-partido (pases, tackles, despejes, asistencia)
     try { saveEspnDataForFixture_(fixture, date); } catch (e) { console.warn(`ESPN fixture ${fixtureId}:`, e.message); }
 

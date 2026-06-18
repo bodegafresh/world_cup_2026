@@ -764,3 +764,96 @@ function buildPerformanceByMarket_() {
 
   return msg.trim();
 }
+
+// ─── EvHistorico: snapshot + auto-resolución ─────────────────────────────────
+
+const EV_HIST_HEADERS = [
+  'timestamp','fecha','local','visitante','mercado','seleccion',
+  'prob_modelo','prob_mercado','cuota','ev','edge','kelly','fuente',
+  'resultado','pnl'
+];
+
+/**
+ * Guarda snapshot de oportunidades EV en EvHistorico.
+ * Solo crea filas nuevas si no existe ya la misma combinación fecha+local+visitante+mercado+seleccion.
+ */
+function snapshotEvRows_(rows, fecha) {
+  if (!rows || !rows.length) return;
+  getOrCreateSheet_(CONFIG.SHEETS.EV_HISTORICO, EV_HIST_HEADERS);
+  const existing = readAll_(CONFIG.SHEETS.EV_HISTORICO);
+  const existingKeys = new Set(existing.map(r =>
+    `${r.fecha}|${String(r.local||'').toLowerCase()}|${String(r.visitante||'').toLowerCase()}|${r.mercado}|${r.seleccion}`
+  ));
+  const now = nowChile_();
+  const toAdd = [];
+  rows.forEach(r => {
+    const key = `${r.fecha}|${String(r.local||'').toLowerCase()}|${String(r.visitante||'').toLowerCase()}|${r.mercado}|${r.seleccion}`;
+    if (existingKeys.has(key)) return;
+    const probMercado = r.cuota > 0 ? Math.round((1/r.cuota)*10000)/10000 : 0;
+    toAdd.push([
+      now, r.fecha, r.local, r.visitante, r.mercado, r.seleccion,
+      r.prob_modelo, probMercado, r.cuota, r.ev, r.edge, r.kelly,
+      r.fuente_modelo || '', 'PENDIENTE', ''
+    ]);
+    existingKeys.add(key);
+  });
+  if (toAdd.length) appendRows_(CONFIG.SHEETS.EV_HISTORICO, toAdd);
+}
+
+/**
+ * Resuelve filas PENDIENTE en EvHistorico para un fixture terminado.
+ * Llamar desde autoSettleBetsForFixture_ o loadWorldCupDay_.
+ *
+ * @param {string} local     Nombre local (español)
+ * @param {string} visitante Nombre visitante (español)
+ * @param {number} goalsH    Goles local
+ * @param {number} goalsA    Goles visitante
+ */
+function resolveEvHistorico_(local, visitante, goalsH, goalsA) {
+  if (goalsH < 0 || goalsA < 0) return;
+  let rows;
+  try { rows = readAll_(CONFIG.SHEETS.EV_HISTORICO); } catch(e) { return; }
+
+  const normT = s => String(s||'').toLowerCase().replace(/\s+/g,'').replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n');
+  const localN = normT(local), visN = normT(visitante);
+
+  const ss = SpreadsheetApp.openById(getSpreadsheetId_());
+  const sheet = ss.getSheetByName(CONFIG.SHEETS.EV_HISTORICO);
+  if (!sheet) return;
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return;
+  const hdrs = data[0];
+  const idxLocal = hdrs.indexOf('local'), idxVis = hdrs.indexOf('visitante');
+  const idxMercado = hdrs.indexOf('mercado'), idxSel = hdrs.indexOf('seleccion');
+  const idxResult = hdrs.indexOf('resultado'), idxCuota = hdrs.indexOf('cuota');
+  const idxPnl = hdrs.indexOf('pnl'), idxProb = hdrs.indexOf('prob_modelo');
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (String(row[idxResult] || '') !== 'PENDIENTE') continue;
+    if (normT(row[idxLocal]) !== localN || normT(row[idxVis]) !== visN) continue;
+
+    const mercado = String(row[idxMercado] || '');
+    const sel     = String(row[idxSel]     || '');
+    const cuota   = Number(row[idxCuota]   || 0);
+    const prob    = Number(row[idxProb]    || 0);
+
+    let gano = null;
+    if (mercado === '1X2') {
+      const localNormSel = normT(sel);
+      if (sel === 'Empate')                               gano = goalsH === goalsA;
+      else if (localNormSel === normT(local))             gano = goalsH > goalsA;
+      else                                                gano = goalsH < goalsA;
+    } else if (mercado === 'OVER/UNDER 2.5') {
+      gano = (goalsH + goalsA) > 2.5;
+    } else if (mercado === 'BTTS') {
+      gano = goalsH > 0 && goalsA > 0;
+    }
+
+    if (gano === null) continue;
+    const resultado = gano ? 'WIN' : 'LOSS';
+    const pnl       = gano ? (cuota - 1) : -1; // en unidades base (stake = 1)
+    sheet.getRange(i + 1, idxResult + 1).setValue(resultado);
+    sheet.getRange(i + 1, idxPnl    + 1).setValue(Math.round(pnl * 100) / 100);
+  }
+}

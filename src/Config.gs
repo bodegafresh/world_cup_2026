@@ -41,7 +41,8 @@ const CONFIG = {
     BETFAIR_ODDS:     'BetfairOdds',
     GOAL_SCORER_ODDS: 'GoalScorerOdds',
     CORNERS_ODDS:     'CornersOdds',
-    CARDS_ODDS:       'CardsOdds'
+    CARDS_ODDS:       'CardsOdds',
+    EV_HISTORICO:     'EvHistorico'
   },
 
   API_FOOTBALL: {

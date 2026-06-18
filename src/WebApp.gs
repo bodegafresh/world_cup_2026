@@ -56,6 +56,8 @@ function routeWebRequest_(e) {
       case 'squad':       data = getWebSquad_(e);        break;
       case 'stats':       data = getWebStats_();         break;
       case 'arbitros':    data = getWebArbitros_();       break;
+      case 'calibracion': data = getWebCalibrationData_(); break;
+      case 'bankroll':    data = getWebBankrollSim_();      break;
       default:            data = { error: 'tab desconocido: ' + tab };
     }
     return ContentService
@@ -1921,4 +1923,120 @@ function getWebArbitros_() {
   } catch(e) {
     return { error: e.message };
   }
+}
+
+// ─── Tab: calibracion ────────────────────────────────────────────────────────
+
+function getWebCalibrationData_() {
+  // 1. Bucket calibration desde AnalisisIA + Partidos
+  let pairs = [];
+  try {
+    const aiRows    = readAll_(CONFIG.SHEETS.AI_ANALYSIS);
+    const matchRows = readAll_(CONFIG.SHEETS.PARTIDOS);
+    aiRows.forEach(ai => {
+      if (!ai.prob_local) return;
+      const match = matchRows.find(m => String(m.fixture_id_af||'') === String(ai.fixture_id));
+      if (!match || !isFinishedStatus_(match.status)) return;
+      const gH = Number(match.goles_local ?? -1), gA = Number(match.goles_visitante ?? -1);
+      if (gH < 0 || gA < 0) return;
+      const pH = Number(ai.prob_local||0), pD = Number(ai.prob_empate||0), pA = Number(ai.prob_visitante||0);
+      pairs.push({ prob: pH, ocurrió: gH > gA ? 1 : 0 });
+      pairs.push({ prob: pD, ocurrió: gH === gA ? 1 : 0 });
+      pairs.push({ prob: pA, ocurrió: gH < gA ? 1 : 0 });
+    });
+  } catch(e_) {}
+
+  const limits = [0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.01];
+  const buckets = [];
+  for (let i = 0; i < limits.length - 1; i++) {
+    const lo = limits[i], hi = limits[i + 1];
+    const inB = pairs.filter(p => p.prob >= lo && p.prob < hi);
+    if (!inB.length) continue;
+    const midpoint = (lo + hi) / 2;
+    const realRate = inB.filter(p => p.ocurrió).length / inB.length;
+    buckets.push({
+      label:    `${Math.round(lo*100)}–${Math.round(hi*100)}%`,
+      midpoint: midpoint,
+      real:     realRate,
+      n:        inB.length,
+      bias:     realRate - midpoint
+    });
+  }
+
+  // 2. ROI por rango EV desde EvHistorico
+  let evRoiBuckets = [];
+  try {
+    const hist = readAll_(CONFIG.SHEETS.EV_HISTORICO)
+      .filter(r => r.resultado === 'WIN' || r.resultado === 'LOSS');
+    const evBands = [
+      { label:'EV<0%',  lo:-1,   hi:0    },
+      { label:'0–5%',   lo:0,    hi:0.05 },
+      { label:'5–10%',  lo:0.05, hi:0.10 },
+      { label:'10–20%', lo:0.10, hi:0.20 },
+      { label:'20%+',   lo:0.20, hi:99   }
+    ];
+    evBands.forEach(band => {
+      const inB = hist.filter(r => Number(r.ev||0) >= band.lo && Number(r.ev||0) < band.hi);
+      if (!inB.length) { evRoiBuckets.push({ label: band.label, roi: null, n: 0 }); return; }
+      const totalStake = inB.length; // stake = 1 por pick
+      const totalPnl   = inB.reduce((s, r) => s + Number(r.pnl || 0), 0);
+      evRoiBuckets.push({ label: band.label, roi: totalPnl / totalStake, n: inB.length });
+    });
+  } catch(e_) {}
+
+  // 3. Brier Score más reciente
+  let brierLast = null;
+  try {
+    const calRows = readAll_(CONFIG.SHEETS.MODEL_CALIBRATION);
+    if (calRows.length) brierLast = calRows[calRows.length - 1];
+  } catch(e_) {}
+
+  return { buckets, evRoiBuckets, brierLast };
+}
+
+// ─── Tab: bankroll ────────────────────────────────────────────────────────────
+
+function getWebBankrollSim_() {
+  let hist;
+  try { hist = readAll_(CONFIG.SHEETS.EV_HISTORICO); } catch(e) { return { picks: [], strategies: [] }; }
+
+  // Solo picks EV+ resueltos, ordenados por fecha
+  const picks = hist
+    .filter(r => Number(r.ev||0) > 0 && (r.resultado === 'WIN' || r.resultado === 'LOSS'))
+    .sort((a, b) => String(a.timestamp||'').localeCompare(String(b.timestamp||'')));
+
+  if (!picks.length) return { picks: [], strategies: [] };
+
+  // Simular 3 estrategias: flat, kelly_25, kelly_50
+  const strategies = [
+    { id: 'flat',     label: 'Flat (1u)',     bankroll: 100, points: [] },
+    { id: 'kelly_25', label: 'Kelly 25%',     bankroll: 100, points: [] },
+    { id: 'kelly_50', label: 'Kelly 50%',     bankroll: 100, points: [] }
+  ];
+
+  picks.forEach(p => {
+    const pnlUnit = Number(p.pnl || 0); // ganancia/pérdida en unidades de 1
+    const kelly   = Math.max(0, Math.min(Number(p.kelly || 0), 0.25));
+    const cuota   = Number(p.cuota || 1);
+
+    strategies.forEach(st => {
+      let stake, pnl;
+      if (st.id === 'flat') {
+        stake = 1;
+      } else if (st.id === 'kelly_25') {
+        stake = Math.max(0.1, st.bankroll * kelly * 0.25);
+      } else {
+        stake = Math.max(0.1, st.bankroll * kelly * 0.50);
+      }
+      pnl = p.resultado === 'WIN' ? stake * (cuota - 1) : -stake;
+      st.bankroll = Math.max(0, st.bankroll + pnl);
+      st.points.push(Math.round(st.bankroll * 100) / 100);
+    });
+  });
+
+  return {
+    n:          picks.length,
+    labels:     picks.map(p => `${p.local?.substring(0,3)||''}vs${p.visitante?.substring(0,3)||''}`),
+    strategies: strategies.map(st => ({ id: st.id, label: st.label, final: st.bankroll, points: st.points }))
+  };
 }

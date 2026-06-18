@@ -764,6 +764,7 @@ function calcularEV() {
     const rowArrays = newRows.map(r => headers.map(h => r[h] !== undefined ? r[h] : ''));
     appendRows_(CONFIG.SHEETS.EV_OPPORTUNITIES, rowArrays);
   }
+  try { snapshotEvRows_(newRows, today); } catch(e_) { Logger.log('snapshotEvRows_: ' + e_.message); }
   const sospechosos = newRows.filter(r => r.sospechoso && !r.outlier).length;
   const outliers    = newRows.filter(r => r.outlier).length;
   const descartados = newRows.filter(r => r.ev > EV_MAX_CREDIBLE).length;
