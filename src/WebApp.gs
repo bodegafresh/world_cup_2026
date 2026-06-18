@@ -706,9 +706,6 @@ function getWebLive_() {
         jugador:   e.jugador  || '',
         asistente: e.asistente || ''
       }));
-    // Fallback: usar eventos ESPN en tiempo real si la hoja está vacía
-    const evs = sheetEvs.length ? sheetEvs
-      : (espnSummary && espnSummary.espnEvents ? espnSummary.espnEvents : []);
 
     const statsRow = espnStats.find(s => String(s.fixture_id || '') === fid) || null;
 
@@ -735,6 +732,10 @@ function getWebLive_() {
 
     // ESPN summary (lineup + weather + venue + referee)
     const espnSummary = espnSummaryMap[espnKey] || null;
+
+    // Fallback: eventos ESPN en tiempo real si hoja está vacía
+    const evs = sheetEvs.length ? sheetEvs
+      : (espnSummary && espnSummary.espnEvents ? espnSummary.espnEvents : []);
 
     // Árbitro desde ESPN summary en tiempo real (cuando aún no está en hoja)
     if (!arbitro && espnSummary && espnSummary.referee) {
