@@ -567,11 +567,16 @@ function getWebLive_() {
           const weather = summary.weather
             || (summary.gameInfo && summary.gameInfo.weather)
             || null;
+          // Formación de cada equipo desde competitors
+          const compHome = (comp.competitors || []).find(c => c.homeAway === 'home') || {};
+          const compAway = (comp.competitors || []).find(c => c.homeAway === 'away') || {};
           const summaryData = {
-            rosters:  summary.rosters || [],
-            weather:  weather,
-            gameInfo: summary.gameInfo || null,
-            referee:  referee
+            rosters:         summary.rosters || [],
+            weather:         weather,
+            gameInfo:        summary.gameInfo || null,
+            referee:         referee,
+            formacion_home:  compHome.formation || '',
+            formacion_away:  compAway.formation || ''
           };
           espnSummaryMap[k1] = summaryData;
           espnSummaryMap[k2] = summaryData;
@@ -706,10 +711,16 @@ function getWebLive_() {
         grid:     a.grid     || ''
       }));
 
+    // Formaciones desde hoja o ESPN summary
+    let formacion_local    = m.formacion_local    || '';
+    let formacion_visitante = m.formacion_visitante || '';
+
     if (!matchAlin.length && espnSummary && espnSummary.rosters.length) {
       try {
         const localEs = teamNameToSpanish_(m.local || '');
         const visitEs = teamNameToSpanish_(m.visitante || '');
+        if (!formacion_local    && espnSummary.formacion_home) formacion_local    = espnSummary.formacion_home;
+        if (!formacion_visitante && espnSummary.formacion_away) formacion_visitante = espnSummary.formacion_away;
         ['home','away'].forEach(side => {
           const entry = espnSummary.rosters.find(r => r.homeAway === side);
           if (!entry) return;
@@ -727,6 +738,10 @@ function getWebLive_() {
           });
         });
       } catch(ea_) {}
+    } else if (matchAlin.length && espnSummary) {
+      // Alineaciones desde hoja pero formación puede venir de ESPN
+      if (!formacion_local    && espnSummary.formacion_home) formacion_local    = espnSummary.formacion_home;
+      if (!formacion_visitante && espnSummary.formacion_away) formacion_visitante = espnSummary.formacion_away;
     }
 
     // Clima: prioridad hoja, fallback ESPN summary weather
@@ -743,13 +758,11 @@ function getWebLive_() {
       } catch(ew_) {}
     }
 
-    // Hora local en el estadio
+    // Hora local en el estadio desde VenueCatalog
     let hora_local = '';
     try {
-      // Intentar desde ESPN summary gameInfo venue
-      const venueEs = espnSummary && espnSummary.gameInfo && espnSummary.gameInfo.venue;
-      const espnTz  = venueEs ? (venueEs.address && venueEs.address.country ? null : null) : null;
-      const tz = m.timezone_estadio || espnTz || '';
+      const venue = getVenueInfo_(m.estadio || '', m.ciudad || '');
+      const tz = (venue && venue.timezone_estadio) || m.timezone_estadio || '';
       if (tz) {
         const horaChile = formatHoraChile_(m.hora_chile);
         if (horaChile) {
@@ -785,9 +798,11 @@ function getWebLive_() {
       hora_local:      hora_local,
       grupo:           m.grupo   || '',
       ronda:           m.ronda   || '',
-      clima:           climaFinal,
-      eventos:         evs,
-      alineaciones:    matchAlin,
+      clima:              climaFinal,
+      eventos:            evs,
+      alineaciones:       matchAlin,
+      formacion_local:    formacion_local,
+      formacion_visitante: formacion_visitante,
       arbitro:         arbitro,
       poisson:         poisson,
       stats: statsRow ? {
