@@ -1,0 +1,33 @@
+src/Main.gs
+  s_8d080e6df27905::t_26c968904ae19f 125
+  s_8d080e6df27905::t_757e16e320b958 95
+  s_8d080e6df27905::t_517d41697769e1 115-124,126-128
+src/BotCommands.gs
+  s_8d080e6df27905::t_cb0169b8c5040c 139
+  s_8d080e6df27905::t_9f3023d4869877 520-522
+src/BettingHistory.gs
+  s_8d080e6df27905::t_c26ce5e75abb00 148-175
+  s_8d080e6df27905::t_0e64b39754d03a 20-21
+  s_8d080e6df27905::t_227742db4ea025 617-701
+src/EloRating.gs
+  s_8d080e6df27905::t_4622286dd1b8f9 188,193-218,221-223,225-226,231-235,237-282
+  s_8d080e6df27905::t_8071d95b58ebc2 361-363,376-382
+src/EvModel.gs
+  s_8d080e6df27905::t_acadbdd72bdc18 111-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "00753ed10cb445b875130979c932d6c0ebb4f5f9",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
