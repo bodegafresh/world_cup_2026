@@ -184,8 +184,8 @@ function cronWeeklyMaintenance() {
     try { limpiarDuplicadosPartidos(); }   catch (e) { console.warn('LimpDup:', e.message); }
     try { limpiarDuplicadosResumen(); }    catch (e) { console.warn('LimpResumen:', e.message); }
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
-    // Sincronizar IDs de equipos desde API-Football (necesario para cargarPlanteles)
-    try { cargarIdsEquiposDesdeApiFootball(); } catch (e) { console.warn('EquiposIDs:', e.message); }
+    // Cargar/actualizar planteles desde ESPN (fotos incluidas, sin cuota API-Football)
+    try { cargarPlantelesDesdeEspn(); } catch (e) { console.warn('PlantelesEspn:', e.message); }
     try { calculateModelCalibration_(); }   catch (e) { console.warn('Calib:', e.message); }
     try { cronWeeklyPerformanceReport(); }  catch (e) { console.warn('WeekRep:', e.message); }
     try { refreshDashboard(); }             catch (e) {}
@@ -239,6 +239,77 @@ function _buildFakeFixturesFromPartidos_(date) {
   }));
 }
 
+/**
+ * Carga datos del día usando ESPN como fuente principal.
+ * Se invoca cuando API-Football no tiene acceso a WC2026 (plan free).
+ * Equivalente a backfillEspnHistorical pero para un solo día,
+ * más ELO update y auto-settlement de apuestas.
+ */
+function _loadWorldCupDayFromEspn_(date) {
+  let events;
+  try { events = fetchEspnEventsByDate_(date); } catch(e) {
+    Logger.log(`_loadWorldCupDayFromEspn_ ${date}: error ESPN → ${e.message}`); return;
+  }
+
+  const FT_STATUSES = ['STATUS_FULL_TIME','STATUS_FINAL','final','full time','final/aet','final/pen'];
+  const STATUS_MAP  = {'STATUS_FULL_TIME':'FT','STATUS_FINAL':'FT','final':'FT',
+                       'full time':'FT','final/aet':'AET','final/pen':'PEN'};
+  const normN = n => String(n||'').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+
+  const ftEvents = (events||[]).filter(ev => {
+    const s = String(ev.espn_status || ev.status || '').toLowerCase();
+    return FT_STATUSES.some(fs => s.includes(fs.toLowerCase()) || s === fs.toLowerCase());
+  });
+
+  if (!ftEvents.length) { Logger.log(`_loadWorldCupDayFromEspn_ ${date}: sin partidos FT`); return; }
+  Logger.log(`_loadWorldCupDayFromEspn_ ${date}: ${ftEvents.length} partido(s) FT`);
+
+  // Leer Partidos para localizar filas y obtener ronda
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
+
+  ftEvents.forEach(ev => {
+    const espnId = String(ev.espn_id || '');
+    if (!espnId) return;
+    const fakeId = `espn_${espnId}`;
+
+    const homeEs = teamNameToSpanish_(ev.home_team || '');
+    const awayEs = teamNameToSpanish_(ev.away_team || '');
+    const sheetRow = partidos.find(r => {
+      const k1 = normN(teamNameToSpanish_(r.local||'')) + '_' + normN(teamNameToSpanish_(r.visitante||''));
+      const k2 = normN(homeEs) + '_' + normN(awayEs);
+      return k1 === k2;
+    });
+    const ronda = (sheetRow && sheetRow.ronda) || '';
+
+    try {
+      const summary = fetchEspnSummary_(espnId);
+
+      // Stats, alineaciones, forma, árbitro
+      _saveEspnStats_(fakeId, espnId, date, homeEs, awayEs, summary);
+      _saveEspnLineupsToSheet_(fakeId, espnId, ev.home_team, ev.away_team, summary);
+      _saveEspnForma_(summary);
+      try { saveRefereeFromEspnSummary_(fakeId, date, homeEs, awayEs, ronda, summary); } catch(er_) {}
+
+      // ELO update
+      const statusFinal = STATUS_MAP[ev.espn_status] || 'FT';
+      const fakeFixture = {
+        fixture: { status: { short: statusFinal } },
+        teams:   { home: { name: homeEs }, away: { name: awayEs } },
+        goals:   { home: Number(ev.home_score||0), away: Number(ev.away_score||0) },
+        league:  { round: ronda }
+      };
+      try { updateEloAfterMatch_(fakeFixture); } catch(e_) {}
+      try { autoSettleBetsForFixture_(fakeFixture); } catch(e_) {}
+
+      Logger.log(`  ✅ ${homeEs} vs ${awayEs}`);
+    } catch(es_) {
+      Logger.log(`  ❌ ${espnId}: ${es_.message}`);
+    }
+    Utilities.sleep(500);
+  });
+}
+
 function loadWorldCupDay_(date) {
   const fixturesData = fetchWorldCupFixturesByDate_(date);
   const rawUrl = saveRawJson_(`fixtures/${date}`, `worldcup-fixtures-${date}.json`, fixturesData);
@@ -249,11 +320,15 @@ function loadWorldCupDay_(date) {
   // Fallback: usar fixture IDs guardados en Partidos (pobladlos por loadFullWorldCupCalendar).
   if (!fixtures.length) {
     fixtures = _buildFakeFixturesFromPartidos_(date);
-    if (!fixtures.length) {
-      Logger.log(`loadWorldCupDay_ ${date}: sin fixtures en API ni en Partidos con FT, skip`);
+    if (fixtures.length) {
+      Logger.log(`loadWorldCupDay_ ${date}: fallback Partidos → ${fixtures.length} fixture(s)`);
+    } else {
+      // Fallback final: API-Football no disponible para WC2026 en plan free.
+      // Usar ESPN como fuente principal de datos del día anterior.
+      Logger.log(`loadWorldCupDay_ ${date}: API-Football sin acceso WC2026 → usando ESPN`);
+      _loadWorldCupDayFromEspn_(date);
       return;
     }
-    Logger.log(`loadWorldCupDay_ ${date}: fallback Partidos → ${fixtures.length} fixture(s)`);
   }
 
   upsertGoldenMatchesFromFixtures_(fixtures, date, createQuotaTracker_());
