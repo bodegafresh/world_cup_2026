@@ -546,14 +546,32 @@ function getWebLive_() {
         espnLiveKeys.add(k2);
       }
 
-      // Fetch ESPN summary for live matches to get lineup + weather + venue
+      // Fetch ESPN summary for live matches to get lineup + weather + venue + referee
       if (isInProgress && ev.id) {
         try {
           const summary = fetchEspnSummary_(ev.id);
+          const comp = ((summary.header || {}).competitions || [])[0] || {};
+          // Extraer árbitro de officials
+          let referee = null;
+          const officials = comp.officials || [];
+          const refOfficial = officials.find(o => {
+            const pos = String((o.position || {}).displayName || o.position || '').toLowerCase();
+            return pos.includes('referee');
+          }) || officials[0];
+          if (refOfficial) {
+            const names = refOfficial.names || [];
+            const rname = names.length ? (names[0].displayName || '') : (refOfficial.displayName || '');
+            if (rname) referee = rname;
+          }
+          // weather puede estar en summary.weather o en gameInfo.weather
+          const weather = summary.weather
+            || (summary.gameInfo && summary.gameInfo.weather)
+            || null;
           const summaryData = {
             rosters:  summary.rosters || [],
-            weather:  summary.weather || null,
-            gameInfo: summary.gameInfo || null
+            weather:  weather,
+            gameInfo: summary.gameInfo || null,
+            referee:  referee
           };
           espnSummaryMap[k1] = summaryData;
           espnSummaryMap[k2] = summaryData;
@@ -657,8 +675,24 @@ function getWebLive_() {
       }
     } catch(e_) {}
 
-    // ESPN summary (lineup + weather + venue)
+    // ESPN summary (lineup + weather + venue + referee)
     const espnSummary = espnSummaryMap[espnKey] || null;
+
+    // Árbitro desde ESPN summary en tiempo real (cuando aún no está en hoja)
+    if (!arbitro && espnSummary && espnSummary.referee) {
+      const nombre = espnSummary.referee;
+      const info   = getRefereeInfo_(nombre);
+      const stats  = getRefereeStats_(nombre);
+      arbitro = {
+        nombre:          nombre,
+        nacionalidad:    info.nacionalidad,
+        confederacion:   info.confederacion,
+        amarillas_pp:    stats ? stats.amarillas_pp  : null,
+        rojas_pp:        stats ? (stats.rojas / (stats.partidos || 1)).toFixed(2) : null,
+        tendencia:       stats ? stats.tendencia : '',
+        partidos_torneo: stats ? stats.partidos : 0
+      };
+    }
 
     // Alineaciones: prioridad ESPN summary en tiempo real, fallback a hoja
     let matchAlin = alineaciones
