@@ -87,6 +87,41 @@ function fetchTopScorers_() {
 }
 
 /**
+ * Muestra el estado de la cuota diaria de API-Football en el log.
+ * Consume 1 request. Ejecutar manualmente desde el editor para diagnóstico.
+ */
+function checkApiFootballQuota() {
+  const data = apiFootballGet_('/status', {});
+  const sub  = (data.response || {}).subscription || {};
+  const reqs = (data.response || {}).requests     || {};
+  const errors = data.errors || {};
+
+  if (Object.keys(errors).length) {
+    Logger.log('❌ Error API-Football: ' + JSON.stringify(errors));
+    return;
+  }
+
+  const used  = reqs.current  || 0;
+  const limit = reqs.limit_day || 100;
+  const left  = limit - used;
+  const pct   = ((used / limit) * 100).toFixed(1);
+
+  Logger.log('─── Estado cuota API-Football ──────────────────');
+  Logger.log(`Plan    : ${sub.plan || 'Free'}`);
+  Logger.log(`Usados  : ${used} / ${limit}  (${pct}%)`);
+  Logger.log(`Quedan  : ${left} requests hoy`);
+  Logger.log(`Reset   : medianoche UTC`);
+  if (left <= 10) {
+    Logger.log('⚠️  ALERTA: menos de 10 requests disponibles hoy');
+  } else if (left <= 25) {
+    Logger.log('⚡ Cuota baja — priorizar operaciones esenciales');
+  } else {
+    Logger.log('✅ Cuota OK');
+  }
+  Logger.log('────────────────────────────────────────────────');
+}
+
+/**
  * Trae TODOS los partidos del Mundial 2026 en una sola llamada a la API.
  * Útil para pre-cargar el calendario completo sin iterar por fecha.
  * Consume 1 request de cuota.
