@@ -330,6 +330,66 @@ function cargarEquipos()  { return loadTeamsFromCurrentData_(); }
 function cargarPlanteles() { return loadSquadsForKnownTeams_(); }
 
 /**
+ * Guarda jugadores en la hoja Jugadores desde un ESPN summary ya descargado.
+ * Llamada desde _loadWorldCupDayFromEspn_ para cargar plantel sin llamada extra.
+ * Solo agrega jugadores para equipos que a\u00fan no tienen datos en la hoja.
+ */
+function _saveEspnRostersAsPlayers_(summary, homeTeamEn, awayTeamEn) {
+  const rosters = summary.rosters || [];
+  if (!rosters.length) return;
+
+  const sheet   = getOrCreateSheet_(CONFIG.SHEETS.JUGADORES, null);
+  const headers = getHeaders_(CONFIG.SHEETS.JUGADORES);
+  const keyIdx  = headers.indexOf('player_id_api_football');
+
+  const vals = sheet.getDataRange().getValues();
+  const existingIds  = new Set(vals.slice(1).map(r => String(r[keyIdx] || '')).filter(Boolean));
+  const equiposCon   = new Set(vals.slice(1).map(r => String(r[headers.indexOf('equipo')] || '')).filter(Boolean));
+
+  const newRows = [];
+
+  rosters.forEach(entry => {
+    const teamEn = entry.homeAway === 'home' ? homeTeamEn : awayTeamEn;
+    const teamEs = teamNameToSpanish_(teamEn);
+    // Solo guardar si el equipo no tiene jugadores a\u00fan
+    if (equiposCon.has(teamEs)) return;
+
+    (entry.roster || []).forEach(p => {
+      const ath = p.athlete || {};
+      if (!ath.id) return;
+      const pid = `espn_${ath.id}`;
+      if (existingIds.has(pid)) return;
+
+      const rowData = {
+        player_id_api_football: pid,
+        nombre:              ath.displayName || ath.shortName || '',
+        nombre_normalizado:  normalizePlayerName_(ath.displayName || ''),
+        equipo_id:           String((entry.team || {}).id || ''),
+        equipo:              teamEs,
+        posicion:            ((p.position || {}).abbreviation || '').toUpperCase(),
+        edad:                ath.age || '',
+        fecha_nacimiento:    '',
+        nacionalidad:        teamEs,
+        altura:              '',
+        peso:                '',
+        foto:                (ath.headshot || {}).href || '',
+        fuente:              'ESPN_DAILY',
+        last_updated:        nowChile_()
+      };
+      newRows.push(headers.map(h => rowData[h] !== undefined ? rowData[h] : ''));
+      existingIds.add(pid);
+    });
+
+    if (newRows.length) equiposCon.add(teamEs); // marcar como procesado
+  });
+
+  if (newRows.length) {
+    appendRows_(CONFIG.SHEETS.JUGADORES, newRows);
+    Logger.log(`  Jugadores ESPN guardados: ${newRows.length}`);
+  }
+}
+
+/**
  * Carga los team_id_api_football para los 48 equipos del Mundial usando el
  * endpoint de todos los fixtures de API-Football (1 sola llamada).
  *
