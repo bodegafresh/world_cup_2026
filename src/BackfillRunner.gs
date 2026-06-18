@@ -930,3 +930,71 @@ function backfillStatus() {
   Logger.log('Para cargar: ejecutar backfillWorldCupOpeningWeek()');
   Logger.log('======================');
 }
+
+/**
+ * Refresca hora_chile (y status) de partidos NS desde hoy en adelante usando ESPN.
+ * No toca resultados de partidos jugados.
+ * Ejecutar si las horas en Partidos se ven incorrectas.
+ */
+function refreshNSMatchTimes() {
+  const today    = todayChile_();
+  const sheet    = getOrCreateSheet_(CONFIG.SHEETS.PARTIDOS, null);
+  const headers  = getHeaders_(CONFIG.SHEETS.PARTIDOS);
+  const mkIdx    = headers.indexOf('match_key');
+  const fechaIdx = headers.indexOf('fecha');
+  const horaIdx  = headers.indexOf('hora_chile');
+  const statIdx  = headers.indexOf('status');
+  if (mkIdx === -1 || horaIdx === -1) { Logger.log('❌ Columnas faltantes.'); return; }
+
+  const allRows = sheet.getDataRange().getValues();
+
+  // Fechas únicas de partidos NS desde hoy
+  const nsDates = new Set();
+  allRows.slice(1).forEach(row => {
+    const fecha  = normalizeFecha_(row[fechaIdx]);
+    const status = String(row[statIdx] || '').toUpperCase();
+    if (fecha >= today && (status === 'NS' || status === '')) nsDates.add(fecha);
+  });
+
+  if (!nsDates.size) { Logger.log('✅ No hay partidos NS para refrescar.'); return; }
+  Logger.log(`Refrescando horas para ${nsDates.size} fechas: ${[...nsDates].join(', ')}`);
+
+  const normName = n => String(n || '').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim().replace(/ /g, '');
+
+  let updated = 0;
+  [...nsDates].sort().forEach(fecha => {
+    try {
+      const espnEvs = fetchEspnEventsByDate_(fecha);
+      espnEvs.forEach(ev => {
+        if (!ev.hora_utc) return;
+        const kickoff = new Date(ev.hora_utc);
+        const newHora = Utilities.formatDate(kickoff, CONFIG.TIMEZONE, 'HH:mm');
+        const newFecha = Utilities.formatDate(kickoff, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+        const hn = normName(ev.home_team), an = normName(ev.away_team);
+        // Buscar la fila en la hoja por equipos
+        for (let i = 1; i < allRows.length; i++) {
+          const rowFecha = normalizeFecha_(allRows[i][fechaIdx]);
+          if (rowFecha !== fecha && rowFecha !== newFecha) continue;
+          const rowMk = String(allRows[i][mkIdx] || '');
+          if (!rowMk.includes(hn) && !rowMk.includes(an)) continue;
+          const sheetRow = i + 1; // 1-indexed, +1 for header
+          if (horaIdx !== -1) sheet.getRange(sheetRow, horaIdx + 1).setValue(newHora);
+          if (statIdx !== -1) {
+            const cur = String(allRows[i][statIdx] || '').toUpperCase();
+            if (cur === 'NS' || cur === '') {
+              const statusMap = {'STATUS_SCHEDULED':'NS','STATUS_FIRST_HALF':'1H',
+                'STATUS_HALFTIME':'HT','STATUS_SECOND_HALF':'2H','STATUS_FINAL':'FT',
+                'STATUS_FULL_TIME':'FT','STATUS_IN_PROGRESS':'LIVE','STATUS_POSTPONED':'PST'};
+              const newSt = statusMap[ev.espn_status] || 'NS';
+              sheet.getRange(sheetRow, statIdx + 1).setValue(newSt);
+            }
+          }
+          updated++;
+          break;
+        }
+      });
+    } catch(e) { Logger.log(`Error ${fecha}: ${e.message}`); }
+  });
+  Logger.log(`✅ refreshNSMatchTimes: ${updated} partidos actualizados.`);
+}
