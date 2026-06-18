@@ -125,7 +125,10 @@ function extractHourlyWeather_(data, matchDateUtc, matchHourUtc) {
   const hourly = data.hourly || {};
   const times = hourly.time || [];
 
-  const matchPrefix = matchDateUtc.substring(0, 13);
+  const matchDateStr = matchDateUtc instanceof Date
+    ? Utilities.formatDate(matchDateUtc, 'UTC', "yyyy-MM-dd'T'HH")
+    : String(matchDateUtc);
+  const matchPrefix = matchDateStr.substring(0, 13);
 
   let idx = times.findIndex(t => String(t).startsWith(matchPrefix));
 
