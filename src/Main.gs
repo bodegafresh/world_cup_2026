@@ -73,10 +73,11 @@ function cronDailySetup() {
     // 3. Contexto de partidos de hoy (clima, noticias, H2H, cuotas) — fuentes gratuitas
     if (ctx.hayPartidosHoy) {
       const fixturesHoy = readAll_(CONFIG.SHEETS.PARTIDOS)
-        .filter(r => normalizeFecha_(r.fecha) === ctx.today && r.fixture_id_af);
+        .filter(r => normalizeFecha_(r.fecha) === ctx.today);
       fixturesHoy.forEach(r => {
+        const fixtureId = r.fixture_id_af || r.match_key || (r.local + '_' + r.visitante);
         const fakeFixture = {
-          fixture: { id: r.fixture_id_af, date: r.fecha },
+          fixture: { id: fixtureId, date: r.fecha },
           teams:   { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
           league:  { round: r.ronda || '' }
         };
@@ -88,10 +89,11 @@ function cronDailySetup() {
     // 4. Análisis IA para partidos de hoy (OpenAI, cachea si ya existe)
     if (ctx.hayPartidosHoy) {
       const fixturesHoy = readAll_(CONFIG.SHEETS.PARTIDOS)
-        .filter(r => normalizeFecha_(r.fecha) === ctx.today && r.fixture_id_af);
+        .filter(r => normalizeFecha_(r.fecha) === ctx.today);
       fixturesHoy.forEach(r => {
+        const fixtureId = r.fixture_id_af || r.match_key || (r.local + '_' + r.visitante);
         const fakeFixture = {
-          fixture: { id: r.fixture_id_af, date: r.fecha },
+          fixture: { id: fixtureId, date: r.fecha },
           teams:   { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
           league:  { round: r.ronda || '' }
         };
