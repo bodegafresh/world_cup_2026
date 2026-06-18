@@ -384,7 +384,72 @@ function buildCalibrationText_() {
 
   msg += `<i>Un Brier Score &lt; 0.15 es excelente. El modelo aleatorio puro obtiene 0.222.</i>`;
 
+  // Agregar tabla de calibración por buckets si hay datos
+  try {
+    const tablaCal = buildCalibrationBucketTable_();
+    if (tablaCal) msg += '\n\n' + tablaCal;
+  } catch (e) { /* no crítico */ }
+
   return msg;
+}
+
+/**
+ * Tabla de calibración por buckets: ¿Cuando el modelo dice X%, ocurre X%?
+ * Agrupa probabilidades predichas del resultado real en rangos de 10pp y compara con frecuencia observada.
+ */
+function buildCalibrationBucketTable_() {
+  let aiRows, matchRows;
+  try {
+    aiRows    = readAll_(CONFIG.SHEETS.AI_ANALYSIS);
+    matchRows = readAll_(CONFIG.SHEETS.PARTIDOS);
+  } catch (e) { return null; }
+
+  // Construir pares (prob_predicha_del_resultado_real, ocurrió)
+  const pairs = [];
+  aiRows.forEach(ai => {
+    if (!ai.prob_local) return;
+    const match = matchRows.find(m => String(m.fixture_id_af||'') === String(ai.fixture_id));
+    if (!match || !isFinishedStatus_(match.status)) return;
+    const goalsH = Number(match.goles_local     ?? -1);
+    const goalsA = Number(match.goles_visitante ?? -1);
+    if (goalsH < 0 || goalsA < 0) return;
+
+    const probHome = Number(ai.prob_local     || 0);
+    const probDraw = Number(ai.prob_empate    || 0);
+    const probAway = Number(ai.prob_visitante || 0);
+
+    // Cada partido genera 3 pares (uno por outcome)
+    pairs.push({ prob: probHome, ocurrió: goalsH > goalsA ? 1 : 0 });
+    pairs.push({ prob: probDraw, ocurrió: goalsH === goalsA ? 1 : 0 });
+    pairs.push({ prob: probAway, ocurrió: goalsH < goalsA ? 1 : 0 });
+  });
+
+  if (pairs.length < 9) return null; // mínimo 3 partidos
+
+  // Agrupar en buckets de 10pp
+  const buckets = {};
+  const limits  = [0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.01];
+  for (let i = 0; i < limits.length - 1; i++) {
+    const lo = limits[i], hi = limits[i + 1];
+    const label = `${Math.round(lo*100)}–${Math.round(hi*100)}%`;
+    const inBucket = pairs.filter(p => p.prob >= lo && p.prob < hi);
+    if (!inBucket.length) continue;
+    const realRate = inBucket.filter(p => p.ocurrió).length / inBucket.length;
+    const midpoint = (lo + hi) / 2;
+    const bias = realRate - midpoint; // positivo = subestima, negativo = sobreestima
+    buckets[label] = { n: inBucket.length, predicha: midpoint, real: realRate, bias };
+  }
+
+  if (!Object.keys(buckets).length) return null;
+
+  let tbl = `\n📐 <b>Calibración por bucket</b>\n`;
+  tbl += `<i>(predicha → real | bias)</i>\n`;
+  Object.entries(buckets).forEach(([label, b]) => {
+    const biasStr = b.bias >= 0 ? `+${(b.bias*100).toFixed(0)}pp` : `${(b.bias*100).toFixed(0)}pp`;
+    const biasIcon = Math.abs(b.bias) < 0.05 ? '✅' : Math.abs(b.bias) < 0.10 ? '⚠️' : '🔴';
+    tbl += `  ${label}: ${(b.real*100).toFixed(0)}% real (n=${b.n}) ${biasIcon} ${biasStr}\n`;
+  });
+  return tbl;
 }
 
 // ─── F5.1 — Auto-liquidación de apuestas ─────────────────────────────────────

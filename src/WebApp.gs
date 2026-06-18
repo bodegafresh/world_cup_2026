@@ -157,23 +157,31 @@ function getWebEvOpps_() {
   return Object.values(dedupMap)
     .map(function(r) {
       var ev  = Number(r.ev || r.expected_value || 0);
-      var sospechoso = ev > 0.25 || String(r.sospechoso).toUpperCase() === 'TRUE' || r.sospechoso === true;
-      // Descartar EV imposibles (>50% = bug de mapeo)
-      if (ev > 0.50) return null;
+      if (ev > 0.50) return null; // bug/cuota stale — descartar
+      var outlier    = ev > 0.30 || String(r.outlier).toUpperCase() === 'TRUE' || r.outlier === true;
+      var sospechoso = !outlier && (ev > 0.25 || String(r.sospechoso).toUpperCase() === 'TRUE' || r.sospechoso === true);
+      var prob       = Number(r.prob_modelo || r.model_prob || 0);
+      var cuota      = Number(r.cuota || r.odds || 0);
+      var cuotaJusta = prob > 0 ? (1 / prob) : null;
+      var edge       = prob > 0 && cuota > 0 ? prob - (1/cuota) : 0;
+      var confianza  = outlier ? 'PELIGRO' : (sospechoso ? 'BAJA' : (r.confianza || r.confidence || ''));
       return {
-        fecha:       normalizeFecha_(r.fecha || r.date || ''),
-        local:       teamNameToSpanish_(r.local || r.home_team || ''),
-        visitante:   teamNameToSpanish_(r.visitante || r.away_team || ''),
-        mercado:     r.mercado    || r.market    || '',
-        seleccion:   r.seleccion  || r.selection || '',
-        prob_modelo: Number(r.prob_modelo || r.model_prob || 0),
-        cuota:       Number(r.cuota || r.odds || 0),
-        ev:          ev,
-        kelly:       Number(r.kelly || 0),
-        confianza:   sospechoso ? 'BAJA' : (r.confianza || r.confidence || ''),
-        fuente:      r.fuente_modelo || '',
-        sospechoso:  sospechoso,
-        timestamp:   r.timestamp || ''
+        fecha:        normalizeFecha_(r.fecha || r.date || ''),
+        local:        teamNameToSpanish_(r.local || r.home_team || ''),
+        visitante:    teamNameToSpanish_(r.visitante || r.away_team || ''),
+        mercado:      r.mercado    || r.market    || '',
+        seleccion:    r.seleccion  || r.selection || '',
+        prob_modelo:  prob,
+        cuota:        cuota,
+        cuota_justa:  cuotaJusta,
+        edge:         edge,
+        ev:           ev,
+        kelly:        Number(r.kelly || 0),
+        confianza:    confianza,
+        fuente:       r.fuente_modelo || '',
+        sospechoso:   sospechoso,
+        outlier:      outlier,
+        timestamp:    r.timestamp || ''
       };
     })
     .filter(function(r) { return r && r.cuota > 1; })
@@ -280,7 +288,70 @@ function getWebPerformance_() {
     }
   } catch (e_) {}
 
-  return { calibration, bettingStats };
+  // Calibración por buckets (requiere IA + resultados)
+  let calibrationBuckets = [];
+  try {
+    const aiRows    = readAll_(CONFIG.SHEETS.AI_ANALYSIS);
+    const matchRows = readAll_(CONFIG.SHEETS.PARTIDOS);
+    const pairs = [];
+    aiRows.forEach(ai => {
+      if (!ai.prob_local) return;
+      const match = matchRows.find(m => String(m.fixture_id_af||'') === String(ai.fixture_id));
+      if (!match || !['FT','AET','PEN'].includes(String(match.status||'').toUpperCase())) return;
+      const gH = Number(match.goles_local ?? -1), gA = Number(match.goles_visitante ?? -1);
+      if (gH < 0 || gA < 0) return;
+      pairs.push({ prob: Number(ai.prob_local    ||0), ocurrió: gH > gA  ? 1 : 0 });
+      pairs.push({ prob: Number(ai.prob_empate   ||0), ocurrió: gH === gA ? 1 : 0 });
+      pairs.push({ prob: Number(ai.prob_visitante||0), ocurrió: gH < gA  ? 1 : 0 });
+    });
+    if (pairs.length >= 9) {
+      const limits = [0, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.01];
+      for (let i = 0; i < limits.length - 1; i++) {
+        const lo = limits[i], hi = limits[i+1];
+        const inB = pairs.filter(p => p.prob >= lo && p.prob < hi);
+        if (!inB.length) continue;
+        const real = inB.filter(p => p.ocurrió).length / inB.length;
+        const mid  = (lo + hi) / 2;
+        calibrationBuckets.push({
+          label: Math.round(lo*100) + '–' + Math.round(hi*100) + '%',
+          n:     inB.length,
+          predicha: mid,
+          real,
+          bias: real - mid
+        });
+      }
+    }
+  } catch (e_) {}
+
+  // Rendimiento por mercado
+  let byMarket = [];
+  try {
+    const bets    = readAll_(CONFIG.SHEETS.BETTING_HISTORY);
+    const settled = bets.filter(b => ['GANADA','PERDIDA'].includes(String(b.resultado||b.result||'').toUpperCase()));
+    const mktMap  = {};
+    settled.forEach(b => {
+      const mkt = String(b.mercado || b.market || 'Otro');
+      if (!mktMap[mkt]) mktMap[mkt] = { total:0, ganadas:0, stake:0, ret:0, evSum:0, clvSum:0, clvN:0 };
+      const m = mktMap[mkt];
+      const ganó = String(b.resultado||b.result||'').toUpperCase() === 'GANADA';
+      m.total++;
+      if (ganó) { m.ganadas++; m.ret += Number(b.ganancia||b.profit||0) + Number(b.stake||0); }
+      m.stake  += Number(b.stake||0);
+      m.evSum  += Number(b.ev||0);
+      if (b.clv != null && b.clv !== '') { m.clvSum += Number(b.clv||0); m.clvN++; }
+    });
+    byMarket = Object.entries(mktMap).map(([mercado, m]) => ({
+      mercado,
+      total:    m.total,
+      ganadas:  m.ganadas,
+      win_rate: m.total > 0 ? m.ganadas / m.total : null,
+      roi:      m.stake  > 0 ? (m.ret - m.stake) / m.stake : null,
+      ev_avg:   m.total  > 0 ? m.evSum / m.total : null,
+      clv_avg:  m.clvN   > 0 ? m.clvSum / m.clvN : null
+    })).sort((a, b) => b.total - a.total);
+  } catch (e_) {}
+
+  return { calibration, bettingStats, calibrationBuckets, byMarket };
 }
 
 // ─── Tab: predictions ────────────────────────────────────────────────────────

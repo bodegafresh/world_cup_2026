@@ -26,6 +26,7 @@ const EDGE_MIN_THRESHOLD     = 0.03;  // Edge mínimo para alertar (3%)
 const KELLY_MAX_FRACTION     = 0.025; // Máximo 2.5% del bankroll (25% Kelly fraccional sobre Kelly/4)
 const KELLY_DIVISOR          = 4;     // Fractional Kelly conservador (Kelly/4)
 const EV_SUSPICIOUS_THRESHOLD = 0.25; // EV > 25% = sospechoso, requiere revisión
+const EV_OUTLIER_THRESHOLD   = 0.30;  // EV > 30% = OUTLIER — mercado ilíquido o mapeo erróneo
 const EV_MAX_CREDIBLE        = 0.50;  // EV > 50% = casi seguro bug, descartar
 const PROB_SUM_TOLERANCE     = 0.05;  // Tolerancia para validar suma 1X2 ≈ 100%
 
@@ -375,24 +376,22 @@ function buildEvSummaryText_() {
     if (!dedupMap[k] || String(r.timestamp) > String(dedupMap[k].timestamp)) dedupMap[k] = r;
   });
 
-  const rows = Object.values(dedupMap)
-    .filter(r => {
-      const evPositivo = String(r.ev_positivo).toUpperCase() === 'TRUE' || r.ev_positivo === true || r.ev_positivo === 'SI';
-      const noSospechoso = String(r.sospechoso).toUpperCase() !== 'TRUE' && r.sospechoso !== true;
-      return evPositivo && noSospechoso;
-    })
-    .sort((a, b) => Number(b.ev || 0) - Number(a.ev || 0));
+  const isOutlier    = r => Number(r.ev||0) > EV_OUTLIER_THRESHOLD;
+  const isSospechoso = r => Number(r.ev||0) > EV_SUSPICIOUS_THRESHOLD && !isOutlier(r);
+  const isCreible    = r => {
+    const evOk = Number(r.ev||0) > EV_POSITIVE_THRESHOLD && Number(r.ev||0) <= EV_SUSPICIOUS_THRESHOLD;
+    const evPositivo = String(r.ev_positivo).toUpperCase() === 'TRUE' || r.ev_positivo === true || r.ev_positivo === 'SI';
+    return evOk && evPositivo;
+  };
 
-  const sospechosos = Object.values(dedupMap).filter(r => {
-    const evVal = Number(r.ev || 0);
-    return evVal > EV_SUSPICIOUS_THRESHOLD && evVal <= EV_MAX_CREDIBLE;
-  });
+  const rows       = Object.values(dedupMap).filter(isCreible).sort((a,b) => Number(b.ev||0)-Number(a.ev||0));
+  const sospechosos = Object.values(dedupMap).filter(isSospechoso).sort((a,b) => Number(b.ev||0)-Number(a.ev||0));
+  const outliers    = Object.values(dedupMap).filter(isOutlier).sort((a,b) => Number(b.ev||0)-Number(a.ev||0));
 
-  if (!rows.length && !sospechosos.length) {
+  if (!rows.length && !sospechosos.length && !outliers.length) {
     return '📊 Sin oportunidades EV+ detectadas para los próximos partidos.\n\n<i>Las cuotas de mercado no muestran valor estadístico en este momento.</i>';
   }
 
-  // Agrupar por fixture
   const byFixture = {};
   rows.forEach(r => {
     const k = `${r.local}_vs_${r.visitante}`;
@@ -400,11 +399,11 @@ function buildEvSummaryText_() {
     byFixture[k].rows.push(r);
   });
 
-  const ts = rows.length ? rows[0].timestamp : (sospechosos.length ? sospechosos[0].timestamp : '');
+  const ts = rows.length ? rows[0].timestamp : (sospechosos.length ? sospechosos[0].timestamp : (outliers.length ? outliers[0].timestamp : ''));
   let msg = `📊 <b>Oportunidades EV+ — Mundial 2026</b>\n`;
   msg    += `<i>Cuotas: ${ts || 'desconocido'}</i>\n\n`;
 
-  // Clasificación EV: creíble +5%–25%
+  // Tier 1: Creíbles +5%–25%
   if (rows.length) {
     msg += `<b>✅ Creíbles (EV +5% a +25%)</b>\n`;
     Object.values(byFixture).slice(0, 5).forEach(group => {
@@ -413,25 +412,36 @@ function buildEvSummaryText_() {
         const evPct    = (Number(o.ev)    * 100).toFixed(1);
         const kellyPct = (Number(o.kelly) * 100).toFixed(1);
         const probPct  = (Number(o.prob_modelo) * 100).toFixed(1);
+        const cjusta   = o.cuota_justa ? `Justa: ${Number(o.cuota_justa).toFixed(2)} · ` : '';
         const conf     = String(o.confianza || '');
         const confEmoji = conf === 'ALTA' ? '🟢' : conf === 'MEDIA' ? '🟡' : '🔴';
         msg += `  ✅ ${o.seleccion} @ ${Number(o.cuota).toFixed(2)}\n`;
-        msg += `     Modelo: ${probPct}% | EV <code>+${evPct}%</code> | Kelly <code>${kellyPct}%</code> ${confEmoji}\n`;
+        msg += `     Modelo: ${probPct}% | ${cjusta}EV <code>+${evPct}%</code> | Kelly <code>${kellyPct}%</code> ${confEmoji}\n`;
       });
     });
   }
 
-  // Sospechosos: EV +25%–50%
+  // Tier 2: Sospechosos +25%–30%
   if (sospechosos.length) {
-    msg += `\n⚠️ <b>Revisar (EV +25% a +50%) — posible error de cuota</b>\n`;
+    msg += `\n⚠️ <b>Sospechosos (EV +25% a +30%) — verificar en 2+ casas</b>\n`;
     sospechosos.slice(0, 3).forEach(o => {
       const evPct = (Number(o.ev) * 100).toFixed(1);
-      msg += `  • ${o.local} vs ${o.visitante} | ${o.seleccion} @ ${Number(o.cuota).toFixed(2)} — EV <code>+${evPct}%</code>\n`;
+      const cjusta = o.cuota_justa ? ` · Justa: ${Number(o.cuota_justa).toFixed(2)}` : '';
+      msg += `  • ${o.local} vs ${o.visitante} | ${o.seleccion} @ ${Number(o.cuota).toFixed(2)}${cjusta} — EV <code>+${evPct}%</code>\n`;
     });
-    msg += `<i>Verificar en 2+ casas antes de apostar.</i>\n`;
   }
 
-  msg += `\n<i>EV >50% descartado automáticamente (bug/cuota stale). Kelly máx 2.5% bankroll.</i>`;
+  // Tier 3: Outliers +30%–50%
+  if (outliers.length) {
+    msg += `\n🚨 <b>OUTLIERS (EV +30% a +50%) — NO apostar sin confirmación múltiple</b>\n`;
+    outliers.slice(0, 2).forEach(o => {
+      const evPct = (Number(o.ev) * 100).toFixed(1);
+      msg += `  ⛔ ${o.local} vs ${o.visitante} | ${o.seleccion} @ ${Number(o.cuota).toFixed(2)} — EV <code>+${evPct}%</code>\n`;
+    });
+    msg += `<i>Posible mercado ilíquido, cuota stale o bug de mapeo.</i>\n`;
+  }
+
+  msg += `\n<i>EV >50% descartado automáticamente. Kelly máx 2.5% bankroll.</i>`;
   return msg.trim();
 }
 
@@ -592,8 +602,11 @@ function calcularEV() {
         return;
       }
 
-      const kelly  = Math.max(0, Math.min(((m.prob * m.cuota - 1) / (m.cuota - 1)) / KELLY_DIVISOR, KELLY_MAX_FRACTION));
-      const sospechoso = ev_val > EV_SUSPICIOUS_THRESHOLD;
+      const kelly       = Math.max(0, Math.min(((m.prob * m.cuota - 1) / (m.cuota - 1)) / KELLY_DIVISOR, KELLY_MAX_FRACTION));
+      const sospechoso  = ev_val > EV_SUSPICIOUS_THRESHOLD;
+      const esOutlier   = ev_val > EV_OUTLIER_THRESHOLD;
+      const cuotaJusta  = m.prob > 0 ? (1 / m.prob) : null;
+      const confFinal   = esOutlier ? 'PELIGRO' : (sospechoso ? 'BAJA' : confianza);
 
       newRows.push({
         fixture_id:    mkKey,
@@ -604,14 +617,16 @@ function calcularEV() {
         mercado:       m.mercado,
         seleccion:     m.seleccion,
         cuota:         m.cuota,
+        cuota_justa:   cuotaJusta,
         prob_modelo:   m.prob,
         ev:            ev_val,
         edge:          m.prob - 1/m.cuota,
         kelly:         kelly,
         ev_positivo:   ev_val > EV_POSITIVE_THRESHOLD && !sospechoso,
-        confianza:     sospechoso ? 'BAJA' : confianza,
+        confianza:     confFinal,
         fuente_modelo: fuente,
-        sospechoso:    sospechoso
+        sospechoso:    sospechoso,
+        outlier:       esOutlier
       });
       totalOpps++;
     });
@@ -619,11 +634,12 @@ function calcularEV() {
 
   if (newRows.length) {
     const headers = ['fixture_id','timestamp','fecha','local','visitante','mercado','seleccion','cuota',
-                     'prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo','sospechoso'];
+                     'cuota_justa','prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo','sospechoso','outlier'];
     const rowArrays = newRows.map(r => headers.map(h => r[h] !== undefined ? r[h] : ''));
     appendRows_(CONFIG.SHEETS.EV_OPPORTUNITIES, rowArrays);
   }
-  const sospechosos = newRows.filter(r => r.sospechoso).length;
+  const sospechosos = newRows.filter(r => r.sospechoso && !r.outlier).length;
+  const outliers    = newRows.filter(r => r.outlier).length;
   const descartados = newRows.filter(r => r.ev > EV_MAX_CREDIBLE).length;
-  Logger.log(`✅ calcularEV: ${totalOpps} mercados | ${newRows.filter(r=>r.ev_positivo).length} EV+ válidos | ${sospechosos} sospechosos (>25%) | descartados con EV>${EV_MAX_CREDIBLE*100}%: ${descartados}`);
+  Logger.log(`✅ calcularEV: ${totalOpps} mercados | ${newRows.filter(r=>r.ev_positivo).length} EV+ válidos | ${sospechosos} sospechosos (>25%) | ${outliers} outliers (>30%) | descartados EV>${EV_MAX_CREDIBLE*100}%: ${descartados}`);
 }
