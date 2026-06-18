@@ -349,6 +349,20 @@ function _loadWorldCupDayFromEspn_(date) {
       try { updateEloAfterMatch_(fakeFixture); } catch(e_) {}
       try { autoSettleBetsForFixture_(fakeFixture); } catch(e_) {}
 
+      // Actualizar fila Partidos con resultado real (status + goles)
+      // Sin esto, el partido queda NS y todo el pipeline downstream queda bloqueado.
+      if (sheetRow && sheetRow.match_key) {
+        try {
+          updatePartidosEnrichment_(sheetRow.match_key, {
+            status:          statusFinal,
+            goles_local:     Number(ev.home_score || 0),
+            goles_visitante: Number(ev.away_score || 0),
+            fuente:          'ESPN',
+            last_updated:    nowChile_()
+          });
+        } catch(eu_) { console.warn(`updatePartidos ${homeEs}:`, eu_.message); }
+      }
+
       Logger.log(`  ✅ ${homeEs} vs ${awayEs}`);
     } catch(es_) {
       Logger.log(`  ❌ ${espnId}: ${es_.message}`);
