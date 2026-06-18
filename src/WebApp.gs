@@ -592,13 +592,41 @@ function getWebLive_() {
           const compAway   = (comp.competitors || []).find(c => c.homeAway === 'away') || {};
           const bsHome     = ((summary.boxscore || {}).teams || []).find(t => t.homeAway === 'home') || {};
           const bsAway     = ((summary.boxscore || {}).teams || []).find(t => t.homeAway === 'away') || {};
+          // Eventos desde comp.details (goles, tarjetas, sust en tiempo real)
+          const espnEvents = [];
+          (comp.details || []).forEach(function(det) {
+            const typeText = ((det.type || {}).text || '').toLowerCase();
+            let tipo = '';
+            if (typeText.includes('goal'))        tipo = 'goal';
+            else if (typeText.includes('yellow') && typeText.includes('red')) tipo = 'yellowredcard';
+            else if (typeText.includes('yellow')) tipo = 'yellowcard';
+            else if (typeText.includes('red'))    tipo = 'redcard';
+            else if (typeText.includes('subst'))  tipo = 'subst';
+            else if (typeText.includes('var'))    tipo = 'var';
+            if (!tipo) return;
+            const clock   = det.clock || {};
+            const minRaw  = clock.value != null ? clock.value : parseInt(clock.displayValue || '0');
+            const minuto  = Math.floor(minRaw);
+            const extra   = minRaw > minuto ? Math.round((minRaw - minuto) * 100) : 0;
+            const athletes = det.athletesInvolved || [];
+            const teamName = teamNameToSpanish_((det.team || {}).displayName || '');
+            espnEvents.push({
+              minuto:    minuto,
+              extra:     extra,
+              tipo:      tipo,
+              equipo:    teamName,
+              jugador:   athletes.length ? (athletes[0].displayName || athletes[0].shortName || '') : '',
+              asistente: athletes.length > 1 ? (athletes[1].displayName || athletes[1].shortName || '') : ''
+            });
+          });
           const summaryData = {
             rosters:         summary.rosters || [],
             weather:         weather,
             gameInfo:        summary.gameInfo || null,
             referee:         referee,
             formacion_home:  rosterHome.formation || compHome.formation || bsHome.formation || '',
-            formacion_away:  rosterAway.formation || compAway.formation || bsAway.formation || ''
+            formacion_away:  rosterAway.formation || compAway.formation || bsAway.formation || '',
+            espnEvents:      espnEvents
           };
           espnSummaryMap[k1] = summaryData;
           espnSummaryMap[k2] = summaryData;
@@ -667,7 +695,7 @@ function getWebLive_() {
       if (espnLive.minuto)                   m.minuto          = espnLive.minuto;
     }
 
-    const evs = eventos
+    const sheetEvs = eventos
       .filter(e => String(e.fixture_id || '') === fid)
       .sort((a, b) => Number(a.minuto || 0) - Number(b.minuto || 0))
       .map(e => ({
@@ -678,6 +706,9 @@ function getWebLive_() {
         jugador:   e.jugador  || '',
         asistente: e.asistente || ''
       }));
+    // Fallback: usar eventos ESPN en tiempo real si la hoja está vacía
+    const evs = sheetEvs.length ? sheetEvs
+      : (espnSummary && espnSummary.espnEvents ? espnSummary.espnEvents : []);
 
     const statsRow = espnStats.find(s => String(s.fixture_id || '') === fid) || null;
 
@@ -1005,8 +1036,8 @@ function getWebTeams_() {
   const TORNEO_START = '2026-06-11';
   const wcPairs = new Set();
   partidos.forEach(r => {
-    const fecha = String(r.fecha || '').substring(0, 10);
-    if (fecha < TORNEO_START) return;
+    const fecha = normalizeFecha_(r.fecha);
+    if (!fecha || fecha < TORNEO_START) return;
     const l = norm(teamNameToSpanish_(r.local     || ''));
     const v = norm(teamNameToSpanish_(r.visitante || ''));
     if (l && v) {
@@ -1070,8 +1101,8 @@ function getWebTeams_() {
   // Mapa equipo → sus partidos del torneo (para el panel de detalle)
   const teamMatchesMap = {};
   partidos.forEach(r => {
-    const fecha = String(r.fecha || '').substring(0, 10);
-    if (fecha < TORNEO_START) return;
+    const fecha = normalizeFecha_(r.fecha);
+    if (!fecha || fecha < TORNEO_START) return;
     const l = teamNameToSpanish_(r.local     || '');
     const v = teamNameToSpanish_(r.visitante || '');
     const entry = {
