@@ -83,6 +83,55 @@ function fetchEspnSummary_(espnId) {
   return espnGet_(`/summary?event=${espnId}`);
 }
 
+/**
+ * Debug: muestra la estructura real de un ESPN summary en el log.
+ * Ejecutar con el ID de un partido reciente para diagnosticar clima/árbitro/formación.
+ * Ejemplo: debugEspnSummary('401696424')
+ * Consume 1 llamada ESPN (gratis).
+ */
+function debugEspnSummary(espnId) {
+  if (!espnId) { Logger.log('Usa: debugEspnSummary("ID")'); return; }
+  const s = fetchEspnSummary_(espnId);
+  Logger.log('=== Claves top-level ===');
+  Logger.log(Object.keys(s).join(', '));
+
+  // Clima
+  Logger.log('\n=== CLIMA ===');
+  Logger.log('summary.weather: '     + JSON.stringify(s.weather || null));
+  Logger.log('gameInfo.weather: '    + JSON.stringify(((s.gameInfo || {}).weather) || null));
+  const comp0 = ((s.header || {}).competitions || [])[0] || {};
+  Logger.log('header.comp[0].weather: ' + JSON.stringify(comp0.weather || null));
+
+  // Árbitro
+  Logger.log('\n=== ÁRBITRO ===');
+  Logger.log('officials: ' + JSON.stringify((comp0.officials || []).slice(0,3)));
+
+  // Formación
+  Logger.log('\n=== FORMACIÓN ===');
+  const competitors = comp0.competitors || [];
+  competitors.forEach(c => {
+    Logger.log(`  ${c.homeAway} - ${(c.team||{}).displayName}: formation=${c.formation}`);
+  });
+
+  // Roster muestra
+  Logger.log('\n=== ROSTERS (primer jugador de cada equipo) ===');
+  (s.rosters || []).forEach(r => {
+    const p = (r.roster || [])[0];
+    if (p) {
+      const ath = p.athlete || {};
+      Logger.log(`  ${r.homeAway}: ${ath.displayName} | pos=${JSON.stringify(p.position)} | headshot=${((ath.headshot||{}).href||'').substring(0,60)}`);
+    }
+  });
+
+  // Boxscore teams
+  Logger.log('\n=== BOXSCORE TEAMS ===');
+  ((s.boxscore || {}).teams || []).forEach(t => {
+    Logger.log(`  ${t.homeAway}: formation=${t.formation} | keys=${Object.keys(t).join(',')}`);
+  });
+
+  Logger.log('\n=== FIN DEBUG ===');
+}
+
 // ─── Helpers de extracción ─────────────────────────────────────────────────────
 
 /**
