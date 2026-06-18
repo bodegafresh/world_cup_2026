@@ -327,18 +327,31 @@ function getWebPredictions_() {
 // Sheets serializa time-only como 1899-12-30T{UTC_hora}.000Z — la hora en UTC hay que convertirla.
 function formatHoraChile_(val) {
   if (!val) return '';
-  // Ya es "HH:mm" limpio → devolver directo
-  if (typeof val === 'string' && /^\d{1,2}:\d{2}$/.test(val.trim())) return val.trim();
+  const s = (val instanceof Date) ? val.toISOString() : String(val).trim();
 
-  // Extraer HH:MM desde ISO string o Date → siempre vía UTC hours para evitar bugs con 1899
-  const s = (val instanceof Date) ? val.toISOString() : String(val);
-  const m = s.match(/T(\d{2}):(\d{2})/);
-  if (!m) return s.substring(0, 5);
+  // Ya es "HH:mm" limpio
+  if (/^\d{1,2}:\d{2}$/.test(s)) return s;
 
-  // Reconstruir con fecha de hoy para aplicar offset Chile correctamente
-  const todayStr = todayChile_();
-  const d = new Date(todayStr + 'T' + m[1] + ':' + m[2] + ':00Z');
-  return Utilities.formatDate(d, CONFIG.TIMEZONE, 'HH:mm');
+  // "HH:mm:ss" → truncar
+  if (/^\d{1,2}:\d{2}:\d{2}$/.test(s)) return s.substring(0, 5);
+
+  // ISO con T: "2026-06-12T21:00:00Z" o "...T21:00:00.000Z"
+  const mT = s.match(/T(\d{2}):(\d{2})/);
+  if (mT) {
+    const todayStr = todayChile_();
+    const d = new Date(todayStr + 'T' + mT[1] + ':' + mT[2] + ':00Z');
+    return Utilities.formatDate(d, CONFIG.TIMEZONE, 'HH:mm');
+  }
+
+  // "YYYY-MM-DD HH:mm:ss" (sin T) — formato que viene de Sheets datetime
+  const mSpace = s.match(/\d{4}-\d{2}-\d{2}\s+(\d{2}):(\d{2})/);
+  if (mSpace) {
+    const todayStr = todayChile_();
+    const d = new Date(todayStr + 'T' + mSpace[1] + ':' + mSpace[2] + ':00Z');
+    return Utilities.formatDate(d, CONFIG.TIMEZONE, 'HH:mm');
+  }
+
+  return s.substring(0, 5);
 }
 
 // ─── Tab: hoy ────────────────────────────────────────────────────────────────
