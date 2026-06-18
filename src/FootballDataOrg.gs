@@ -1,8 +1,45 @@
-// DEPRECATED: football-data.org no aporta datos únicos que no cubra ESPN/API-Football.
-// Mantener para referencia histórica. No llamar desde crons activos.
+/**
+ * FootballDataOrg.gs
+ *
+ * Integración con football-data.org v4 (plan TIER_ONE gratuito).
+ * Aporta datos únicos: árbitros con nombre + nacionalidad por partido.
+ * Endpoint usado: GET /v4/matches?dateFrom=...&dateTo=...
+ * Límite plan free: 10 req/min. Sin restricción de temporada para WC.
+ */
+
+/**
+ * Obtiene partidos del Mundial para un rango de fechas desde football-data.org.
+ * @param {string} date - 'yyyy-MM-dd'
+ * @returns {Array} array de match objects con referees incluidos
+ */
+function fetchFDWorldCupMatchesByDate_(date) {
+  const dateTo = addDaysToDateString_(date, 1);
+  const query  = `dateFrom=${date}&dateTo=${dateTo}`;
+  const url    = `${CONFIG.FOOTBALL_DATA.BASE_URL}/matches?${query}`;
+
+  const response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { 'X-Auth-Token': getFootballDataKey_() },
+    muteHttpExceptions: true
+  });
+
+  const status = response.getResponseCode();
+  if (status === 429) { Logger.log('football-data.org 429 rate limit'); return []; }
+  if (status !== 200) {
+    Logger.log(`football-data.org error ${status}: ${response.getContentText().substring(0, 200)}`);
+    return [];
+  }
+
+  const data = JSON.parse(response.getContentText());
+  return (data.matches || []).filter(m =>
+    m.competition && m.competition.code === CONFIG.FOOTBALL_DATA.WORLD_CUP_CODE &&
+    String(m.utcDate || '').substring(0, 10) === date
+  );
+}
+
+// ── Legado (mantenido por compatibilidad con GoldenDataset.gs) ─────────────
 
 function footballDataGet_(path, params) {
-  console.warn('FootballDataOrg DEPRECATED:', 'footballDataGet_');
   const query = Object.keys(params || {})
     .filter(k => params[k] !== undefined && params[k] !== null && params[k] !== '')
     .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)

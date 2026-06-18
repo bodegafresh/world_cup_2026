@@ -200,6 +200,91 @@ function saveRefereeFromEspnSummary_(fakeId, fecha, homeTeam, awayTeam, ronda, s
   Logger.log(`  Árbitro guardado: ${nombre} (${homeTeam} vs ${awayTeam})`);
 }
 
+/**
+ * Guarda árbitros desde la respuesta de football-data.org.
+ * Llamar desde loadWorldCupDay_ con los matches del día.
+ * football-data.org entrega: { id, name, type, nationality } por partido.
+ *
+ * @param {Array}  fdMatches - array de match objects de football-data.org
+ * @param {string} date      - 'yyyy-MM-dd' para saber fixture_id de referencia
+ */
+function saveRefereesFromFootballData_(fdMatches, date) {
+  if (!fdMatches || !fdMatches.length) return;
+
+  // Leer fixture IDs ya en Partidos para hacer join por equipos+fecha
+  let partidos = [];
+  try { partidos = readAll_(CONFIG.SHEETS.PARTIDOS); } catch(e_) {}
+
+  // Árbitros ya guardados para dedup
+  let existingFixtures = new Set();
+  try {
+    existingFixtures = new Set(
+      readAll_(CONFIG.SHEETS.ARBITROS).map(r => String(r.fixture_id))
+    );
+  } catch(e_) {}
+
+  getOrCreateSheet_(CONFIG.SHEETS.ARBITROS, ARBITRO_HEADERS);
+
+  fdMatches.forEach(m => {
+    const referees = (m.referees || []).filter(r => r.type === 'REFEREE');
+    if (!referees.length) return;
+
+    const ref = referees[0];
+    const nombre = ref.name || '';
+    if (!nombre) return;
+
+    // Buscar el fixture_id en Partidos haciendo match por equipos
+    const normHome = normalizeTeamNameStrong_(m.homeTeam && m.homeTeam.name || '');
+    const normAway = normalizeTeamNameStrong_(m.awayTeam && m.awayTeam.name || '');
+    const partido  = partidos.find(p => {
+      const pHome = normalizeTeamNameStrong_(p.local || '');
+      const pAway = normalizeTeamNameStrong_(p.visitante || '');
+      return (pHome === normHome || pHome.includes(normHome) || normHome.includes(pHome)) &&
+             (pAway === normAway || pAway.includes(normAway) || normAway.includes(pAway)) &&
+             String(p.fecha || '').substring(0, 10) === date;
+    });
+
+    const fixtureId = partido
+      ? String(partido.fixture_id_api_football || partido.match_id || `fd_${m.id}`)
+      : `fd_${m.id}`;
+
+    if (existingFixtures.has(fixtureId)) return;
+
+    // Usar nationality de football-data.org directamente (es más confiable que el catálogo)
+    const nacionalidad = ref.nationality || getRefereeInfo_(nombre).nacionalidad;
+    const confederacion = getRefereeInfo_(nombre).confederacion !== 'Desconocida'
+      ? getRefereeInfo_(nombre).confederacion
+      : confederacionPorNacionalidad_(nacionalidad);
+
+    appendRows_(CONFIG.SHEETS.ARBITROS, [[
+      hash_(nombre),
+      nombre,
+      nacionalidad,
+      confederacion,
+      fixtureId,
+      date,
+      teamNameToSpanish_(m.homeTeam && m.homeTeam.name || ''),
+      teamNameToSpanish_(m.awayTeam && m.awayTeam.name || ''),
+      m.group || m.stage || '',
+      0, 0, 0,
+      nowChile_()
+    ]]);
+    existingFixtures.add(fixtureId);
+    Logger.log(`  Árbitro FD: ${nombre} (${m.homeTeam.name} vs ${m.awayTeam.name})`);
+  });
+}
+
+function confederacionPorNacionalidad_(nat) {
+  if (!nat) return 'Desconocida';
+  const n = nat.toLowerCase();
+  if (['argentina','brazil','chile','colombia','uruguay','paraguay','peru','ecuador','bolivia','venezuela'].some(c => n.includes(c))) return 'CONMEBOL';
+  if (['mexico','usa','united states','costa rica','honduras','el salvador','panama','canada','jamaica','haiti'].some(c => n.includes(c))) return 'CONCACAF';
+  if (['france','germany','spain','italy','england','portugal','netherlands','poland','romania','slovenia','slovakia'].some(c => n.includes(c))) return 'UEFA';
+  if (['senegal','nigeria','ghana','cameroon','morocco','algeria','zambia','south africa','gabon','gambia'].some(c => n.includes(c))) return 'CAF';
+  if (['japan','china','south korea','australia','qatar','iran','saudi arabia','uae','iraq'].some(c => n.includes(c))) return 'AFC';
+  return 'Desconocida';
+}
+
 // ─── Estadísticas acumuladas ──────────────────────────────────────────────────
 
 /**

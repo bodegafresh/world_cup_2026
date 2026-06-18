@@ -291,6 +291,9 @@ function _loadWorldCupDayFromEspn_(date) {
       _saveEspnForma_(summary);
       try { saveRefereeFromEspnSummary_(fakeId, date, homeEs, awayEs, ronda, summary); } catch(er_) {}
 
+      // Guardar jugadores en hoja Jugadores (foto incluida) si el equipo aún no tiene plantel
+      try { _saveEspnRostersAsPlayers_(summary, ev.home_team, ev.away_team); } catch(ep_) {}
+
       // ELO update
       const statusFinal = STATUS_MAP[ev.espn_status] || 'FT';
       const fakeFixture = {
@@ -373,6 +376,17 @@ function loadWorldCupDay_(date) {
 
     Utilities.sleep(800);
   });
+
+  // football-data.org: árbitros con nacionalidad oficial (sin costo extra — viene en el listado)
+  try {
+    const fdMatches = fetchFDWorldCupMatchesByDate_(date);
+    if (fdMatches.length) {
+      saveRefereesFromFootballData_(fdMatches, date);
+      Logger.log(`loadWorldCupDay_ ${date}: árbitros FD guardados (${fdMatches.length} partidos)`);
+    }
+  } catch (e) {
+    console.warn('football-data.org árbitros:', e.message);
+  }
 
   try {
     loadWorldCupStandings();
