@@ -583,11 +583,12 @@ function cargarPlantelesDesdeEspn() {
   partidos.forEach(r => {
     const localEs = teamNameToSpanish_(r.local || '');
     const visitEs = teamNameToSpanish_(r.visitante || '');
+    const fecha   = normalizeFecha_(r.fecha); // garantiza 'yyyy-MM-dd'
     if (!equiposConPlantel.has(localEs.toLowerCase()) && !equiposFaltantes[localEs]) {
-      equiposFaltantes[localEs] = { fecha: r.fecha, localEs, visitEs, lado: 'home' };
+      equiposFaltantes[localEs] = { fecha, localEs, visitEs, lado: 'home' };
     }
     if (!equiposConPlantel.has(visitEs.toLowerCase()) && !equiposFaltantes[visitEs]) {
-      equiposFaltantes[visitEs] = { fecha: r.fecha, localEs, visitEs, lado: 'away' };
+      equiposFaltantes[visitEs] = { fecha, localEs, visitEs, lado: 'away' };
     }
   });
 
