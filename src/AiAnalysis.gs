@@ -16,6 +16,11 @@ function getAiAnalysisFromCache_(fixtureId) {
   const row = rows.find(r => String(r.fixture_id) === String(fixtureId));
   if (!row || !row.resumen_previa) return null;
 
+  // Cache válido solo si fue generado hoy — si es de ayer o antes, regenerar con noticias frescas
+  const todayStr = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  const updatedAt = String(row.updated_at || '').substring(0, 10);
+  if (updatedAt && updatedAt < todayStr) return null;
+
   const probs = parseSafeJson_(row.prob_local ? JSON.stringify({
     home_win: row.prob_local, draw: row.prob_empate, away_win: row.prob_visitante,
     over_2_5: row.over_2_5, btts_yes: row.btts
