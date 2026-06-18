@@ -83,7 +83,7 @@ function getWebDashboard_() {
   const mapPartido = r => ({
     match_key:    r.match_key   || '',
     fecha:        normalizeFecha_(r.fecha),
-    hora:         formatHoraChile_(r.hora_chile || r.hora),
+    hora:         safeHoraChile_(r.hora_chile || r.hora),
     local:        teamNameToSpanish_(r.local     || ''),
     visitante:    teamNameToSpanish_(r.visitante || ''),
     goles_local:  r.goles_local   ?? null,
@@ -297,7 +297,7 @@ function getWebPredictions_() {
     return {
       match_key:  r.match_key || '',
       fecha:      normalizeFecha_(r.fecha),
-      hora:       formatHoraChile_(r.hora_chile || r.hora),
+      hora:       safeHoraChile_(r.hora_chile || r.hora),
       local:      teamNameToSpanish_(home),
       visitante:  teamNameToSpanish_(away),
       grupo:      r.grupo  || '',
@@ -321,6 +321,15 @@ function getWebPredictions_() {
       } : null
     };
   });
+}
+
+// Wrapper que además valida minutos: WC2026 siempre usa :00 o :30.
+// Si ESPN devolvió :42/:12 (dato corrupto), trunca a :00.
+function safeHoraChile_(val) {
+  const h = formatHoraChile_(val);
+  if (!h) return '';
+  const m = parseInt(h.split(':')[1]);
+  return (m === 0 || m === 30) ? h : h.split(':')[0] + ':00';
 }
 
 // Convierte un valor hora de Google Sheets (Date object o string ISO) a "HH:mm" en hora Chile.
@@ -469,7 +478,7 @@ function getWebHoy_() {
       goles_visitante: p.goles_visitante !== undefined && p.goles_visitante !== '' ? p.goles_visitante : null,
       status:          p.status  || 'NS',
       minuto:          p.minuto  || '',
-      hora_chile:      formatHoraChile_(p.hora_chile),
+      hora_chile:      safeHoraChile_(p.hora_chile),
       hora_local:      hora_local,
       grupo:           p.grupo   || '',
       ronda:           p.ronda   || '',
@@ -1000,7 +1009,7 @@ function getWebMatch_(e) {
   return {
     match_key:       matchKey,
     fecha:           normalizeFecha_(m.fecha),
-    hora:            formatHoraChile_(m.hora_chile || m.hora),
+    hora:            safeHoraChile_(m.hora_chile || m.hora),
     local:           teamNameToSpanish_(m.local     || ''),
     visitante:       teamNameToSpanish_(m.visitante || ''),
     goles_local:     m.goles_local     ?? null,
@@ -1074,7 +1083,7 @@ function getWebTeams_() {
     _seenMatchKeys.add(matchKey);
     const entry = {
       fecha,
-      hora:    formatHoraChile_(r.hora_chile || r.hora),
+      hora:    safeHoraChile_(r.hora_chile || r.hora),
       local:   l, visitante: v,
       goles_l: r.goles_local    !== '' && r.goles_local    != null ? Number(r.goles_local)    : null,
       goles_v: r.goles_visitante!== '' && r.goles_visitante!= null ? Number(r.goles_visitante): null,
@@ -1353,7 +1362,7 @@ function getWebAyer_() {
       goles_local:     gl,
       goles_visitante: gv,
       status:          status || 'FT',
-      hora_chile:      formatHoraChile_(r.hora_chile || r.hora),
+      hora_chile:      safeHoraChile_(r.hora_chile || r.hora),
       grupo:           r.grupo   || '',
       ronda:           r.ronda   || '',
       estadio:         r.estadio || '',
@@ -1389,7 +1398,7 @@ function getWebProximos_() {
     byDate[fecha].push({
       local:     teamNameToSpanish_(r.local     || ''),
       visitante: teamNameToSpanish_(r.visitante || ''),
-      hora_chile: formatHoraChile_(r.hora_chile || r.hora),
+      hora_chile: safeHoraChile_(r.hora_chile || r.hora),
       grupo:     r.grupo   || '',
       ronda:     r.ronda   || '',
       estadio:   r.estadio || '',
@@ -1517,28 +1526,52 @@ function getWebSquad_(e) {
     var r   = dedupMap[k];
     var pid = String(r.jugador_id || '');
     if (!pid) return;
-    if (!statsByPid[pid]) statsByPid[pid] = { goles: 0, asistencias: 0, partidos: 0 };
-    statsByPid[pid].goles       += Number(r.goles       || 0);
-    statsByPid[pid].asistencias += Number(r.asistencias || 0);
+    if (!statsByPid[pid]) statsByPid[pid] = { goles: 0, asistencias: 0, amarillas: 0, rojas: 0, partidos: 0 };
+    statsByPid[pid].goles       += Number(r.goles             || 0);
+    statsByPid[pid].asistencias += Number(r.asistencias       || 0);
+    statsByPid[pid].amarillas   += Number(r.tarjetas_amarillas || r.amarillas || 0);
+    statsByPid[pid].rojas       += Number(r.tarjetas_rojas     || r.rojas    || 0);
     statsByPid[pid].partidos    += 1;
   });
+
+  // Rating y minutos desde PlayerMatchStats (coincide por player_id con jugador_id de Plantel)
+  var ratingByPid = {};
+  var minutosByPid = {};
+  try {
+    var pmsRows = readAll_(CONFIG.SHEETS.PLAYER_MATCH_STATS);
+    pmsRows.forEach(function(r) {
+      var pid = String(r.player_id || r.jugador_id || '');
+      if (!pid) return;
+      var min = Number(r.minutos || r.minutes || 0);
+      var rat = Number(r.rating  || 0);
+      if (!minutosByPid[pid]) minutosByPid[pid] = 0;
+      if (!ratingByPid[pid])  ratingByPid[pid]  = { sum: 0, cnt: 0 };
+      minutosByPid[pid] += min;
+      if (rat > 0) { ratingByPid[pid].sum += rat; ratingByPid[pid].cnt++; }
+    });
+  } catch(e_) {}
 
   // Posicion sort order
   var posOrder = { 'Portero': 1, 'Goalkeeper': 1, 'Defensa': 2, 'Defender': 2, 'Mediocampista': 3, 'Midfielder': 3, 'Delantero': 4, 'Forward': 4, 'Attacker': 4 };
 
   var jugadoresOut = squad.map(function(r) {
     var pid   = String(r.player_id_api_football || r.jugador_id || '');
-    var stats = statsByPid[pid] || { goles: 0, asistencias: 0, partidos: 0 };
+    var stats = statsByPid[pid] || { goles: 0, asistencias: 0, amarillas: 0, rojas: 0, partidos: 0 };
+    var ratObj = ratingByPid[pid];
     return {
-      nombre:      r.nombre || '',
+      nombre:      r.nombre   || '',
       posicion:    r.posicion || '',
-      edad:        r.edad    || '',
-      foto:        r.foto    || '',
-      altura:      r.altura  || '',
-      peso:        r.peso    || '',
+      edad:        r.edad     || '',
+      foto:        r.foto     || '',
+      altura:      r.altura   || '',
+      peso:        r.peso     || '',
       goles:       stats.goles,
       asistencias: stats.asistencias,
-      partidos:    stats.partidos
+      amarillas:   stats.amarillas,
+      rojas:       stats.rojas,
+      partidos:    stats.partidos,
+      minutos:     minutosByPid[pid] || 0,
+      rating:      ratObj && ratObj.cnt ? Math.round(ratObj.sum / ratObj.cnt * 10) / 10 : 0
     };
   });
 

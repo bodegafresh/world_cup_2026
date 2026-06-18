@@ -970,6 +970,10 @@ function refreshNSMatchTimes() {
         if (!ev.hora_utc) return;
         const kickoff = new Date(ev.hora_utc);
         const newHora = Utilities.formatDate(kickoff, CONFIG.TIMEZONE, 'HH:mm');
+        // Solo aceptar horas con minutos :00 o :30 (WC 2026 siempre es así).
+        // ESPN a veces devuelve tiempos corruptos con :42, :12 etc. → descartar.
+        const newMin = parseInt(newHora.split(':')[1]);
+        if (newMin !== 0 && newMin !== 30) return;
         const newFecha = Utilities.formatDate(kickoff, CONFIG.TIMEZONE, 'yyyy-MM-dd');
         const hn = normName(ev.home_team), an = normName(ev.away_team);
         // Buscar la fila en la hoja por equipos
