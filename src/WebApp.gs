@@ -749,9 +749,13 @@ function getWebLive_() {
   );
 
   // Agregar partidos que ESPN ve en vivo pero la hoja aún tiene NS/otro status
-  const liveFromSheetKeys = new Set(liveFromSheet.map(m =>
-    normN(teamNameToSpanish_(m.local||'')) + '_' + normN(teamNameToSpanish_(m.visitante||''))
-  ));
+  const liveFromSheetKeys = new Set();
+  liveFromSheet.forEach(m => {
+    // Clave en español (nombre canónico)
+    liveFromSheetKeys.add(normN(teamNameToSpanish_(m.local||'')) + '_' + normN(teamNameToSpanish_(m.visitante||'')));
+    // Clave en inglés (nombre crudo desde ESPN) para evitar que espnLiveKeys duplique
+    liveFromSheetKeys.add(normN(m.local||'') + '_' + normN(m.visitante||''));
+  });
   const liveFromEspnOnly = [];
   espnLiveKeys.forEach(key => {
     if (liveFromSheetKeys.has(key)) return;

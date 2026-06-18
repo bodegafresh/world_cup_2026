@@ -563,7 +563,7 @@ function calcularEV() {
   const tomorrow = tomorrowChile_();
 
   const EV_HEADERS = ['fixture_id','timestamp','fecha','local','visitante','mercado','seleccion','cuota',
-                      'prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo'];
+                      'cuota_justa','prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo','sospechoso','outlier'];
 
   // Asegurar headers correctos y preservar historial de otros días
   try {
