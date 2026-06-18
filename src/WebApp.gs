@@ -1558,10 +1558,13 @@ function getWebSquad_(e) {
   try {
     var pmsRows = readAll_(CONFIG.SHEETS.PLAYER_MATCH_STATS);
     pmsRows.forEach(function(r) {
-      var pid = String(r.player_id || r.jugador_id || '');
-      if (!pid) return;
-      var min = Number(r.minutos || r.minutes || 0);
-      var rat = Number(r.rating  || 0);
+      // Nota: PlayerMatchStats tiene desplazamiento de columnas en el Sheet.
+      // El player_id real está bajo el header "match_key", los minutos bajo "jugador",
+      // y el rating bajo "posicion". Leemos con los nombres reales del header.
+      var pid = String(r.match_key || r.player_id || r.jugador_id || '');
+      if (!pid || isNaN(Number(pid))) return; // descartar filas con team names u otros no-numéricos
+      var min = Number(r.jugador  || r.minutos || r.minutes || 0);
+      var rat = Number(r.posicion || r.rating  || 0);
       if (!minutosByPid[pid]) minutosByPid[pid] = 0;
       if (!ratingByPid[pid])  ratingByPid[pid]  = { sum: 0, cnt: 0 };
       minutosByPid[pid] += min;
