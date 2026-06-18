@@ -1,0 +1,19 @@
+README.md
+  s_8d080e6df27905::t_0a157c72c46f1d 1,3,11,14,16,25,28-29,39-165,171-194,200,204-208,216,218-221,257-301,304,310,317,320-330,333,335,340,345,347-348,350,352-354,359,361-369,371-377,379-385,387,392-393,398,400,404-406,408-417,419-427,429-433,435,437-444,450-454,456-493
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "a467a032f77395257ad0960821a1f9e6eb1fc5f6",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
