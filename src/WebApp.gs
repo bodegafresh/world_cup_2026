@@ -145,26 +145,39 @@ function getWebEvOpps_() {
   const rows = readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES);
   const today = todayChile_();
 
-  return rows
-    .filter(r => {
-      const f = normalizeFecha_(r.fecha || r.date || '');
-      return f >= today;
+  // Deduplicar por partido+mercado+selección (más reciente gana)
+  const dedupMap = {};
+  rows.forEach(function(r) {
+    var f = normalizeFecha_(r.fecha || r.date || '');
+    if (f < today) return;
+    var k = (r.local||'') + '|' + (r.visitante||'') + '|' + (r.mercado||'') + '|' + (r.seleccion||'');
+    if (!dedupMap[k] || String(r.timestamp||'') > String(dedupMap[k].timestamp||'')) dedupMap[k] = r;
+  });
+
+  return Object.values(dedupMap)
+    .map(function(r) {
+      var ev  = Number(r.ev || r.expected_value || 0);
+      var sospechoso = ev > 0.25 || String(r.sospechoso).toUpperCase() === 'TRUE' || r.sospechoso === true;
+      // Descartar EV imposibles (>50% = bug de mapeo)
+      if (ev > 0.50) return null;
+      return {
+        fecha:       normalizeFecha_(r.fecha || r.date || ''),
+        local:       teamNameToSpanish_(r.local || r.home_team || ''),
+        visitante:   teamNameToSpanish_(r.visitante || r.away_team || ''),
+        mercado:     r.mercado    || r.market    || '',
+        seleccion:   r.seleccion  || r.selection || '',
+        prob_modelo: Number(r.prob_modelo || r.model_prob || 0),
+        cuota:       Number(r.cuota || r.odds || 0),
+        ev:          ev,
+        kelly:       Number(r.kelly || 0),
+        confianza:   sospechoso ? 'BAJA' : (r.confianza || r.confidence || ''),
+        fuente:      r.fuente_modelo || '',
+        sospechoso:  sospechoso,
+        timestamp:   r.timestamp || ''
+      };
     })
-    .map(r => ({
-      fecha:       normalizeFecha_(r.fecha || r.date || ''),
-      local:       teamNameToSpanish_(r.local || r.home_team || ''),
-      visitante:   teamNameToSpanish_(r.visitante || r.away_team || ''),
-      mercado:     r.mercado    || r.market    || '',
-      seleccion:   r.seleccion  || r.selection || '',
-      prob_modelo: Number(r.prob_modelo || r.model_prob || 0),
-      cuota:       Number(r.cuota || r.odds || 0),
-      ev:          Number(r.ev || r.expected_value || 0),
-      kelly:       Number(r.kelly || 0),
-      confianza:   r.confianza || r.confidence || '',
-      fuente:      r.fuente_modelo || ''
-    }))
-    .filter(r => r.cuota > 1)
-    .sort((a, b) => b.ev - a.ev)
+    .filter(function(r) { return r && r.cuota > 1; })
+    .sort(function(a, b) { return b.ev - a.ev; })
     .slice(0, 20);
 }
 

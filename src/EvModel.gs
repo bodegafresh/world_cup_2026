@@ -23,8 +23,11 @@
 
 const EV_POSITIVE_THRESHOLD  = 0.05;  // EV > 5% = oportunidad
 const EDGE_MIN_THRESHOLD     = 0.03;  // Edge mínimo para alertar (3%)
-const KELLY_MAX_FRACTION     = 0.10;  // Nunca más del 10% del bankroll
+const KELLY_MAX_FRACTION     = 0.025; // Máximo 2.5% del bankroll (25% Kelly fraccional sobre Kelly/4)
 const KELLY_DIVISOR          = 4;     // Fractional Kelly conservador (Kelly/4)
+const EV_SUSPICIOUS_THRESHOLD = 0.25; // EV > 25% = sospechoso, requiere revisión
+const EV_MAX_CREDIBLE        = 0.50;  // EV > 50% = casi seguro bug, descartar
+const PROB_SUM_TOLERANCE     = 0.05;  // Tolerancia para validar suma 1X2 ≈ 100%
 
 // ─── Cálculo de EV ────────────────────────────────────────────────────────────
 
@@ -358,45 +361,77 @@ function sendEvAlert_(fixture, positivas) {
  * Resumen de oportunidades EV+ para el comando /ev.
  */
 function buildEvSummaryText_() {
-  let rows;
+  let allRows;
   try {
-    rows = readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES)
-      .filter(r => String(r.ev_positivo) === 'SI')
-      .sort((a, b) => Number(b.ev || 0) - Number(a.ev || 0));
+    allRows = readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES);
   } catch (e) {
-    return '📊 Sin datos de EV. Ejecuta cronEvCalculation o cronTomorrowPreview primero.';
+    return '📊 Sin datos de EV. Ejecuta cronOddsCalc primero.';
   }
 
-  if (!rows.length) {
+  // Deduplicar por partido+mercado+selección (mantener el más reciente)
+  const dedupMap = {};
+  allRows.forEach(r => {
+    const k = `${r.local}|${r.visitante}|${r.mercado}|${r.seleccion}`;
+    if (!dedupMap[k] || String(r.timestamp) > String(dedupMap[k].timestamp)) dedupMap[k] = r;
+  });
+
+  const rows = Object.values(dedupMap)
+    .filter(r => {
+      const evPositivo = String(r.ev_positivo).toUpperCase() === 'TRUE' || r.ev_positivo === true || r.ev_positivo === 'SI';
+      const noSospechoso = String(r.sospechoso).toUpperCase() !== 'TRUE' && r.sospechoso !== true;
+      return evPositivo && noSospechoso;
+    })
+    .sort((a, b) => Number(b.ev || 0) - Number(a.ev || 0));
+
+  const sospechosos = Object.values(dedupMap).filter(r => {
+    const evVal = Number(r.ev || 0);
+    return evVal > EV_SUSPICIOUS_THRESHOLD && evVal <= EV_MAX_CREDIBLE;
+  });
+
+  if (!rows.length && !sospechosos.length) {
     return '📊 Sin oportunidades EV+ detectadas para los próximos partidos.\n\n<i>Las cuotas de mercado no muestran valor estadístico en este momento.</i>';
   }
 
-  // Agrupar por fixture (un fixture puede tener múltiples mercados EV+)
+  // Agrupar por fixture
   const byFixture = {};
   rows.forEach(r => {
-    const k = String(r.fixture_id);
-    if (!byFixture[k]) byFixture[k] = { rows: [] };
+    const k = `${r.local}_vs_${r.visitante}`;
+    if (!byFixture[k]) byFixture[k] = { local: r.local, visitante: r.visitante, fecha: r.fecha, timestamp: r.timestamp, rows: [] };
     byFixture[k].rows.push(r);
   });
 
+  const ts = rows.length ? rows[0].timestamp : (sospechosos.length ? sospechosos[0].timestamp : '');
   let msg = `📊 <b>Oportunidades EV+ — Mundial 2026</b>\n`;
-  msg    += `<i>Actualizado: ${rows[0].timestamp || ''}</i>\n\n`;
+  msg    += `<i>Cuotas: ${ts || 'desconocido'}</i>\n\n`;
 
-  Object.values(byFixture).slice(0, 6).forEach(group => {
-    const first = group.rows[0];
-    msg += `⚽ Fixture ${first.fixture_id}\n`;
-
-    group.rows.slice(0, 3).forEach(o => {
-      const evPct    = (Number(o.ev)    * 100).toFixed(1);
-      const kellyPct = (Number(o.kelly) * 100).toFixed(1);
-      const emoji    = Number(o.ev) > 0.12 ? '🔥' : '✅';
-      msg += `  ${emoji} ${o.seleccion} @ ${Number(o.cuota).toFixed(2)} — EV +${evPct}% | Kelly ${kellyPct}%\n`;
+  // Clasificación EV: creíble +5%–25%
+  if (rows.length) {
+    msg += `<b>✅ Creíbles (EV +5% a +25%)</b>\n`;
+    Object.values(byFixture).slice(0, 5).forEach(group => {
+      msg += `\n⚽ <b>${group.local} vs ${group.visitante}</b>\n`;
+      group.rows.slice(0, 3).forEach(o => {
+        const evPct    = (Number(o.ev)    * 100).toFixed(1);
+        const kellyPct = (Number(o.kelly) * 100).toFixed(1);
+        const probPct  = (Number(o.prob_modelo) * 100).toFixed(1);
+        const conf     = String(o.confianza || '');
+        const confEmoji = conf === 'ALTA' ? '🟢' : conf === 'MEDIA' ? '🟡' : '🔴';
+        msg += `  ✅ ${o.seleccion} @ ${Number(o.cuota).toFixed(2)}\n`;
+        msg += `     Modelo: ${probPct}% | EV <code>+${evPct}%</code> | Kelly <code>${kellyPct}%</code> ${confEmoji}\n`;
+      });
     });
+  }
 
-    msg += '\n';
-  });
+  // Sospechosos: EV +25%–50%
+  if (sospechosos.length) {
+    msg += `\n⚠️ <b>Revisar (EV +25% a +50%) — posible error de cuota</b>\n`;
+    sospechosos.slice(0, 3).forEach(o => {
+      const evPct = (Number(o.ev) * 100).toFixed(1);
+      msg += `  • ${o.local} vs ${o.visitante} | ${o.seleccion} @ ${Number(o.cuota).toFixed(2)} — EV <code>+${evPct}%</code>\n`;
+    });
+    msg += `<i>Verificar en 2+ casas antes de apostar.</i>\n`;
+  }
 
-  msg += `<i>⚠️ Solo informativo. Apuesta responsablemente.</i>`;
+  msg += `\n<i>EV >50% descartado automáticamente (bug/cuota stale). Kelly máx 2.5% bankroll.</i>`;
   return msg.trim();
 }
 
@@ -536,27 +571,47 @@ function calcularEV() {
         prob: poisson ? (poisson.prob_btts_si||poisson.btts_yes||0)/100 : null }
     ];
 
+    // Validación 1X2: suma de probabilidades del modelo debe ser ~100%
+    const probHome = poisson ? poisson.prob_home/100 : (eloProbs ? eloProbs.home : 0);
+    const probDraw = poisson ? poisson.prob_draw/100 : (eloProbs ? eloProbs.draw : 0);
+    const probAway = poisson ? poisson.prob_away/100 : (eloProbs ? eloProbs.away : 0);
+    const probSum  = probHome + probDraw + probAway;
+    const probSumOk = Math.abs(probSum - 1) <= PROB_SUM_TOLERANCE;
+    if (!probSumOk) {
+      Logger.log(`⚠️  ${homeEs} vs ${awayEs}: suma probs ${(probSum*100).toFixed(1)}% (esperado ~100%) — descartado`);
+      return;
+    }
+
     mercados.forEach(m => {
       if (!m.cuota || m.cuota < 1.01 || !m.prob || m.prob <= 0 || m.prob >= 1) return;
       const ev_val = (m.prob * m.cuota) - 1;
+
+      // Validación: descartar EV imposibles (bug de mapeo o cuota stale)
+      if (ev_val > EV_MAX_CREDIBLE) {
+        Logger.log(`🚫 ${homeEs} vs ${awayEs} ${m.seleccion}: EV ${(ev_val*100).toFixed(0)}% > ${EV_MAX_CREDIBLE*100}% — descartado`);
+        return;
+      }
+
       const kelly  = Math.max(0, Math.min(((m.prob * m.cuota - 1) / (m.cuota - 1)) / KELLY_DIVISOR, KELLY_MAX_FRACTION));
+      const sospechoso = ev_val > EV_SUSPICIOUS_THRESHOLD;
 
       newRows.push({
-        fixture_id:   mkKey,
-        timestamp:    now,
-        fecha:        commence,
-        local:        homeEs,
-        visitante:    awayEs,
-        mercado:      m.mercado,
-        seleccion:    m.seleccion,
-        cuota:        m.cuota,
-        prob_modelo:  m.prob,
-        ev:           ev_val,
-        edge:         m.prob - 1/m.cuota,
-        kelly:        kelly,
-        ev_positivo:  ev_val > EV_POSITIVE_THRESHOLD,
-        confianza:    confianza,
-        fuente_modelo: fuente
+        fixture_id:    mkKey,
+        timestamp:     now,
+        fecha:         commence,
+        local:         homeEs,
+        visitante:     awayEs,
+        mercado:       m.mercado,
+        seleccion:     m.seleccion,
+        cuota:         m.cuota,
+        prob_modelo:   m.prob,
+        ev:            ev_val,
+        edge:          m.prob - 1/m.cuota,
+        kelly:         kelly,
+        ev_positivo:   ev_val > EV_POSITIVE_THRESHOLD && !sospechoso,
+        confianza:     sospechoso ? 'BAJA' : confianza,
+        fuente_modelo: fuente,
+        sospechoso:    sospechoso
       });
       totalOpps++;
     });
@@ -564,9 +619,11 @@ function calcularEV() {
 
   if (newRows.length) {
     const headers = ['fixture_id','timestamp','fecha','local','visitante','mercado','seleccion','cuota',
-                     'prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo'];
+                     'prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo','sospechoso'];
     const rowArrays = newRows.map(r => headers.map(h => r[h] !== undefined ? r[h] : ''));
     appendRows_(CONFIG.SHEETS.EV_OPPORTUNITIES, rowArrays);
   }
-  Logger.log(`✅ calcularEV completado: ${totalOpps} mercados calculados para ${oddsEvents.length} eventos.`);
+  const sospechosos = newRows.filter(r => r.sospechoso).length;
+  const descartados = newRows.filter(r => r.ev > EV_MAX_CREDIBLE).length;
+  Logger.log(`✅ calcularEV: ${totalOpps} mercados | ${newRows.filter(r=>r.ev_positivo).length} EV+ válidos | ${sospechosos} sospechosos (>25%) | descartados con EV>${EV_MAX_CREDIBLE*100}%: ${descartados}`);
 }
