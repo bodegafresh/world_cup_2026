@@ -551,17 +551,35 @@ function getWebLive_() {
         try {
           const summary = fetchEspnSummary_(ev.id);
           const comp = ((summary.header || {}).competitions || [])[0] || {};
-          // Extraer árbitro de officials
+          // Extraer árbitro — ESPN puede poner officials en comp o en header directo
           let referee = null;
-          const officials = comp.officials || [];
-          const refOfficial = officials.find(o => {
+          const officialsArr = comp.officials
+            || (summary.header || {}).officials
+            || [];
+          const refOfficial = officialsArr.find(o => {
             const pos = String((o.position || {}).displayName || o.position || '').toLowerCase();
-            return pos.includes('referee');
-          }) || officials[0];
+            return pos.includes('referee') || pos.includes('central') || pos === 'r';
+          }) || officialsArr[0];
           if (refOfficial) {
-            const names = refOfficial.names || [];
-            const rname = names.length ? (names[0].displayName || '') : (refOfficial.displayName || '');
-            if (rname) referee = rname;
+            // ESPN usa displayName directo o anidado en names[]
+            const names = refOfficial.names || refOfficial.officials || [];
+            referee = (names.length ? (names[0].displayName || names[0].shortName || '') : '')
+              || refOfficial.displayName
+              || refOfficial.fullName
+              || refOfficial.shortName
+              || '';
+            if (!referee) referee = null;
+          }
+          // Fallback: Arbitros sheet para este fixture
+          if (!referee) {
+            try {
+              const arbRow = readAll_(CONFIG.SHEETS.ARBITROS).find(a => {
+                const teamH = teamNameToSpanish_((home.team || {}).displayName || '');
+                const teamA = teamNameToSpanish_((away.team || {}).displayName || '');
+                return teamH && String(a.equipo_local || '').includes(teamH.substring(0,4));
+              });
+              if (arbRow) referee = arbRow.nombre || null;
+            } catch(_) {}
           }
           // weather puede estar en summary.weather o en gameInfo.weather
           const weather = summary.weather
