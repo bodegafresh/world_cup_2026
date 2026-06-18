@@ -2,10 +2,13 @@ function fetchNewsForFixture_(fixture) {
   // Chequear si ya hay noticias en la hoja para este fixture
   const fixtureId = String(fixture.fixture.id || '');
   if (fixtureId) {
+    const todayStr = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
     const existing = readAll_(CONFIG.SHEETS.NOTICIAS).filter(r =>
       String(r.fixture_id || '') === fixtureId
     );
-    if (existing.length >= 3) {
+    // Cache válido solo si hay ≥3 noticias Y al menos una fue actualizada hoy
+    const cacheHoy = existing.some(r => String(r.updated_at || r.fecha || '').substring(0, 10) === todayStr);
+    if (existing.length >= 3 && cacheHoy) {
       return existing.map(r => ({
         query:   r.query   || '',
         title:   r.titulo  || r.title || '',

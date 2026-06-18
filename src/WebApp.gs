@@ -1454,6 +1454,22 @@ function getWebNoticias_() {
   var today     = todayChile_();
   var yesterday = yesterdayChile_();
 
+  // Equipos que juegan hoy — filtrar noticias solo para esos partidos
+  var normN_ = function(s) { return String(s||'').toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').replace(/[^a-z]/g,''); };
+  var equiposHoy = [];
+  try {
+    readAll_(CONFIG.SHEETS.PARTIDOS)
+      .filter(function(r) { return normalizeFecha_(r.fecha) === today; })
+      .forEach(function(r) {
+        var l = normN_(teamNameToSpanish_(r.local     || ''));
+        var v = normN_(teamNameToSpanish_(r.visitante || ''));
+        if (l) equiposHoy.push(l);
+        if (v) equiposHoy.push(v);
+      });
+  } catch(e_) {}
+
   var noticias = dataRows.map(function(row) {
     var titulo = String(row[COL_TITULO] || '');
     if (!titulo || titulo.startsWith('http') || titulo.length < 10) return null;
@@ -1470,6 +1486,15 @@ function getWebNoticias_() {
 
     // Solo noticias de hoy o ayer
     if (fechaIso && fechaIso < yesterday) return null;
+
+    // Solo noticias relevantes para equipos que juegan hoy
+    if (equiposHoy.length > 0) {
+      var equipo = COL_EQUIPO >= 0 ? normN_(teamNameToSpanish_(String(row[COL_EQUIPO] || ''))) : '';
+      var tituloNorm = normN_(titulo);
+      var esRelevante = (equipo && equiposHoy.indexOf(equipo) !== -1) ||
+                        equiposHoy.some(function(eq) { return tituloNorm.indexOf(eq) !== -1; });
+      if (!esRelevante) return null;
+    }
 
     return {
       titulo: titulo,

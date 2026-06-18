@@ -173,6 +173,20 @@ function cronPostMatch() {
       return diffMin >= 0 && diffMin <= 90;
     });
 
+    // Refrescar noticias para partidos de hoy que aún no empezaron (independiente de si hay FT)
+    try {
+      const proximos = partidos.filter(r => String(r.status || '').toUpperCase() === 'NS');
+      proximos.slice(0, 3).forEach(r => {
+        const fakeFixture = {
+          fixture: { id: r.fixture_id_af || r.match_key || '', date: r.fecha },
+          teams: { home: { name: r.local || '' }, away: { name: r.visitante || '' } }
+        };
+        const news = fetchNewsForFixture_(fakeFixture);
+        if (news.length && news[0].source !== 'cache') saveNewsForFixture_(fakeFixture, news);
+        Utilities.sleep(500);
+      });
+    } catch (e) { console.warn('NewsRefresh:', e.message); }
+
     if (!recienTerminados.length) return;
     Logger.log(`cronPostMatch: ${recienTerminados.length} partido(s) recién terminados`);
 
