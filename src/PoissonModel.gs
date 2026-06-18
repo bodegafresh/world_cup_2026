@@ -472,7 +472,7 @@ function savePoissonOdds_(fixture, strengths) {
  * Recalcula PoissonOdds para todos los partidos pendientes (status ≠ FT).
  * Llamar desde cronDailySetup o manualmente.
  */
-function recalcularPoissonOdds() {
+function recalcularPoissonOdds(maxDias) {
   const strengths = buildPoissonStrengths_();
   if (!strengths || strengths.partidos < 2) {
     Logger.log('recalcularPoissonOdds: pocos partidos para calibrar el modelo (' + (strengths ? strengths.partidos : 0) + ')');
@@ -481,8 +481,17 @@ function recalcularPoissonOdds() {
 
   Logger.log(`recalcularPoissonOdds: modelo calibrado con ${strengths.partidos} partidos, μ=${strengths.mu.toFixed(3)}`);
 
+  const hoy = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  const cutoff = maxDias != null
+    ? Utilities.formatDate(new Date(new Date().getTime() + maxDias * 86400000), CONFIG.TIMEZONE, 'yyyy-MM-dd')
+    : null;
+
   const todos = readAll_(CONFIG.SHEETS.PARTIDOS)
-    .filter(r => String(r.status || '').toUpperCase() !== 'FT');
+    .filter(r => {
+      if (String(r.status || '').toUpperCase() === 'FT') return false;
+      if (cutoff) { const f = normalizeFecha_(r.fecha); return f >= hoy && f <= cutoff; }
+      return true;
+    });
 
   todos.forEach(r => {
     try {
@@ -493,7 +502,7 @@ function recalcularPoissonOdds() {
     Utilities.sleep(50);
   });
 
-  Logger.log(`recalcularPoissonOdds: ${todos.length} partidos calculados`);
+  Logger.log(`recalcularPoissonOdds: ${todos.length} partidos calculados${cutoff ? ' (próximos ' + maxDias + ' días)' : ''}`);
 }
 
 // ─── Integración con EV ───────────────────────────────────────────────────────

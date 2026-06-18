@@ -432,7 +432,7 @@ function saveCornersOdds_(fixture, strengths) {
  * Recalcula CornersOdds para todos los partidos pendientes (status ≠ FT).
  * Llamado desde cronDailySetup.
  */
-function recalcularCornersOdds() {
+function recalcularCornersOdds(maxDias) {
   const strengths = buildCornersStrengths_();
   if (!strengths) {
     Logger.log('recalcularCornersOdds: sin datos suficientes para calibrar el modelo');
@@ -441,8 +441,17 @@ function recalcularCornersOdds() {
 
   Logger.log(`recalcularCornersOdds: μ=${strengths.mu.toFixed(2)} córners/eq | fuente=${strengths.source} | ${strengths.partidos} partidos`);
 
+  const hoy = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  const cutoff = maxDias != null
+    ? Utilities.formatDate(new Date(new Date().getTime() + maxDias * 86400000), CONFIG.TIMEZONE, 'yyyy-MM-dd')
+    : null;
+
   const todos = readAll_(CONFIG.SHEETS.PARTIDOS)
-    .filter(r => String(r.status || '').toUpperCase() !== 'FT');
+    .filter(r => {
+      if (String(r.status || '').toUpperCase() === 'FT') return false;
+      if (cutoff) { const f = normalizeFecha_(r.fecha); return f >= hoy && f <= cutoff; }
+      return true;
+    });
 
   todos.forEach(r => {
     try {
@@ -453,7 +462,7 @@ function recalcularCornersOdds() {
     Utilities.sleep(50);
   });
 
-  Logger.log(`recalcularCornersOdds: ${todos.length} partidos calculados`);
+  Logger.log(`recalcularCornersOdds: ${todos.length} partidos calculados${cutoff ? ' (próximos ' + maxDias + ' días)' : ''}`);
 }
 
 // ─── Texto EV para Telegram ───────────────────────────────────────────────────

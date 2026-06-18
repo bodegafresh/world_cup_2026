@@ -118,12 +118,25 @@ function cronDailySetup() {
  * Agregar trigger manual: Apps Script → Triggers → Day timer → 7:00–8:00 AM → cronOddsCalc
  */
 function cronOddsCalc() {
+  // Limita el cálculo a los próximos 7 días para no exceder el límite de 6 min de GAS.
+  // Para recalcular todos los 86 partidos, ejecutar recalcularOddsCompleto() manualmente.
+  const DIAS = 7;
   runWithHealthCheck_('cronOddsCalc', () => {
-    try { recalcularPoissonOdds(); } catch (e) { console.warn('Poisson:', e.message); }
-    try { recalcularCornersOdds(); } catch (e) { console.warn('Corners:', e.message); }
-    try { recalcularCardsOdds();   } catch (e) { console.warn('Cards:', e.message); }
-    try { calcularEV();            } catch (e) { console.warn('EV:', e.message); }
+    try { recalcularPoissonOdds(DIAS); } catch (e) { console.warn('Poisson:', e.message); }
+    try { recalcularCornersOdds(DIAS); } catch (e) { console.warn('Corners:', e.message); }
+    try { recalcularCardsOdds(DIAS);   } catch (e) { console.warn('Cards:', e.message); }
+    try { calcularEV();                } catch (e) { console.warn('EV:', e.message); }
   });
+}
+
+/**
+ * Recalcula odds para TODOS los partidos pendientes (86).
+ * Solo ejecutar manualmente — tarda ~8-10 min, no usar como cron.
+ */
+function recalcularOddsCompleto() {
+  recalcularPoissonOdds();
+  recalcularCornersOdds();
+  recalcularCardsOdds();
 }
 
 /**
