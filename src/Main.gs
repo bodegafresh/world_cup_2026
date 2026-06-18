@@ -68,7 +68,7 @@ function cronDailySetup() {
     try { loadWorldCupDay_(yesterdayChile_()); } catch (e) { console.warn('LoadDay ayer:', e.message); }
 
     // 2. Actualizar solo hoy y mañana desde ESPN (rápido — 2 llamadas)
-    try { loadEspnMatchesForDays_([ctx.today, ctx.tomorrow]); } catch (e) { console.warn('ESPN hoy/mañana:', e.message); }
+    try { loadEspnMatchesForDays_([yesterdayChile_(), ctx.today, ctx.tomorrow]); } catch (e) { console.warn('ESPN hoy/mañana/ayer:', e.message); }
 
     // 3. Contexto de partidos de hoy (clima, noticias, H2H, cuotas) — fuentes gratuitas
     if (ctx.hayPartidosHoy) {

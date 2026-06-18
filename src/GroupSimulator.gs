@@ -44,9 +44,13 @@ function runGroupSimulation() {
 
   grupos.forEach(grupo => {
     const groupTeams    = standings.filter(r => r.grupo === grupo);
-    const groupFixtures = fixtures.filter(r =>
-      r.grupo === grupo && !isFinishedStatus_(String(r.status || r.estado || ''))
-    );
+    // Normalizar grupo para comparar: "Grupo A" == "A" == "grupo a"
+    const normGrupo = g => String(g||'').toLowerCase().replace(/grupo\s*/i,'').trim();
+    const gNorm = normGrupo(grupo);
+    const groupFixtures = fixtures.filter(r => {
+      const rGrupo = normGrupo(r.grupo || r.group || '');
+      return rGrupo === gNorm && !isFinishedStatus_(String(r.status || r.estado || ''));
+    });
 
     if (!groupTeams.length) return;
 

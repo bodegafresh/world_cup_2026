@@ -125,7 +125,39 @@ function extractProbs_(aiResult) {
   };
 }
 
+/**
+ * Verifica que la hoja AnalisisIA tenga los headers correctos.
+ * Si tiene headers viejos (probabilidades_t, confianza_mode, etc.) los reemplaza.
+ * Se llama antes de cualquier escritura para garantizar coherencia.
+ */
+function ensureAiAnalysisHeaders_() {
+  try {
+    const ss    = SpreadsheetApp.openById(getSpreadsheetId_());
+    const sheet = ss.getSheetByName(CONFIG.SHEETS.AI_ANALYSIS);
+    if (!sheet || sheet.getLastRow() === 0) return; // vacía o no existe
+    const current = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const expected = [
+      'fixture_id','equipo_local','equipo_visitante','fecha_hora_chile',
+      'prob_local','prob_empate','prob_visitante','over_2_5','btts',
+      'confianza','resumen_previa','mensaje_telegram',
+      'factores_clave','bajas_suspensiones','jugadores_forma',
+      'contexto_grupo','alertas','updated_at','fuente'
+    ];
+    // Si el primer header es correcto, no hacer nada
+    if (current[0] === 'fixture_id' && current[4] === 'prob_local') return;
+    // Headers incorrectos — reemplazar fila 1 con los correctos
+    // Solo si la hoja está vacía de datos (solo headers), para no perder datos
+    if (sheet.getLastRow() <= 1) {
+      sheet.getRange(1, 1, 1, expected.length).setValues([expected]);
+      Logger.log('AnalisisIA: headers corregidos');
+    }
+  } catch (e) {
+    console.warn('ensureAiAnalysisHeaders_:', e.message);
+  }
+}
+
 function saveAiAnalysis_(fixture, aiResult) {
+  ensureAiAnalysisHeaders_();
   const existing = getExistingIds_(CONFIG.SHEETS.AI_ANALYSIS, 'fixture_id');
   if (existing[String(fixture.fixture.id)]) {
     updateAiAnalysis_(fixture.fixture.id, aiResult);

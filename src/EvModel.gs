@@ -124,15 +124,25 @@ function calculateEvForFixture_(fixture) {
       const isAway = !isDraw && !isHome && (selN === 'away' || selN === '2' ||
                      selN.includes(aNorm) || aNorm.includes(selN) ||
                      normT(away).includes(selN) || selN.includes(normT(away)));
+      // Cap: ningún resultado 1X2 puede ser < 4% ni > 92% en fútbol real
+      const capP = (p, lo, hi) => Math.min(Math.max(p, lo), hi);
       if (poisson) {
-        if (isHome) return poisson.prob_home / 100;
-        if (isAway) return poisson.prob_away / 100;
-        return poisson.prob_draw / 100;
+        let pH = capP(poisson.prob_home/100, 0.04, 0.92);
+        let pD = capP(poisson.prob_draw/100, 0.04, 0.60);
+        let pA = capP(poisson.prob_away/100, 0.04, 0.92);
+        const s = pH + pD + pA; pH/=s; pD/=s; pA/=s;
+        if (isHome) return pH;
+        if (isAway) return pA;
+        return pD;
       }
       if (eloProbs) {
-        if (isHome) return eloProbs.home;
-        if (isAway) return eloProbs.away;
-        return eloProbs.draw;
+        let pH = capP(eloProbs.home, 0.04, 0.92);
+        let pD = capP(eloProbs.draw, 0.04, 0.60);
+        let pA = capP(eloProbs.away, 0.04, 0.92);
+        const s = pH + pD + pA; pH/=s; pD/=s; pA/=s;
+        if (isHome) return pH;
+        if (isAway) return pA;
+        return pD;
       }
     }
 
@@ -562,29 +572,39 @@ function calcularEV() {
 
     const mkKey = `${normT(homeEs)}_vs_${normT(awayEs)}_${commence}`;
 
+    // Cap de probabilidades: ningún resultado puede ser < 3% ni > 92% en fútbol real
+    // El home advantage +100 ELO para anfitriones puede producir probs > 95% → EV imposibles
+    const capProb = (p, min, max) => p == null ? null : Math.min(Math.max(p, min), max);
+    const rawHome = poisson ? poisson.prob_home/100 : (eloProbs ? eloProbs.home : null);
+    const rawDraw = poisson ? poisson.prob_draw/100 : (eloProbs ? eloProbs.draw : null);
+    const rawAway = poisson ? poisson.prob_away/100 : (eloProbs ? eloProbs.away : null);
+
+    // Aplicar cap y renormalizar para que sumen 1
+    let cH = capProb(rawHome, 0.04, 0.92);
+    let cD = capProb(rawDraw, 0.04, 0.60);
+    let cA = capProb(rawAway, 0.04, 0.92);
+    if (cH != null && cD != null && cA != null) {
+      const s = cH + cD + cA;
+      cH = cH/s; cD = cD/s; cA = cA/s;
+    }
+
     // Calcular EV para cada mercado disponible
     const mercados = [
-      { mercado: '1X2', seleccion: homeEs,
-        cuota: parsed.odd_local,
-        prob: poisson ? poisson.prob_home/100 : (eloProbs ? eloProbs.home : null) },
-      { mercado: '1X2', seleccion: 'Empate',
-        cuota: parsed.odd_empate,
-        prob: poisson ? poisson.prob_draw/100 : (eloProbs ? eloProbs.draw : null) },
-      { mercado: '1X2', seleccion: awayEs,
-        cuota: parsed.odd_visitante,
-        prob: poisson ? poisson.prob_away/100 : (eloProbs ? eloProbs.away : null) },
+      { mercado: '1X2', seleccion: homeEs,   cuota: parsed.odd_local,     prob: cH },
+      { mercado: '1X2', seleccion: 'Empate', cuota: parsed.odd_empate,    prob: cD },
+      { mercado: '1X2', seleccion: awayEs,   cuota: parsed.odd_visitante, prob: cA },
       { mercado: 'OVER/UNDER 2.5', seleccion: 'Over 2.5',
         cuota: parsed.over25_cuota || null,
-        prob: poisson ? (poisson.over_2_5||poisson['over_2.5']||0)/100 : null },
+        prob: poisson ? capProb((poisson.over_2_5||poisson['over_2.5']||0)/100, 0.05, 0.90) : null },
       { mercado: 'BTTS', seleccion: 'Sí',
         cuota: parsed.btts_cuota || null,
-        prob: poisson ? (poisson.prob_btts_si||poisson.btts_yes||0)/100 : null }
+        prob: poisson ? capProb((poisson.prob_btts_si||poisson.btts_yes||0)/100, 0.05, 0.90) : null }
     ];
 
     // Validación 1X2: suma de probabilidades del modelo debe ser ~100%
-    const probHome = poisson ? poisson.prob_home/100 : (eloProbs ? eloProbs.home : 0);
-    const probDraw = poisson ? poisson.prob_draw/100 : (eloProbs ? eloProbs.draw : 0);
-    const probAway = poisson ? poisson.prob_away/100 : (eloProbs ? eloProbs.away : 0);
+    const probHome = cH || 0;
+    const probDraw = cD || 0;
+    const probAway = cA || 0;
     const probSum  = probHome + probDraw + probAway;
     const probSumOk = Math.abs(probSum - 1) <= PROB_SUM_TOLERANCE;
     if (!probSumOk) {
