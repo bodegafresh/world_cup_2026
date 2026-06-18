@@ -41,7 +41,13 @@ function espnGet_(path) {
  * @returns {Array<{espn_id, home_team, away_team, home_score, away_score, status, attendance}>}
  */
 function fetchEspnEventsByDate_(date) {
-  const dateStr = date.replace(/-/g, '');
+  // Normalizar: acepta Date object, 'yyyy-MM-dd' o 'yyyyMMdd'
+  let dateStr;
+  if (date instanceof Date) {
+    dateStr = Utilities.formatDate(date, 'UTC', 'yyyyMMdd');
+  } else {
+    dateStr = String(date).replace(/-/g, '').substring(0, 8);
+  }
   const data    = espnGet_(`/scoreboard?dates=${dateStr}`);
   const events  = data.events || [];
 

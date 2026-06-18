@@ -330,6 +330,112 @@ function cargarEquipos()  { return loadTeamsFromCurrentData_(); }
 function cargarPlanteles() { return loadSquadsForKnownTeams_(); }
 
 /**
+ * Carga jugadores desde API-Football /fixtures/lineups para todos los partidos FT.
+ * Usa el endpoint por fecha (gratis) para obtener fixture IDs, luego lineups por fixture.
+ * Guarda en Jugadores con player_id real de API-Football (no sint\u00e9tico espn_xxx).
+ * Solo procesa equipos que a\u00fan no tienen jugadores en la hoja.
+ *
+ * Ejecutar manualmente para backfill: cargarLineupsDesdeApiFootball()
+ */
+function cargarLineupsDesdeApiFootball() {
+  Logger.log('=== CARGANDO LINEUPS DESDE API-FOOTBALL ===');
+
+  const sheet   = getOrCreateSheet_(CONFIG.SHEETS.JUGADORES, null);
+  const headers = getHeaders_(CONFIG.SHEETS.JUGADORES);
+  const keyIdx  = headers.indexOf('player_id_api_football');
+  const vals    = sheet.getDataRange().getValues();
+  const existingIds   = new Set(vals.slice(1).map(r => String(r[keyIdx] || '')).filter(Boolean));
+  const equiposCon    = new Set(vals.slice(1).map(r => String(r[headers.indexOf('equipo')] || '').toLowerCase()).filter(Boolean));
+
+  // Partidos FT con su fecha para saber qu\u00e9 d\u00edas consultar
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
+    .filter(r => ['FT','AET','PEN'].includes(String(r.status || '').toUpperCase()));
+
+  // Agrupar por fecha para minimizar llamadas al endpoint /fixtures?date=
+  const fechas = [...new Set(partidos.map(r => normalizeFecha_(r.fecha)))].filter(Boolean);
+  Logger.log(`Fechas con partidos FT: ${fechas.join(', ')}`);
+
+  let totalJugadores = 0;
+
+  fechas.forEach(fecha => {
+    let fixturesData;
+    try { fixturesData = fetchWorldCupFixturesByDate_(fecha); }
+    catch(e) { Logger.log(`  AF ${fecha} error: ${e.message}`); return; }
+
+    const fixtures = fixturesData.response || [];
+    if (!fixtures.length) { Logger.log(`  AF ${fecha}: sin fixtures WC`); return; }
+
+    fixtures.forEach(fixture => {
+      const homeEs = teamNameToSpanish_(fixture.teams.home.name);
+      const awayEs = teamNameToSpanish_(fixture.teams.away.name);
+
+      // Skip si ambos equipos ya tienen jugadores
+      const homeYaTiene = equiposCon.has(homeEs.toLowerCase());
+      const awayYaTiene = equiposCon.has(awayEs.toLowerCase());
+      if (homeYaTiene && awayYaTiene) return;
+
+      const fixtureId = fixture.fixture.id;
+      let lineups;
+      try { lineups = fetchLineupsByFixture_(fixtureId); }
+      catch(e) { Logger.log(`  Lineups ${fixtureId} error: ${e.message}`); return; }
+
+      const lineupArr = lineups.response || [];
+      if (!lineupArr.length) { Logger.log(`  Lineups ${fixtureId}: vac\u00edo`); return; }
+
+      const newRows = [];
+
+      lineupArr.forEach(teamLineup => {
+        const isHome   = teamLineup.team.id === fixture.teams.home.id;
+        const teamEs   = isHome ? homeEs : awayEs;
+        if (equiposCon.has(teamEs.toLowerCase())) return;
+
+        const formation = teamLineup.formation || '';
+        const all = [...(teamLineup.startXI || []), ...(teamLineup.substitutes || [])];
+
+        all.forEach(entry => {
+          const p   = entry.player || {};
+          const pid = String(p.id || '');
+          if (!pid || existingIds.has(pid)) return;
+
+          const rowData = {
+            player_id_api_football: pid,
+            nombre:              p.name || '',
+            nombre_normalizado:  normalizePlayerName_(p.name || ''),
+            equipo_id:           String(teamLineup.team.id || ''),
+            equipo:              teamEs,
+            posicion:            p.pos || '',
+            edad:                '',
+            fecha_nacimiento:    '',
+            nacionalidad:        teamEs,
+            altura:              '',
+            peso:                '',
+            foto:                p.photo || '',
+            fuente:              'AF_LINEUP',
+            last_updated:        nowChile_()
+          };
+          newRows.push(headers.map(h => rowData[h] !== undefined ? rowData[h] : ''));
+          existingIds.add(pid);
+          totalJugadores++;
+        });
+
+        if (newRows.length) {
+          equiposCon.add(teamEs.toLowerCase());
+          Logger.log(`  \u2705 ${teamEs} (${formation}): jugadores cargados`);
+        }
+      });
+
+      if (newRows.length) {
+        sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
+      }
+
+      Utilities.sleep(600); // respetar rate limit API-Football
+    });
+  });
+
+  Logger.log(`=== FIN: ${totalJugadores} jugadores cargados desde API-Football ===`);
+}
+
+/**
  * Guarda jugadores en la hoja Jugadores desde un ESPN summary ya descargado.
  * Llamada desde _loadWorldCupDayFromEspn_ para cargar plantel sin llamada extra.
  * Solo agrega jugadores para equipos que a\u00fan no tienen datos en la hoja.
