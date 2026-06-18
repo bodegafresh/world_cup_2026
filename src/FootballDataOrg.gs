@@ -37,6 +37,66 @@ function fetchFDWorldCupMatchesByDate_(date) {
   );
 }
 
+/**
+ * Obtiene todos los partidos del Mundial en un rango de fechas (una sola llamada).
+ * Útil para backfill — football-data.org devuelve toda la ventana sin restricción.
+ * @param {string} dateFrom - 'yyyy-MM-dd'
+ * @param {string} dateTo   - 'yyyy-MM-dd'
+ * @returns {Array} array de match objects con referees
+ */
+function fetchFDWorldCupMatchesByRange_(dateFrom, dateTo) {
+  const query = `dateFrom=${dateFrom}&dateTo=${dateTo}`;
+  const url   = `${CONFIG.FOOTBALL_DATA.BASE_URL}/matches?${query}`;
+
+  const response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { 'X-Auth-Token': getFootballDataKey_() },
+    muteHttpExceptions: true
+  });
+
+  const status = response.getResponseCode();
+  if (status === 429) { Logger.log('football-data.org 429 rate limit'); return []; }
+  if (status !== 200) {
+    Logger.log(`football-data.org error ${status}: ${response.getContentText().substring(0, 300)}`);
+    return [];
+  }
+
+  const data = JSON.parse(response.getContentText());
+  return (data.matches || []).filter(m =>
+    m.competition && m.competition.code === CONFIG.FOOTBALL_DATA.WORLD_CUP_CODE
+  );
+}
+
+/**
+ * Backfill de árbitros para todos los partidos jugados desde el inicio del torneo.
+ * Ejecutar una vez manualmente para poblar Arbitros con los árbitros históricos.
+ * Una sola llamada a football-data.org cubre toda la ventana.
+ */
+function backfillRefereesFromFootballData() {
+  const today     = todayChile_();
+  const dateFrom  = '2026-06-11'; // primer partido del torneo (México vs ?)
+  Logger.log(`=== BACKFILL ÁRBITROS FD: ${dateFrom} → ${today} ===`);
+
+  const matches = fetchFDWorldCupMatchesByRange_(dateFrom, today);
+  const finished = matches.filter(m => m.status === 'FINISHED');
+  Logger.log(`  Partidos FT recibidos: ${finished.length}`);
+
+  // Agrupar por fecha y guardar
+  const byDate = {};
+  finished.forEach(m => {
+    const date = String(m.utcDate || '').substring(0, 10);
+    if (!byDate[date]) byDate[date] = [];
+    byDate[date].push(m);
+  });
+
+  Object.entries(byDate).forEach(([date, dayMatches]) => {
+    Logger.log(`  ${date}: ${dayMatches.length} partido(s)`);
+    saveRefereesFromFootballData_(dayMatches, date);
+  });
+
+  Logger.log('=== FIN BACKFILL ÁRBITROS ===');
+}
+
 // ── Legado (mantenido por compatibilidad con GoldenDataset.gs) ─────────────
 
 function footballDataGet_(path, params) {
