@@ -782,9 +782,16 @@ function getWebLive_() {
       if (alreadyLive) return; // ya viene de la hoja con datos completos
       liveFromEspnOnly.push(sheetRow);
     } else {
-      // No está en la hoja — construir desde datos ESPN
+      // No está en la hoja por nombre español — verificar si ya hay representación
+      // via nombre inglés de ESPN en liveFromSheet antes de crear duplicado
       const entry = liveScoreMap[key];
       if (!entry) return;
+      const alreadyViaEn = liveFromSheet.some(m =>
+        normN(teamNameToSpanish_(m.local||''))     === normN(teamNameToSpanish_(entry.home_en||'')) &&
+        normN(teamNameToSpanish_(m.visitante||'')) === normN(teamNameToSpanish_(entry.away_en||''))
+      );
+      liveFromSheetKeys.add(key);
+      if (alreadyViaEn) return;
       liveFromEspnOnly.push({
         local:           teamNameToSpanish_(entry.home_en),
         visitante:       teamNameToSpanish_(entry.away_en),
@@ -798,7 +805,6 @@ function getWebLive_() {
         ciudad:          '',
         hora_chile:      ''
       });
-      liveFromSheetKeys.add(key);
     }
   });
 
@@ -938,19 +944,11 @@ function getWebLive_() {
       } catch(ew_) {}
     }
 
-    // Hora local en el estadio desde VenueCatalog
-    let hora_local = '';
+    // Timezone del estadio → frontend calcula hora actual en vivo
+    let timezone_estadio = '';
     try {
       const venue = getVenueInfo_(m.estadio || '', m.ciudad || '');
-      const tz = (venue && venue.timezone_estadio) || m.timezone_estadio || '';
-      if (tz) {
-        const horaChile = formatHoraChile_(m.hora_chile);
-        if (horaChile) {
-          const today = todayChile_();
-          const utcMs = new Date(`${today}T${horaChile}:00`).getTime() + 4 * 3600000;
-          hora_local = Utilities.formatDate(new Date(utcMs), tz, 'HH:mm');
-        }
-      }
+      timezone_estadio = (venue && venue.timezone_estadio) || m.timezone_estadio || '';
     } catch(e_) {}
 
     // Poisson/ELO probabilities
@@ -975,7 +973,7 @@ function getWebLive_() {
       minuto:          m.minuto  || '',
       estadio:         m.estadio || '',
       ciudad:          m.ciudad  || '',
-      hora_local:      hora_local,
+      timezone_estadio: timezone_estadio,
       grupo:           m.grupo   || '',
       ronda:           m.ronda   || '',
       clima:              climaFinal,
@@ -1000,7 +998,7 @@ function getWebLive_() {
         rojas_visitante:      Number(statsRow.rojas_visitante    || 0)
       } : null
     };
-  });
+  }).filter(m => !['FT','AET','PEN'].includes(String(m.status||'').toUpperCase()));
 }
 
 // ─── Tab: match (detalle por match_key) ──────────────────────────────────────
