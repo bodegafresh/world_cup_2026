@@ -1,0 +1,26 @@
+src/EvModel.gs
+  s_8d080e6df27905::t_9eef21701a5d62 575-590,593-595,598,601,605-607
+  s_8d080e6df27905::t_e2b377721dc858 127-128,130-136,139-145
+src/Main.gs
+  s_8d080e6df27905::t_1d4520dc935395 71
+src/AiAnalysis.gs
+  s_8d080e6df27905::t_0ed2123fb1f554 128-158,160
+src/GroupSimulator.gs
+  s_8d080e6df27905::t_9012c706996480 47-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "7716ab08cebb4ee64d878ac193077d505a96eee4",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
