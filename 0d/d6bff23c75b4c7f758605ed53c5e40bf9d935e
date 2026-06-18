@@ -1,0 +1,21 @@
+src/EspnApi.gs
+  s_8d080e6df27905::t_2a2aabe04af9b9 44-50
+src/TeamPlayerIngestion.gs
+  s_8d080e6df27905::t_83e93e52816d1c 333-437
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "0dd6bff23c75b4c7f758605ed53c5e40bf9d935e",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
