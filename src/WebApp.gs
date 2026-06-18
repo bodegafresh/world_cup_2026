@@ -765,16 +765,20 @@ function getWebLive_() {
       return k === key;
     });
     if (sheetRow) {
-      liveFromEspnOnly.push(sheetRow);
-      // Marcar AMBAS keys (inglés y español) para evitar que la segunda key duplique el partido
+      // Si el partido ya está en liveFromSheet (status actualizado), no duplicar
+      const alreadyLive = liveFromSheet.some(m =>
+        normN(teamNameToSpanish_(m.local||'')) === normN(teamNameToSpanish_(sheetRow.local||'')) &&
+        normN(teamNameToSpanish_(m.visitante||'')) === normN(teamNameToSpanish_(sheetRow.visitante||''))
+      );
+      // Siempre marcar todas las keys ESPN de este partido para no re-procesar
       const espnEntry = liveScoreMap[key];
       if (espnEntry) {
-        const k1 = normN(espnEntry.home_en) + '_' + normN(espnEntry.away_en);
-        const k2 = normN(teamNameToSpanish_(espnEntry.home_en)) + '_' + normN(teamNameToSpanish_(espnEntry.away_en));
-        liveFromSheetKeys.add(k1);
-        liveFromSheetKeys.add(k2);
+        liveFromSheetKeys.add(normN(espnEntry.home_en) + '_' + normN(espnEntry.away_en));
+        liveFromSheetKeys.add(normN(teamNameToSpanish_(espnEntry.home_en)) + '_' + normN(teamNameToSpanish_(espnEntry.away_en)));
       }
       liveFromSheetKeys.add(key);
+      if (alreadyLive) return; // ya viene de la hoja con datos completos
+      liveFromEspnOnly.push(sheetRow);
     } else {
       // No está en la hoja — construir desde datos ESPN
       const entry = liveScoreMap[key];

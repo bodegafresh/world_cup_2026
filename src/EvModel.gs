@@ -593,6 +593,10 @@ function calcularEV() {
     }
   } catch(ec_) { Logger.log('Error preparando hoja EV: ' + ec_.message); }
 
+  // Cargar AnalisisIA para usar como fuente primaria de probabilidades
+  let aiRows = [];
+  try { aiRows = readAll_(CONFIG.SHEETS.ANALISIS_IA) || []; } catch(e_) {}
+
   let totalOpps = 0;
   const now = nowChile_();
   const newRows = [];
@@ -607,7 +611,24 @@ function calcularEV() {
     const commence = String(ev.commence_time || '').substring(0, 10);
     if (commence !== today && commence !== tomorrow) return;
 
-    // Obtener probabilidades del modelo
+    // 0. AnalisisIA como fuente primaria (misma fuente que el panel de análisis)
+    let iaProbs = null;
+    const aiRow = aiRows.find(r => {
+      const updatedToday = String(r.updated_at||'').substring(0,10) === today;
+      return updatedToday && teamNameMatches_(r.equipo_local||'', homeEs) && teamNameMatches_(r.equipo_visitante||'', awayEs);
+    });
+    if (aiRow && Number(aiRow.prob_local) > 0) {
+      const pH = Number(aiRow.prob_local), pD = Number(aiRow.prob_empate), pA = Number(aiRow.prob_visitante);
+      const s = pH + pD + pA;
+      if (s > 0.5 && s < 1.5) {
+        iaProbs = { home_win: pH/s, draw: pD/s, away_win: pA/s,
+                    over_2_5: Number(aiRow.prob_over25||0) || null,
+                    btts_yes:  Number(aiRow.prob_btts||0)  || null };
+        Logger.log(`🧠 calcularEV IA probs: ${homeEs} ${(iaProbs.home_win*100).toFixed(1)}% / ${(iaProbs.draw*100).toFixed(1)}% / ${(iaProbs.away_win*100).toFixed(1)}%`);
+      }
+    }
+
+    // Obtener probabilidades del modelo (Poisson/ELO como fallback)
     let poisson = null;
     let eloProbs = null;
     let oddsInvertidas = false; // La API puede devolver el partido con equipos invertidos
@@ -641,19 +662,20 @@ function calcularEV() {
       Logger.log(`🔄 Equipos invertidos detectados: ${homeEs} vs ${awayEs} — cuotas corregidas`);
     }
 
-    const fuente = poisson ? 'POISSON' : 'ELO';
-    const confianza = poisson
-      ? (poisson.source === 'poisson_cache' ? 'ALTA' : 'MEDIA')
-      : 'MEDIA';
+    // Determinar fuente y confianza (IA primero, luego Poisson/ELO)
+    const fuente = iaProbs ? 'IA_AJUSTADA' : (poisson ? 'POISSON' : 'ELO');
+    const confianza = iaProbs ? 'ALTA'
+      : (poisson ? (poisson.source === 'poisson_cache' ? 'ALTA' : 'MEDIA') : 'MEDIA');
 
     const mkKey = `${normT(homeEs)}_vs_${normT(awayEs)}_${commence}`;
 
     // Cap de probabilidades: ningún resultado puede ser < 3% ni > 92% en fútbol real
-    // El home advantage +100 ELO para anfitriones puede producir probs > 95% → EV imposibles
     const capProb = (p, min, max) => p == null ? null : Math.min(Math.max(p, min), max);
-    const rawHome = poisson ? poisson.prob_home/100 : (eloProbs ? eloProbs.home : null);
-    const rawDraw = poisson ? poisson.prob_draw/100 : (eloProbs ? eloProbs.draw : null);
-    const rawAway = poisson ? poisson.prob_away/100 : (eloProbs ? eloProbs.away : null);
+
+    // IA probs como primaria; si no, Poisson; si no, ELO
+    const rawHome = iaProbs ? iaProbs.home_win : (poisson ? poisson.prob_home/100 : (eloProbs ? eloProbs.home : null));
+    const rawDraw = iaProbs ? iaProbs.draw      : (poisson ? poisson.prob_draw/100 : (eloProbs ? eloProbs.draw : null));
+    const rawAway = iaProbs ? iaProbs.away_win  : (poisson ? poisson.prob_away/100 : (eloProbs ? eloProbs.away : null));
 
     // Aplicar cap y renormalizar para que sumen 1
     let cH = capProb(rawHome, 0.04, 0.92);
@@ -664,6 +686,14 @@ function calcularEV() {
       cH = cH/s; cD = cD/s; cA = cA/s;
     }
 
+    // Prob over_2_5 y BTTS: IA primero, luego Poisson
+    const pOver25 = iaProbs && iaProbs.over_2_5
+      ? capProb(iaProbs.over_2_5, 0.05, 0.90)
+      : (poisson ? capProb((poisson.over_2_5||poisson['over_2.5']||0)/100, 0.05, 0.90) : null);
+    const pBtts = iaProbs && iaProbs.btts_yes
+      ? capProb(iaProbs.btts_yes, 0.05, 0.90)
+      : (poisson ? capProb((poisson.prob_btts_si||poisson.btts_yes||0)/100, 0.05, 0.90) : null);
+
     // Calcular EV para cada mercado disponible
     const mercados = [
       { mercado: '1X2', seleccion: homeEs,   cuota: parsed.odd_local,     prob: cH },
@@ -671,10 +701,10 @@ function calcularEV() {
       { mercado: '1X2', seleccion: awayEs,   cuota: parsed.odd_visitante, prob: cA },
       { mercado: 'OVER/UNDER 2.5', seleccion: 'Over 2.5',
         cuota: parsed.over25_cuota || null,
-        prob: poisson ? capProb((poisson.over_2_5||poisson['over_2.5']||0)/100, 0.05, 0.90) : null },
+        prob: pOver25 },
       { mercado: 'BTTS', seleccion: 'Sí',
         cuota: parsed.btts_cuota || null,
-        prob: poisson ? capProb((poisson.prob_btts_si||poisson.btts_yes||0)/100, 0.05, 0.90) : null }
+        prob: pBtts }
     ];
 
     // Validación 1X2: suma de probabilidades del modelo debe ser ~100%
