@@ -1062,11 +1062,16 @@ function getWebTeams_() {
 
   // Mapa equipo → sus partidos del torneo (para el panel de detalle Y para forma_detail WC)
   const teamMatchesMap = {};
+  const _seenMatchKeys = new Set(); // evitar duplicados por filas repetidas en Partidos
   partidos.forEach(r => {
     const fecha = normalizeFecha_(r.fecha);
     if (!fecha || fecha < TORNEO_START) return;
     const l = teamNameToSpanish_(r.local     || '');
     const v = teamNameToSpanish_(r.visitante || '');
+    // Deduplicar por par de equipos (en grupos cada par se enfrenta una sola vez)
+    const matchKey = norm(l) + '|' + norm(v);
+    if (_seenMatchKeys.has(matchKey)) return;
+    _seenMatchKeys.add(matchKey);
     const entry = {
       fecha,
       hora:    formatHoraChile_(r.hora_chile || r.hora),

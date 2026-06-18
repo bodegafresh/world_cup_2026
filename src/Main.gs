@@ -103,7 +103,10 @@ function cronDailySetup() {
     // 7. Recalcular tabla de posiciones
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
 
-    // 8. Dashboard y reporte matutino
+    // 8. Refrescar horas de partidos NS desde ESPN (corrige :42 del backfill)
+    try { refreshNSMatchTimes(); } catch (e) { console.warn('RefreshNS:', e.message); }
+
+    // 9. Dashboard y reporte matutino
     try { refreshDashboard(); } catch (e) { console.warn('Dashboard:', e.message); }
     if (ctx.hayPartidosHoy) {
       try { broadcastMorningReport_(); } catch (e) { console.warn('MorningReport:', e.message); }
