@@ -1,0 +1,24 @@
+src/Main.gs
+  s_8d080e6df27905::t_4eac870e844733 380-390
+  s_8d080e6df27905::t_0a5e2362795601 294-296
+src/FootballDataOrg.gs
+  s_8d080e6df27905::t_89c77749c9d196 1-40
+src/Arbitros.gs
+  s_8d080e6df27905::t_c67f3e1b1ff629 203-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "a90130eea27a89d02195b3af828a58ac79602a96",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
