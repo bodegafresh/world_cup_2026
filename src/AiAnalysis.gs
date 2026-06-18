@@ -102,6 +102,29 @@ function extractOpenAiText_(data) {
   throw new Error('No se pudo extraer texto de respuesta OpenAI: ' + JSON.stringify(data).substring(0, 300));
 }
 
+/**
+ * Extrae probabilidades del resultado de OpenAI.
+ * Si OpenAI usó model_probabilities (fuente != 'estimado'), devuelve esas (ya son Poisson/ELO).
+ * Si OpenAI estimó sus propias, también las devuelve — pero el prompt le instruyó usar las del modelo.
+ */
+function extractProbs_(aiResult) {
+  const p = aiResult.probabilidades || aiResult.probabilidades_basicas || {};
+  // Normalizar: OpenAI puede devolver 0.68 o 68 — ambos son válidos
+  const normalize = v => {
+    const n = Number(v);
+    if (!n) return null;
+    return n > 1 ? n / 100 : n; // si viene como porcentaje (68), convertir a fracción (0.68)
+  };
+  return {
+    home_win: normalize(p.home_win),
+    draw:     normalize(p.draw),
+    away_win: normalize(p.away_win),
+    over_2_5: normalize(p.over_2_5),
+    btts_yes: normalize(p.btts_yes),
+    fuente:   p.fuente || 'estimado'
+  };
+}
+
 function saveAiAnalysis_(fixture, aiResult) {
   const existing = getExistingIds_(CONFIG.SHEETS.AI_ANALYSIS, 'fixture_id');
   if (existing[String(fixture.fixture.id)]) {
@@ -109,7 +132,7 @@ function saveAiAnalysis_(fixture, aiResult) {
     return;
   }
 
-  const probs = aiResult.probabilidades || aiResult.probabilidades_basicas || {};
+  const probs = extractProbs_(aiResult);
 
   appendRows_(CONFIG.SHEETS.AI_ANALYSIS, [[
     fixture.fixture.id,
@@ -143,7 +166,7 @@ function updateAiAnalysis_(fixtureId, aiResult) {
   const rowIdx = values.slice(1).findIndex(r => String(r[fidIdx]) === String(fixtureId));
   if (rowIdx === -1) return;
 
-  const probs = aiResult.probabilidades || aiResult.probabilidades_basicas || {};
+  const probs = extractProbs_(aiResult);
   const row   = rowIdx + 2;
 
   const update = {

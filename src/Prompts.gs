@@ -64,7 +64,8 @@ JSON esperado:
     "over_2_5": number,
     "under_2_5": number,
     "btts_yes": number,
-    "btts_no": number
+    "btts_no": number,
+    "fuente": "poisson | elo | estimado"
   },
   "confianza_modelo": "baja | media | alta",
   "alertas": [
@@ -76,6 +77,17 @@ JSON esperado:
   ],
   "mensaje_telegram": string
 }
+
+INSTRUCCIÓN CRÍTICA SOBRE PROBABILIDADES:
+Si el input contiene el campo "model_probabilities", DEBES usar esos valores exactos en el campo "probabilidades"
+del JSON de respuesta. NO los modifiques, NO los recalcules, NO uses tu propio criterio para alterarlos.
+Esos valores son del modelo estadístico Poisson/ELO y son la fuente de verdad del sistema.
+Solo si "model_probabilities" está ausente o es null, puedes estimar tus propias probabilidades basadas
+en el contexto (forma, H2H, lesiones, etc.) y en ese caso usar fuente: "estimado".
+Cuando uses model_probabilities, propaga la misma fuente: el campo "fuente" del JSON.
+
+Esto garantiza coherencia total: el análisis cualitativo (factores_clave, alertas, resumen_previa)
+explica POR QUÉ esas probabilidades son razonables — no las reemplaza.
 
 INSTRUCCIONES ESPECIALES:
 

@@ -52,6 +52,34 @@ function buildEnrichedPreviewInput_(fixture, weather, news, baseOdds) {
   base.standings_stakes  = buildStandingsStakes_(homeTeam, awayTeam);
   base.referee           = getRefereeContextForFixture_(fixture);
 
+  // Probabilidades del modelo estadístico (Poisson > ELO) — OpenAI DEBE usar estos valores exactos
+  try {
+    let poisson = null;
+    try { poisson = getPoissonOdds_(homeTeam, awayTeam); } catch (e_) {}
+    if (poisson && poisson.prob_home) {
+      base.model_probabilities = {
+        source:    'poisson',
+        home_win:  Math.round(poisson.prob_home * 100) / 10000,
+        draw:      Math.round(poisson.prob_draw * 100) / 10000,
+        away_win:  Math.round(poisson.prob_away * 100) / 10000,
+        over_2_5:  poisson.markets ? Math.round((poisson.markets['over_2.5']||poisson.markets.over_2_5||0) * 10000) / 10000 : null,
+        btts_yes:  poisson.markets ? Math.round((poisson.markets['btts_yes']||0) * 10000) / 10000 : null
+      };
+    } else {
+      const elo = getEloProbabilities_(homeTeam, awayTeam);
+      if (elo) {
+        base.model_probabilities = {
+          source:   'elo',
+          home_win: Math.round(elo.home * 10000) / 10000,
+          draw:     Math.round(elo.draw * 10000) / 10000,
+          away_win: Math.round(elo.away * 10000) / 10000
+        };
+      }
+    }
+  } catch (e_) {
+    console.warn('model_probabilities:', e_.message);
+  }
+
   // ESPN: forma reciente (últimos 5 partidos por equipo)
   try {
     base.recent_form = {
