@@ -1,0 +1,25 @@
+src/CardsModel.gs
+  s_8d080e6df27905::t_8095eb336adadd 488,490-495,497-501,503
+src/CornersModel.gs
+  s_8d080e6df27905::t_b37146d316de84 435,444-448,450-454,465
+src/Main.gs
+  s_8d080e6df27905::t_70eb1bca585442 121-123,125-128,132-139
+src/PoissonModel.gs
+  s_8d080e6df27905::t_b0696f38801e77 475,484-488,490-494,505
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "4dbe33877209270c90843d654845aa53a044c596",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
