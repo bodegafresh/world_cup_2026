@@ -87,6 +87,75 @@ function fetchTopScorers_() {
 }
 
 /**
+ * Diagnóstico completo: muestra respuesta cruda del endpoint de fixtures del Mundial.
+ * Útil para detectar si el plan free incluye la liga o si el league ID es incorrecto.
+ * Consume 1 request.
+ */
+function debugApiFootballFixtures() {
+  Logger.log('=== DEBUG API-Football fixtures ===');
+  Logger.log(`League ID configurado : ${CONFIG.API_FOOTBALL.WORLD_CUP_LEAGUE_ID}`);
+  Logger.log(`Season configurado    : ${CONFIG.API_FOOTBALL.SEASON}`);
+
+  const data = apiFootballGet_('/fixtures', {
+    league: CONFIG.API_FOOTBALL.WORLD_CUP_LEAGUE_ID,
+    season: CONFIG.API_FOOTBALL.SEASON
+  });
+
+  Logger.log(`results               : ${data.results}`);
+  Logger.log(`errors                : ${JSON.stringify(data.errors || {})}`);
+  Logger.log(`paging                : ${JSON.stringify(data.paging || {})}`);
+
+  const fixtures = data.response || [];
+  if (fixtures.length) {
+    Logger.log(`✅ OK — ${fixtures.length} fixtures recibidos`);
+    const f = fixtures[0];
+    Logger.log(`  Ejemplo: ${f.teams.home.name} vs ${f.teams.away.name} — ${f.fixture.date}`);
+  } else {
+    Logger.log('❌ Sin fixtures. Posibles causas:');
+    Logger.log('   1. League ID incorrecto (el Mundial 2026 puede tener otro ID)');
+    Logger.log('   2. Plan free no incluye esta liga');
+    Logger.log('   3. La temporada 2026 aún no está disponible en tu cuenta');
+    Logger.log('');
+    Logger.log('Ejecuta debugApiFootballLeagues() para ver qué ligas tienes disponibles');
+  }
+}
+
+/**
+ * Lista las ligas disponibles en tu cuenta API-Football.
+ * Busca variantes de "World Cup" para identificar el league ID correcto.
+ * Consume 1 request.
+ */
+function debugApiFootballLeagues() {
+  Logger.log('=== Ligas disponibles en tu cuenta ===');
+  const data = apiFootballGet_('/leagues', { current: true });
+  const leagues = data.response || [];
+  Logger.log(`Total ligas disponibles: ${leagues.length}`);
+
+  const worldCup = leagues.filter(l =>
+    String((l.league || {}).name || '').toLowerCase().includes('world') ||
+    String((l.league || {}).name || '').toLowerCase().includes('mundial') ||
+    String((l.league || {}).name || '').toLowerCase().includes('copa') ||
+    (l.league || {}).id === 1
+  );
+
+  if (worldCup.length) {
+    Logger.log('🌍 Ligas relacionadas con el Mundial:');
+    worldCup.forEach(l => {
+      Logger.log(`  ID: ${l.league.id} | ${l.league.name} | ${(l.country || {}).name || ''}`);
+      const seasons = (l.seasons || []).map(s => s.year).join(', ');
+      Logger.log(`    Temporadas: ${seasons}`);
+    });
+  } else {
+    Logger.log('⚠️  No se encontró ninguna liga de Copa del Mundo en tu cuenta');
+    Logger.log('    → El plan Free puede requerir suscripción específica a esta liga');
+    Logger.log('    → Primeras 5 ligas disponibles:');
+    leagues.slice(0, 5).forEach(l =>
+      Logger.log(`  ID: ${l.league.id} | ${l.league.name}`)
+    );
+  }
+}
+
+/**
  * Muestra el estado de la cuota diaria de API-Football en el log.
  * Consume 1 request. Ejecutar manualmente desde el editor para diagnóstico.
  */
