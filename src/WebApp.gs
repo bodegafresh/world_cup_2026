@@ -1001,30 +1001,36 @@ function getWebTeams_() {
     eloMap[norm(r.equipo || '')] = Number(r.elo_actual || r.elo || 0); // also store raw
   });
 
-  // Set de nombres de equipos WC para cruzar rivales
-  const wcTeams = new Set();
+  // Mapa de pares de equipos que se enfrentaron en el torneo (fecha >= 2026-06-11)
+  const TORNEO_START = '2026-06-11';
+  const wcPairs = new Set();
   partidos.forEach(r => {
-    if (r.local)     wcTeams.add(norm(teamNameToSpanish_(r.local)));
-    if (r.visitante) wcTeams.add(norm(teamNameToSpanish_(r.visitante)));
+    const fecha = String(r.fecha || '').substring(0, 10);
+    if (fecha < TORNEO_START) return;
+    const l = norm(teamNameToSpanish_(r.local     || ''));
+    const v = norm(teamNameToSpanish_(r.visitante || ''));
+    if (l && v) {
+      wcPairs.add(l + '|' + v);
+      wcPairs.add(v + '|' + l);
+    }
   });
 
   const formaMap = {};
   forma.forEach(r => {
     const nombre   = teamNameToSpanish_(r.equipo || '');
+    const teamKey  = norm(nombre);
     const results  = String(r.ultimos_5_resultados || '').split(',').filter(x => /^[WDL]$/.test(x));
     const rivales  = String(r.ultimos_5_rivales    || '').split(',');
     const marcadores = String(r.ultimos_5_marcadores || '').split(',');
 
     const detail = results.map((res, i) => {
       const rival = teamNameToSpanish_((rivales[i] || '').trim());
-      const wc    = rival ? wcTeams.has(norm(rival)) : false;
+      const rivalKey = norm(rival);
+      const wc = rival ? wcPairs.has(teamKey + '|' + rivalKey) : false;
       return { r: res, wc, rival, score: (marcadores[i] || '').trim() };
     });
 
-    formaMap[norm(nombre)] = {
-      raw:    results.join(','),
-      detail: detail
-    };
+    formaMap[teamKey] = { raw: results.join(','), detail };
   });
 
   const clasMap = {};
@@ -1061,6 +1067,29 @@ function getWebTeams_() {
     if (n) allTeams.add(n);
   });
 
+  // Mapa equipo → sus partidos del torneo (para el panel de detalle)
+  const teamMatchesMap = {};
+  partidos.forEach(r => {
+    const fecha = String(r.fecha || '').substring(0, 10);
+    if (fecha < TORNEO_START) return;
+    const l = teamNameToSpanish_(r.local     || '');
+    const v = teamNameToSpanish_(r.visitante || '');
+    const entry = {
+      fecha:     fecha,
+      hora:      formatHoraChile_(r.hora_chile || r.hora),
+      local:     l, visitante: v,
+      goles_l:   r.goles_local    !== '' && r.goles_local    != null ? Number(r.goles_local)    : null,
+      goles_v:   r.goles_visitante!== '' && r.goles_visitante!= null ? Number(r.goles_visitante): null,
+      status:    String(r.status  || '').toUpperCase(),
+      estadio:   r.estadio || '', ciudad: r.ciudad || ''
+    };
+    [l, v].forEach(eq => {
+      if (!eq) return;
+      if (!teamMatchesMap[eq]) teamMatchesMap[eq] = [];
+      teamMatchesMap[eq].push(entry);
+    });
+  });
+
   const seenNombres = new Set();
   return Array.from(allTeams).map(nombre => {
     if (!nombre || seenNombres.has(nombre)) return null;
@@ -1078,7 +1107,8 @@ function getWebTeams_() {
       forma_detail:  (formaMap[k] && formaMap[k].detail) || [],
       confederacion: meta.confederacion || '',
       entrenador:    meta.entrenador    || '',
-      espn_id:       meta.espn_id       || ''
+      espn_id:       meta.espn_id       || '',
+      partidos_wc:   (teamMatchesMap[nombre] || []).sort((a,b) => a.fecha > b.fecha ? 1 : -1)
     };
   }).filter(Boolean).sort((a, b) => (b.elo || 0) - (a.elo || 0));
 }
