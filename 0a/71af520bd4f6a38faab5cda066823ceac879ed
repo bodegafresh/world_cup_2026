@@ -1,0 +1,28 @@
+src/Main.gs
+  s_8d080e6df27905::t_ca76667f27c3c5 446-454
+src/BettingHistory.gs
+  s_8d080e6df27905::t_f6d97638f715ab 767-859
+src/WebApp.gs
+  s_8d080e6df27905::t_eb6bd035a09033 59-60
+  s_8d080e6df27905::t_aeb19c9faf47cc 1927-2042
+src/Config.gs
+  s_8d080e6df27905::t_a6d8434b42d27d 44-45
+src/EvModel.gs
+  s_8d080e6df27905::t_070f82063dec16 767
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "0a71af520bd4f6a38faab5cda066823ceac879ed",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
