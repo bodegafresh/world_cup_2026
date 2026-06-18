@@ -550,12 +550,20 @@ function calcularEV() {
     // Obtener probabilidades del modelo
     let poisson = null;
     let eloProbs = null;
-    try { poisson  = getPoissonOdds_(homeEn, awayEn); } catch(e_) {}
+    let oddsInvertidas = false; // La API puede devolver el partido con equipos invertidos
+
+    try { poisson = getPoissonOdds_(homeEn, awayEn); } catch(e_) {}
+    if (!poisson) { try { poisson = getPoissonOdds_(homeEs, awayEs); } catch(e_) {} }
+    // Intentar con equipos invertidos (API tiene away/home al revés)
     if (!poisson) {
-      try { poisson = getPoissonOdds_(homeEs, awayEs); } catch(e_) {}
+      try { poisson = getPoissonOdds_(awayEn, homeEn); oddsInvertidas = !!poisson; } catch(e_) {}
+    }
+    if (!poisson) {
+      try { poisson = getPoissonOdds_(awayEs, homeEs); oddsInvertidas = !!poisson; } catch(e_) {}
     }
     if (!poisson) {
       try { eloProbs = getEloProbabilities_(homeEn, awayEn); } catch(e_) {}
+      if (!eloProbs) { try { eloProbs = getEloProbabilities_(awayEn, homeEn); oddsInvertidas = !!eloProbs; } catch(e_) {} }
     }
     if (!poisson && !eloProbs) {
       Logger.log(`⚠️  Sin modelo para ${homeEs} vs ${awayEs}`);
@@ -564,6 +572,14 @@ function calcularEV() {
 
     const parsed = parseOddsEventWithPinnacle_(ev);
     if (!parsed) return;
+
+    // Si encontramos el modelo con equipos invertidos, invertir también las cuotas del mercado
+    // para que local del modelo == local del mercado
+    if (oddsInvertidas) {
+      [parsed.odd_local, parsed.odd_visitante] = [parsed.odd_visitante, parsed.odd_local];
+      [parsed.prob_local, parsed.prob_visitante] = [parsed.prob_visitante, parsed.prob_local];
+      Logger.log(`🔄 Equipos invertidos detectados: ${homeEs} vs ${awayEs} — cuotas corregidas`);
+    }
 
     const fuente = poisson ? 'POISSON' : 'ELO';
     const confianza = poisson

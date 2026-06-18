@@ -75,7 +75,11 @@ function cronDailySetup() {
       const fixturesHoy = readAll_(CONFIG.SHEETS.PARTIDOS)
         .filter(r => normalizeFecha_(r.fecha) === ctx.today && r.fixture_id_af);
       fixturesHoy.forEach(r => {
-        const fakeFixture = { fixture: { id: r.fixture_id_af, date: r.fecha } };
+        const fakeFixture = {
+          fixture: { id: r.fixture_id_af, date: r.fecha },
+          teams:   { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
+          league:  { round: r.ronda || '' }
+        };
         try { gatherFixtureContext_(fakeFixture); } catch (e_) {}
         Utilities.sleep(500);
       });
@@ -86,8 +90,12 @@ function cronDailySetup() {
       const fixturesHoy = readAll_(CONFIG.SHEETS.PARTIDOS)
         .filter(r => normalizeFecha_(r.fecha) === ctx.today && r.fixture_id_af);
       fixturesHoy.forEach(r => {
-        const fakeFixture = { fixture: { id: r.fixture_id_af, date: r.fecha } };
-        try { analyzeAndSaveFixture_(fakeFixture); } catch (e_) {}
+        const fakeFixture = {
+          fixture: { id: r.fixture_id_af, date: r.fecha },
+          teams:   { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
+          league:  { round: r.ronda || '' }
+        };
+        try { analyzeAndSaveFixture_(fakeFixture); } catch (e_) { console.warn('AnalisisIA:', r.local, 'vs', r.visitante, e_.message); }
         Utilities.sleep(1000);
       });
     }

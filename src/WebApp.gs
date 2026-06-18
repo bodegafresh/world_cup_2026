@@ -232,7 +232,9 @@ function getWebSimulation_() {
   const grupos = {};
 
   rows.forEach(r => {
-    const g = r.grupo || r.group || 'X';
+    // Normalizar: devolver solo la letra "A", "B"... el frontend agrega "Grupo "
+    const raw = String(r.grupo || r.group || 'X');
+    const g   = raw.replace(/^grupo\s*/i, '').trim() || raw;
     if (!grupos[g]) grupos[g] = [];
     grupos[g].push({
       equipo:           teamNameToSpanish_(r.equipo || r.team || ''),
