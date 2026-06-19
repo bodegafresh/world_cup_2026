@@ -791,34 +791,36 @@ function limpiarPartidosDuplicados() {
 
   const allVals = sheet.getDataRange().getValues();
 
-  // Construir set de pares con status FT
+  // Construir set de pares con status FT — usando normP puro (sin teamNameToSpanish_)
+  // para que 'Bosnia-Herzegovina' y 'Bosnia & Herzegovina' normalicen igual ('bosniaherzegovina')
+  const rawNormP = s => String(s||'').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+  const pairKey = (loc, vis) => [rawNormP(loc), rawNormP(vis)].sort().join('_vs_');
+
   const ftPairs = new Set();
   allVals.slice(1).forEach(row => {
     const st = String(row[stIdx] || '').toUpperCase().trim();
     if (FT_STATUSES.includes(st)) {
-      const key = [normP(teamNameToSpanish_(row[locIdx]||'')), normP(teamNameToSpanish_(row[visIdx]||''))].sort().join('_vs_');
-      ftPairs.add(key);
+      ftPairs.add(pairKey(row[locIdx]||'', row[visIdx]||''));
     }
   });
   Logger.log('limpiarPartidosDuplicados: ' + ftPairs.size + ' pares con resultado FT.');
 
-  // Identificar filas a eliminar (status vacío/None + par ya tiene FT + tiene goles)
+  // Identificar filas a eliminar: status vacío/None + par ya tiene FT + tiene goles
   const rowsToDelete = [];
   for (let i = allVals.length - 1; i >= 1; i--) {
     const row = allVals[i];
     const st  = String(row[stIdx] || '').toUpperCase().trim();
     if (FT_STATUSES.includes(st)) continue; // ya es FT — no tocar
-    if (String(row[stIdx] || '').trim() !== '' && !['NONE','NULL','UNDEFINED'].includes(String(row[stIdx]||'').toUpperCase())) {
-      // Tiene algún status no-FT pero tampoco vacío (1H, 2H, NS, etc.) — no tocar
-      continue;
-    }
+    // Solo procesar filas con status vacío (empty cell = None en Python)
+    if (st !== '') continue; // tiene status como NS, 1H, etc — no tocar
     const gl = row[glIdx];
-    if (gl === null || gl === '' || gl === undefined) continue; // sin goles — no tocar (mantener NS futuros)
+    if (gl === null || gl === '' || gl === undefined) continue; // sin goles — son NS futuros válidos
 
-    const key = [normP(teamNameToSpanish_(row[locIdx]||'')), normP(teamNameToSpanish_(row[visIdx]||''))].sort().join('_vs_');
-    if (ftPairs.has(key)) {
+    const k = pairKey(row[locIdx]||'', row[visIdx]||'');
+    if (ftPairs.has(k)) {
       rowsToDelete.push(i + 1); // 1-based row number
-      Logger.log('  ELIMINAR fila ' + (i+1) + ': ' + row[locIdx] + ' ' + row[glIdx] + '-' + (row[visIdx+1]||row[glIdx+1]) + ' ' + row[visIdx] + ' | status=' + row[stIdx]);
+      Logger.log('  ELIMINAR fila ' + (i+1) + ': ' + row[locIdx] + ' vs ' + row[visIdx] + ' | status=vacío | goles=' + row[glIdx]);
     }
   }
 

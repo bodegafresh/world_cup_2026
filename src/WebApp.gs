@@ -1475,7 +1475,7 @@ function getWebAyer_() {
   var partidos_out = lista.map(function(r) {
     var local     = teamNameToSpanish_(r.local     || '');
     var visitante = teamNameToSpanish_(r.visitante || '');
-    var status    = r.status || 'FT';
+    var status    = r.status || '';
     var gl        = r.goles_local     !== undefined && r.goles_local     !== '' ? r.goles_local     : null;
     var gv        = r.goles_visitante !== undefined && r.goles_visitante !== '' ? r.goles_visitante : null;
 
