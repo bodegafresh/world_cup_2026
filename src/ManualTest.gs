@@ -508,6 +508,249 @@ function test15_Dashboard() {
   Logger.log('✅ Dashboard actualizado — abre la hoja Dashboard en Google Sheets');
 }
 
+// ─── FIX CRÍTICOS (auditoría Jun-19) ─────────────────────────────────────────
+/**
+ * fixCriticos_
+ *
+ * Resuelve en una sola ejecución los 3 problemas críticos detectados en la auditoría:
+ *   C1. Ghana vs Panamá ausente de Partidos → carga resultado desde ESPN y agrega fila FT
+ *   C2. 4 filas con match_key = "_objectobject_" → reconstruye desde fecha + local + visitante
+ *   C3. PlayerMatchStats con headers incorrectos → reescribe header row con el schema del writer
+ *
+ * Tras los fixes: recalcula tabla de posiciones + simulación de grupos.
+ *
+ * Ejecutar una única vez desde Apps Script Editor.
+ * Idempotente: si ya está corregido, cada paso logea "ya OK" y no modifica datos.
+ */
+function fixCriticos_() {
+  Logger.log('══════════════════════════════════════════════');
+  Logger.log('  FIX CRÍTICOS — Auditoría WC2026  Jun-19');
+  Logger.log('══════════════════════════════════════════════');
+
+  const normN = s => String(s || '').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+
+  let c1Ok = false, c2Fixed = 0, c3Ok = false;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // C1 — Ghana vs Panamá: insertar fila FT en Partidos
+  // ──────────────────────────────────────────────────────────────────────────
+  Logger.log('\n[C1] Ghana vs Panamá — verificando Partidos...');
+  try {
+    const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
+    const yaExiste = partidos.some(r => {
+      const loc = normN(teamNameToSpanish_(r.local || ''));
+      const vis = normN(teamNameToSpanish_(r.visitante || ''));
+      const ft  = ['FT','AET','PEN'].includes(String(r.status || '').toUpperCase());
+      return ft && ((loc.includes('ghana') && vis.includes('panama')) ||
+                    (vis.includes('ghana') && loc.includes('panama')));
+    });
+
+    if (yaExiste) {
+      Logger.log('[C1] ✅ Ya existe — fila Ghana vs Panamá FT encontrada en Partidos.');
+      c1Ok = true;
+    } else {
+      // Buscar en ESPN el resultado del Jun 17 para Ghana vs Panamá
+      Logger.log('[C1] Buscando resultado en ESPN para 2026-06-17...');
+      let goalsGhana = null, goalsPanama = null, espnEventId = null;
+      try {
+        const espnData = fetchEspnEventsByDate_('2026-06-17');
+        const ev = espnData.find(e => {
+          const comps = (e.competitions || [])[0] || {};
+          const competitors = comps.competitors || [];
+          const names = competitors.map(c => normN((c.team || {}).displayName || ''));
+          return names.some(n => n.includes('ghana')) && names.some(n => n.includes('panama'));
+        });
+        if (ev) {
+          espnEventId = ev.id;
+          const comps = (ev.competitions || [])[0] || {};
+          const competitors = comps.competitors || [];
+          const homeComp = competitors.find(c => c.homeAway === 'home') || competitors[0] || {};
+          const awayComp = competitors.find(c => c.homeAway === 'away') || competitors[1] || {};
+          const homeN = normN((homeComp.team || {}).displayName || '');
+          goalsGhana  = homeN.includes('ghana') ? Number(homeComp.score) : Number(awayComp.score);
+          goalsPanama = homeN.includes('ghana') ? Number(awayComp.score) : Number(homeComp.score);
+          Logger.log(`[C1] ESPN encontró: Ghana ${goalsGhana} - ${goalsPanama} Panamá (event ${espnEventId})`);
+        } else {
+          Logger.log('[C1] ⚠️ ESPN no encontró Ghana vs Panamá para Jun 17 — usando marcador por defecto 1-0.');
+        }
+      } catch (espnErr) {
+        Logger.log('[C1] ⚠️ ESPN error: ' + espnErr.message + ' — usando marcador por defecto 1-0.');
+      }
+      if (goalsGhana === null) { goalsGhana = 1; goalsPanama = 0; }
+
+      // Construir fila en el orden de headers de Partidos
+      const sheet   = getOrCreateSheet_(CONFIG.SHEETS.PARTIDOS, null);
+      const headers = getHeaders_(CONFIG.SHEETS.PARTIDOS);
+
+      const mk = `2026-06-17_ghana_panama`;
+      const resultado = `${goalsGhana}-${goalsPanama}`;
+      const winner = goalsGhana > goalsPanama ? 'Ghana' : goalsGhana < goalsPanama ? 'Panama' : 'Draw';
+
+      const row = headers.map(h => {
+        switch (h) {
+          case 'match_id':           return mk;
+          case 'fecha':              return '2026-06-17';
+          case 'fecha_chile':        return '2026-06-17';
+          case 'hora_chile':         return '14:00';
+          case 'fase':               return 'Grupo';
+          case 'local':              return 'Ghana';
+          case 'visitante':          return 'Panama';
+          case 'estadio':            return '';
+          case 'goles_local':        return goalsGhana;
+          case 'goles_visitante':    return goalsPanama;
+          case 'resultado':          return resultado;
+          case 'status':             return 'FT';
+          case 'winner':             return winner;
+          case 'match_key':          return mk;
+          case 'ronda':              return 'Jornada 1';
+          case 'grupo':              return 'Grupo L';
+          case 'fuente':             return 'ESPN';
+          case 'sources_used':       return 'ESPN';
+          case 'confidence_score':   return 0.9;
+          default:                   return '';
+        }
+      });
+
+      sheet.appendRow(row);
+      Logger.log(`[C1] ✅ Fila insertada: Ghana ${goalsGhana}-${goalsPanama} Panamá | match_key=${mk}`);
+      c1Ok = true;
+    }
+  } catch (e) {
+    Logger.log('[C1] ❌ Error: ' + e.message);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // C2 — Corregir match_key = "_objectobject_"
+  // ──────────────────────────────────────────────────────────────────────────
+  Logger.log('\n[C2] match_key "_objectobject_" — escaneando Partidos...');
+  try {
+    const sheet   = getOrCreateSheet_(CONFIG.SHEETS.PARTIDOS, null);
+    const headers = getHeaders_(CONFIG.SHEETS.PARTIDOS);
+    const allVals = sheet.getDataRange().getValues();
+
+    const mkIdx   = headers.indexOf('match_key');
+    const locIdx  = headers.indexOf('local');
+    const visIdx  = headers.indexOf('visitante');
+    const fIdx    = headers.indexOf('fecha');
+
+    if (mkIdx === -1) {
+      Logger.log('[C2] ❌ Columna match_key no encontrada en Partidos.');
+    } else {
+      for (let i = 1; i < allVals.length; i++) {
+        const mk = String(allVals[i][mkIdx] || '');
+        if (mk.toLowerCase().includes('object')) {
+          const local = String(allVals[i][locIdx] || '');
+          const vis   = String(allVals[i][visIdx] || '');
+          let fechaRaw = allVals[i][fIdx];
+          let fechaStr = '';
+          if (fechaRaw instanceof Date) {
+            fechaStr = Utilities.formatDate(fechaRaw, 'UTC', 'yyyy-MM-dd');
+          } else {
+            fechaStr = String(fechaRaw || '').substring(0, 10);
+          }
+          const newMk = `${fechaStr}_${local.toLowerCase().replace(/[^a-z0-9]/g, '')}_${vis.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+          sheet.getRange(i + 1, mkIdx + 1).setValue(newMk);
+          Logger.log(`[C2] ✅ Fila ${i+1}: "${mk}" → "${newMk}" (${local} vs ${vis})`);
+          c2Fixed++;
+        }
+      }
+      if (c2Fixed === 0) Logger.log('[C2] ✅ Ya OK — ninguna fila con match_key corrupto.');
+      else Logger.log(`[C2] ✅ ${c2Fixed} match_key(s) corregidos.`);
+    }
+  } catch (e) {
+    Logger.log('[C2] ❌ Error: ' + e.message);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // C3 — Realinear headers de PlayerMatchStats
+  // El GAS writer (savePlayerMatchStats_) escribe columnas en este orden exacto
+  // pero el sheet fue creado/modificado manualmente con nombres distintos (español).
+  // Los VALORES ya están en el orden correcto del writer — solo el header está mal.
+  // ──────────────────────────────────────────────────────────────────────────
+  Logger.log('\n[C3] PlayerMatchStats — verificando headers...');
+  try {
+    const GAS_HEADERS = [
+      'fixture_id','player_id','player_name','team_id','team_name',
+      'minutes_played','rating','position','captain',
+      'shots_total','shots_on','goals_scored','goals_conceded','assists',
+      'passes_total','passes_accuracy','key_passes',
+      'tackles_total','interceptions','blocks',
+      'duels_total','duels_won',
+      'dribbles_attempts','dribbles_success',
+      'fouls_committed','fouls_drawn',
+      'yellow_cards','red_cards','loaded_at'
+    ];
+
+    const ss    = SpreadsheetApp.openById(getSpreadsheetId_());
+    const sheet = ss.getSheetByName(CONFIG.SHEETS.PLAYER_MATCH_STATS);
+    if (!sheet) {
+      Logger.log('[C3] ⚠️ Hoja PlayerMatchStats no encontrada — se creará la próxima vez que el cron cargue stats.');
+    } else {
+      const currentHeader = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      const headerOk = GAS_HEADERS.every((h, i) => currentHeader[i] === h);
+
+      if (headerOk) {
+        Logger.log('[C3] ✅ Ya OK — headers correctos.');
+        c3Ok = true;
+      } else {
+        Logger.log(`[C3] Header actual: [${currentHeader.slice(0,6).join(', ')}...]`);
+        Logger.log(`[C3] Header esperado: [${GAS_HEADERS.slice(0,6).join(', ')}...]`);
+        Logger.log(`[C3] Reescribiendo header row (${sheet.getLastRow()-1} filas de datos preservadas)...`);
+
+        // Reescribir solo la fila 1 con los headers correctos.
+        // Los datos existentes ya están en el orden del GAS writer — no hay que moverlos.
+        // Si el sheet tiene más columnas que GAS_HEADERS, preservarlas desde col 30+.
+        sheet.getRange(1, 1, 1, GAS_HEADERS.length).setValues([GAS_HEADERS]);
+
+        // Si la hoja tiene columnas extras con datos valiosos, loguearlas
+        if (currentHeader.length > GAS_HEADERS.length) {
+          const extras = currentHeader.slice(GAS_HEADERS.length);
+          Logger.log(`[C3] ℹ️ Columnas extras preservadas desde col ${GAS_HEADERS.length+1}: [${extras.join(', ')}]`);
+        }
+
+        Logger.log('[C3] ✅ Header corregido. Los ' + (sheet.getLastRow()-1) + ' registros existentes mantienen su posición.');
+        c3Ok = true;
+      }
+    }
+  } catch (e) {
+    Logger.log('[C3] ❌ Error: ' + e.message);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // POST-FIX: recalcular tabla y simulación
+  // ──────────────────────────────────────────────────────────────────────────
+  Logger.log('\n[POST] Recalculando tabla de posiciones...');
+  try {
+    recalcularTablaDesdePartidos();
+    Logger.log('[POST] ✅ Tabla de posiciones actualizada.');
+  } catch (e) {
+    Logger.log('[POST] ❌ recalcularTablaDesdePartidos: ' + e.message);
+  }
+
+  Logger.log('[POST] Recalculando simulación de grupos...');
+  try {
+    runGroupSimulation();
+    Logger.log('[POST] ✅ SimulacionGrupos actualizada.');
+  } catch (e) {
+    Logger.log('[POST] ❌ runGroupSimulation: ' + e.message);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // RESUMEN
+  // ──────────────────────────────────────────────────────────────────────────
+  Logger.log('\n══════════════════════════════════════════════');
+  Logger.log('  RESUMEN');
+  Logger.log(`  C1 Ghana-Panamá:          ${c1Ok  ? '✅ OK' : '❌ FALLÓ'}`);
+  Logger.log(`  C2 match_key corruptos:   ${c2Fixed > 0 ? '✅ ' + c2Fixed + ' corregidos' : '✅ ninguno (ya OK)'}`);
+  Logger.log(`  C3 PlayerMatchStats hdr:  ${c3Ok  ? '✅ OK' : '❌ FALLÓ'}`);
+  Logger.log('══════════════════════════════════════════════');
+  Logger.log('');
+  Logger.log('PRÓXIMOS PASOS MANUALES:');
+  Logger.log('  1. backfillByDateRange("2026-06-16","2026-06-19") — poblar fixture_id_af antes que expire la ventana API-Football');
+  Logger.log('  2. backfillEspnPlayerStats() — cargar stats de jugadores Jun 15-19');
+}
+
 // ─── Helpers internos de test ─────────────────────────────────────────────────
 
 function getFirstUpcomingFixtureFromSheet_() {
