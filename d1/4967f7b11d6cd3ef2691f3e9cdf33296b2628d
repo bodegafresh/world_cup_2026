@@ -1,0 +1,19 @@
+src/WebApp.gs
+  s_bf65d3ab005d68::t_abf70e4020799a 1184-1204,1219-1220,1229-1237,1241-1248,1258-1264,1267,1273-1274,1280,1284,1292,1294-1295,1298,1303-1304,1311,1313,1323,1325-1326,1331,1337-1339,1353
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "d14967f7b11d6cd3ef2691f3e9cdf33296b2628d",
+  "prompts": {},
+  "sessions": {
+    "s_bf65d3ab005d68": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ee13f-9d09-79f3-814a-b023e7ecce50",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
