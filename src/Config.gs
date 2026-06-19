@@ -42,7 +42,8 @@ const CONFIG = {
     GOAL_SCORER_ODDS: 'GoalScorerOdds',
     CORNERS_ODDS:     'CornersOdds',
     CARDS_ODDS:       'CardsOdds',
-    EV_HISTORICO:     'EvHistorico'
+    EV_HISTORICO:     'EvHistorico',
+    NORMALIZATION_AUDIT: 'NormalizationAudit'
   },
 
   API_FOOTBALL: {
@@ -81,6 +82,17 @@ const CONFIG = {
     MARKETS: 'h2h,totals,btts,spreads',
     ODDS_FORMAT: 'decimal',
     PINNACLE_BOOKMAKER: 'pinnacle'
+  },
+
+  BETTING: {
+    EV_POSITIVE_THRESHOLD: 0.05,
+    EDGE_MIN_THRESHOLD: 0.03,
+    KELLY_MAX_FRACTION: 0.025,
+    KELLY_DIVISOR: 4,
+    EV_SUSPICIOUS_THRESHOLD: 0.25,
+    EV_OUTLIER_THRESHOLD: 0.30,
+    EV_MAX_CREDIBLE: 0.50,
+    PROB_SUM_TOLERANCE: 0.05
   },
 
   OPENAI: {

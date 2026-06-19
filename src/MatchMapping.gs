@@ -1,4 +1,8 @@
 function saveMatchMappings_(mappings) {
+  const headers = SHEET_HEADERS.MatchMapping || [
+    'match_key','fixture_id_api_football','match_id_football_data','home_normalized',
+    'away_normalized','date_utc','confidence','mapping_method','created_at','updated_at'
+  ];
   const rows = mappings.map(m => [
     m.match_key,
     m.api_football ? m.api_football.source_match_id : '',
@@ -12,5 +16,5 @@ function saveMatchMappings_(mappings) {
     nowChile_()
   ]);
 
-  appendRows_(CONFIG.SHEETS.MATCH_MAPPING, rows);
+  upsertRowsByKey_(CONFIG.SHEETS.MATCH_MAPPING, headers, rows, ['match_key']);
 }

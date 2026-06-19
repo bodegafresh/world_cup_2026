@@ -1,4 +1,10 @@
 function saveSourceFixtures_(apiFixturesWrapped, fdMatchesWrapped) {
+  const headers = SHEET_HEADERS.SourceFixtures || [
+    'source_fixture_key','source','source_match_id','competition_id','competition_name',
+    'season','stage','group_name','matchday','date_utc','date_chile','status',
+    'home_team_id','home_team_name','away_team_id','away_team_name',
+    'home_score','away_score','winner','venue_name','venue_city','raw_file_url','loaded_at'
+  ];
   const rows = [];
 
   apiFixturesWrapped.forEach(item => {
@@ -19,7 +25,7 @@ function saveSourceFixtures_(apiFixturesWrapped, fdMatchesWrapped) {
     rows.push(sourceFixtureToRow_(normalized));
   });
 
-  appendRows_(CONFIG.SHEETS.SOURCE_FIXTURES, rows);
+  upsertRowsByKey_(CONFIG.SHEETS.SOURCE_FIXTURES, headers, rows, ['source_fixture_key']);
 }
 
 function sourceFixtureToRow_(n) {

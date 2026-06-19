@@ -20,6 +20,16 @@ const ODDS_CACHE_TTL_HOURS = 6;
  * @returns {Object|null} odds object { prob_local, prob_empate, prob_visitante, over25_prob, btts_prob, source, bookmakers_count } o null si no hay datos
  */
 function fetchOddsForMatch_(homeTeam, awayTeam) {
+  const policy = getOddsFetchPolicyForMatch_(homeTeam, awayTeam);
+  if (policy.skip) {
+    console.log('fetchOddsForMatch_: skip ' + policy.reason + ' — ' + homeTeam + ' vs ' + awayTeam);
+    return null;
+  }
+  if (policy.match_key) {
+    const sheetOdds = getSheetOddsIfFresh_(policy.match_key, policy.max_age_hours);
+    if (sheetOdds) return parseSheetOddsRow_(sheetOdds);
+  }
+
   const allOdds = getAllOddsFromCacheOrApi_();
 
   if (!allOdds || !allOdds.length) return null;
@@ -59,9 +69,9 @@ function getAllOddsFromCacheOrApi_() {
  * @param {string} matchKey - Identificador del partido (match_key o fixture_id)
  * @returns {Object|null} La fila de OddsApuestas si está fresca, null si no
  */
-function getSheetOddsIfFresh_(matchKey) {
+function getSheetOddsIfFresh_(matchKey, freshHours) {
   if (!matchKey) return null;
-  const FRESH_HOURS = 4;
+  const FRESH_HOURS = freshHours || 4;
   try {
     const rows = readAll_('OddsApuestas');
     const now = Date.now();
@@ -77,6 +87,71 @@ function getSheetOddsIfFresh_(matchKey) {
     console.warn('getSheetOddsIfFresh_ error:', e.message);
     return null;
   }
+}
+
+function getOddsFetchPolicyForMatch_(homeTeam, awayTeam) {
+  const policy = { skip: false, reason: '', match_key: '', max_age_hours: ODDS_CACHE_TTL_HOURS };
+  let rows = [];
+  try { rows = readAll_(CONFIG.SHEETS.PARTIDOS); } catch(e_) { return policy; }
+  const n = s => normalizeTeamName_(teamNameToSpanish_(s));
+  const h = n(homeTeam);
+  const a = n(awayTeam);
+  const row = rows.find(r => {
+    const rh = n(r.local || r.home_team || '');
+    const ra = n(r.visitante || r.away_team || '');
+    return (rh === h && ra === a) || (rh === a && ra === h);
+  });
+  if (!row) return policy;
+
+  policy.match_key = String(row.match_key || row.match_id || '');
+  const status = String(row.status || row.estado || '').toUpperCase();
+  if (['FT','AET','PEN','FINAL'].indexOf(status) !== -1) {
+    policy.skip = true;
+    policy.reason = 'match_finished';
+    return policy;
+  }
+
+  const kickoff = parseOddsPolicyKickoff_(row);
+  if (!kickoff) return policy;
+  const hoursToKickoff = (kickoff.getTime() - Date.now()) / 3600000;
+  if (hoursToKickoff > 24 * 7) {
+    policy.skip = true;
+    policy.reason = 'outside_7_day_window';
+    return policy;
+  }
+  policy.max_age_hours = hoursToKickoff <= 24 ? 1 : 6;
+  return policy;
+}
+
+function parseOddsPolicyKickoff_(row) {
+  const utc = row.hora_utc || row.kickoff_utc || row.fecha_hora_utc;
+  if (utc) {
+    const d = new Date(utc);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const fecha = normalizeFecha_(row.fecha || row.fecha_chile || '');
+  const hora = normalizeHora_(row.hora_chile || '');
+  if (!fecha) return null;
+  const iso = fecha + 'T' + (hora || '12:00') + ':00-04:00';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function parseSheetOddsRow_(row) {
+  if (!row) return null;
+  return {
+    prob_local: Number(row.prob_local || row.probabilidad_local || row.probabilidad_modelo || 0) || null,
+    prob_empate: Number(row.prob_empate || 0) || null,
+    prob_visitante: Number(row.prob_visitante || 0) || null,
+    odd_local: Number(row.odd_local || row.cuota_local || row.cuota || 0) || null,
+    odd_empate: Number(row.odd_empate || row.cuota_empate || 0) || null,
+    odd_visitante: Number(row.odd_visitante || row.cuota_visitante || 0) || null,
+    over25_prob: Number(row.over25_prob || 0) || null,
+    btts_prob: Number(row.btts_prob || 0) || null,
+    source: row.fuente || 'sheet_cache',
+    bookmakers_count: Number(row.bookmakers_count || 0) || 0,
+    tiene_pinnacle: row.tiene_pinnacle === true || String(row.tiene_pinnacle).toUpperCase() === 'TRUE'
+  };
 }
 
 /**

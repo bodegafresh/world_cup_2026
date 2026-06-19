@@ -62,8 +62,9 @@ function registerBet_(fixtureId, mercado, seleccion, cuota, stake, notas) {
 
   // Si no hay ev guardado, calcular desde cuota y probabilidad
   if (ev === null && probModelo !== null && cuota) {
-    ev    = (probModelo * cuota) - 1;
-    kelly = Math.max(0, Math.min((probModelo * cuota - 1) / (cuota - 1) / KELLY_DIVISOR, KELLY_MAX_FRACTION));
+    const metrics = bettingMetrics_(probModelo, cuota);
+    ev    = metrics.ev_pct;
+    kelly = Math.max(0, Math.min(metrics.kelly_25_pct, KELLY_MAX_FRACTION));
   }
 
   // Buscar nombre de equipos en Partidos

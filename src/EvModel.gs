@@ -21,14 +21,14 @@
  *   - buildEvSummaryText_() → texto para /ev
  */
 
-const EV_POSITIVE_THRESHOLD  = 0.05;  // EV > 5% = oportunidad
-const EDGE_MIN_THRESHOLD     = 0.03;  // Edge mínimo para alertar (3%)
-const KELLY_MAX_FRACTION     = 0.025; // Máximo 2.5% del bankroll (25% Kelly fraccional sobre Kelly/4)
-const KELLY_DIVISOR          = 4;     // Fractional Kelly conservador (Kelly/4)
-const EV_SUSPICIOUS_THRESHOLD = 0.25; // EV > 25% = sospechoso, requiere revisión
-const EV_OUTLIER_THRESHOLD   = 0.30;  // EV > 30% = OUTLIER — mercado ilíquido o mapeo erróneo
-const EV_MAX_CREDIBLE        = 0.50;  // EV > 50% = casi seguro bug, descartar
-const PROB_SUM_TOLERANCE     = 0.05;  // Tolerancia para validar suma 1X2 ≈ 100%
+const EV_POSITIVE_THRESHOLD  = (typeof CONFIG !== 'undefined' && CONFIG.BETTING) ? CONFIG.BETTING.EV_POSITIVE_THRESHOLD : 0.05;
+const EDGE_MIN_THRESHOLD     = (typeof CONFIG !== 'undefined' && CONFIG.BETTING) ? CONFIG.BETTING.EDGE_MIN_THRESHOLD : 0.03;
+const KELLY_MAX_FRACTION     = (typeof CONFIG !== 'undefined' && CONFIG.BETTING) ? CONFIG.BETTING.KELLY_MAX_FRACTION : 0.025;
+const KELLY_DIVISOR          = (typeof CONFIG !== 'undefined' && CONFIG.BETTING) ? CONFIG.BETTING.KELLY_DIVISOR : 4;
+const EV_SUSPICIOUS_THRESHOLD = (typeof CONFIG !== 'undefined' && CONFIG.BETTING) ? CONFIG.BETTING.EV_SUSPICIOUS_THRESHOLD : 0.25;
+const EV_OUTLIER_THRESHOLD   = (typeof CONFIG !== 'undefined' && CONFIG.BETTING) ? CONFIG.BETTING.EV_OUTLIER_THRESHOLD : 0.30;
+const EV_MAX_CREDIBLE        = (typeof CONFIG !== 'undefined' && CONFIG.BETTING) ? CONFIG.BETTING.EV_MAX_CREDIBLE : 0.50;
+const PROB_SUM_TOLERANCE     = (typeof CONFIG !== 'undefined' && CONFIG.BETTING) ? CONFIG.BETTING.PROB_SUM_TOLERANCE : 0.05;
 
 // ─── Cálculo de EV ────────────────────────────────────────────────────────────
 
@@ -598,7 +598,7 @@ function calcularEV() {
 
   // Cargar AnalisisIA para usar como fuente primaria de probabilidades
   let aiRows = [];
-  try { aiRows = readAll_(CONFIG.SHEETS.ANALISIS_IA) || []; } catch(e_) {}
+  try { aiRows = readAll_(CONFIG.SHEETS.AI_ANALYSIS) || []; } catch(e_) {}
 
   let totalOpps = 0;
   const now = nowChile_();
