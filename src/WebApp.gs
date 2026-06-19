@@ -1181,6 +1181,27 @@ function getWebTeams_() {
   const norm = s => String(s || '').toLowerCase()
     .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
     .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n');
+  const normKey = s => norm(s)
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]/g, '');
+  const teamKey = s => {
+    const k = normKey(teamNameToSpanish_(s || ''));
+    if (k === 'bosniaherzegovina' || k === 'bosniaandherzegovina') return 'bosnia';
+    if (k === 'usa' || k === 'eeuu' || k === 'unitedstates') return 'eeuu';
+    if (k === 'qatar') return 'catar';
+    if (k === 'switzerland') return 'suiza';
+    if (k === 'canada') return 'canada';
+    return k;
+  };
+  const displayTeamName = s => {
+    const k = teamKey(s);
+    if (k === 'bosnia') return 'Bosnia';
+    if (k === 'eeuu') return 'EE.UU.';
+    if (k === 'catar') return 'Catar';
+    if (k === 'suiza') return 'Suiza';
+    if (k === 'canada') return 'Canadá';
+    return teamNameToSpanish_(s || '');
+  };
 
   const eloMap   = {};
   elo.forEach(r => {
@@ -1195,8 +1216,8 @@ function getWebTeams_() {
   partidos.forEach(r => {
     const fecha = normalizeFecha_(r.fecha);
     if (!fecha || fecha < TORNEO_START) return;
-    const l = norm(teamNameToSpanish_(r.local     || ''));
-    const v = norm(teamNameToSpanish_(r.visitante || ''));
+    const l = teamKey(r.local     || '');
+    const v = teamKey(r.visitante || '');
     if (l && v) {
       wcPairs.add(l + '|' + v);
       wcPairs.add(v + '|' + l);
@@ -1205,16 +1226,26 @@ function getWebTeams_() {
 
   // Mapa equipo → sus partidos del torneo (para el panel de detalle Y para forma_detail WC)
   const teamMatchesMap = {};
-  const _seenMatchKeys = new Set(); // evitar duplicados por filas repetidas en Partidos
+  const matchByCanonicalKey = {}; // evitar duplicados por filas repetidas en Partidos
+  const statusRank_ = s => ({ 'FT': 5, 'AET': 5, 'PEN': 5, '2H': 3, 'HT': 2, '1H': 1, 'NS': 0 })[String(s || '').toUpperCase()] || 0;
+  const rowQuality_ = r => {
+    const st = statusRank_(r.status || r.estado || '');
+    const hasScore = (r.goles_local !== '' && r.goles_local != null && r.goles_visitante !== '' && r.goles_visitante != null) ? 2 : 0;
+    const hasId = (r.match_id || r.match_key || r.fixture_id_af || r.fixture_id_api_football) ? 1 : 0;
+    const badKey = String(r.match_key || '') === '_objectobject_' ? -5 : 0;
+    return st * 10 + hasScore + hasId + badKey;
+  };
   partidos.forEach(r => {
     const fecha = normalizeFecha_(r.fecha);
     if (!fecha || fecha < TORNEO_START) return;
-    const l = teamNameToSpanish_(r.local     || '');
-    const v = teamNameToSpanish_(r.visitante || '');
-    // Deduplicar por par de equipos (en grupos cada par se enfrenta una sola vez)
-    const matchKey = norm(l) + '|' + norm(v);
-    if (_seenMatchKeys.has(matchKey)) return;
-    _seenMatchKeys.add(matchKey);
+    const l = displayTeamName(r.local     || '');
+    const v = displayTeamName(r.visitante || '');
+    const lk = teamKey(l);
+    const vk = teamKey(v);
+    if (!lk || !vk) return;
+    // Deduplicar por fecha + par canónico. En grupos cada par se enfrenta una sola vez.
+    const pair = [lk, vk].sort().join('|');
+    const matchKey = fecha + '|' + pair;
     const entry = {
       fecha,
       hora:    safeHoraChile_(r.hora_chile || r.hora),
@@ -1224,27 +1255,33 @@ function getWebTeams_() {
       status:  String(r.status  || '').toUpperCase(),
       estadio: r.estadio || '', ciudad: r.ciudad || ''
     };
-    [l, v].forEach(eq => {
+    if (!matchByCanonicalKey[matchKey] || rowQuality_(r) > matchByCanonicalKey[matchKey].quality) {
+      matchByCanonicalKey[matchKey] = { entry, teams: [lk, vk], quality: rowQuality_(r) };
+    }
+  });
+  Object.keys(matchByCanonicalKey).forEach(k => {
+    const item = matchByCanonicalKey[k];
+    item.teams.forEach(eq => {
       if (!eq) return;
       if (!teamMatchesMap[eq]) teamMatchesMap[eq] = [];
-      teamMatchesMap[eq].push(entry);
+      teamMatchesMap[eq].push(item.entry);
     });
   });
 
   const formaMap = {};
   forma.forEach(r => {
-    const nombre   = teamNameToSpanish_(r.equipo || '');
-    const teamKey  = norm(nombre);
+    const nombre   = displayTeamName(r.equipo || '');
+    const key  = teamKey(nombre);
     const results  = String(r.ultimos_5_resultados || '').split(',').filter(x => /^[WDL]$/.test(x));
     const rivales  = String(r.ultimos_5_rivales    || '').split(',');
     const marcadores = String(r.ultimos_5_marcadores || '').split(',');
 
     // WC results from Partidos directly (authoritative — FormaEquipos may lag updates)
-    const wcEntries = (teamMatchesMap[nombre] || [])
+    const wcEntries = (teamMatchesMap[key] || [])
       .filter(m => m.goles_l !== null && m.goles_v !== null)
       .sort((a, b) => (a.fecha < b.fecha ? -1 : 1))
       .map(m => {
-        const isHome = norm(m.local) === teamKey;
+        const isHome = teamKey(m.local) === key;
         const myG  = isHome ? m.goles_l : m.goles_v;
         const oppG = isHome ? m.goles_v : m.goles_l;
         const res  = myG > oppG ? 'W' : myG < oppG ? 'L' : 'D';
@@ -1252,28 +1289,28 @@ function getWebTeams_() {
       });
 
     // Exclude WC opponents from FormaEquipos history to avoid duplicates
-    const wcRivalKeys = new Set(wcEntries.map(e => norm(e.rival)));
+    const wcRivalKeys = new Set(wcEntries.map(e => teamKey(e.rival)));
     const prevEntries = results.map((res, i) => {
-      const rival = teamNameToSpanish_((rivales[i] || '').trim());
-      return { r: res, wc: false, rival, score: (marcadores[i] || '').trim(), _rk: norm(rival) };
+      const rival = displayTeamName((rivales[i] || '').trim());
+      return { r: res, wc: false, rival, score: (marcadores[i] || '').trim(), _rk: teamKey(rival) };
     }).filter(d => !wcRivalKeys.has(d._rk)).map(({ _rk, ...rest }) => rest);
 
-    formaMap[teamKey] = { raw: results.join(','), detail: [...wcEntries, ...prevEntries] };
+    formaMap[key] = { raw: results.join(','), detail: [...wcEntries, ...prevEntries] };
   });
 
   const clasMap = {};
   clas.forEach(r => {
-    const nombre = teamNameToSpanish_(r.equipo || '');
-    const k = norm(nombre);
+    const nombre = displayTeamName(r.equipo || '');
+    const k = teamKey(nombre);
     clasMap[k] = { grupo: r.grupo || '', pos: Number(r.posicion || r.pos || 0), pts: Number(r.puntos || r.pts || 0) };
   });
 
   // Build equipo metadata map from Equipos sheet
   const equiposMeta = {};
   equipos.forEach(eq => {
-    const nombre = teamNameToSpanish_(eq.nombre || eq.name || eq.equipo || '');
+    const nombre = displayTeamName(eq.nombre || eq.name || eq.equipo || '');
     if (!nombre) return;
-    equiposMeta[norm(nombre)] = {
+    equiposMeta[teamKey(nombre)] = {
       confederacion: eq.confederacion || eq.confederation || '',
       entrenador:    eq.entrenador || eq.coach || '',
       espn_id:       eq.espn_id || '',
@@ -1283,23 +1320,23 @@ function getWebTeams_() {
 
   // Collect ALL 48 teams from Clasificacion + Partidos (to avoid gaps)
   const allTeams = new Set();
-  clas.forEach(r => { const n = teamNameToSpanish_(r.equipo || ''); if (n) allTeams.add(n); });
+  clas.forEach(r => { const n = displayTeamName(r.equipo || ''); if (n) allTeams.add(n); });
   partidos.forEach(r => {
-    const l = teamNameToSpanish_(r.local || '');
-    const v = teamNameToSpanish_(r.visitante || '');
+    const l = displayTeamName(r.local || '');
+    const v = displayTeamName(r.visitante || '');
     if (l) allTeams.add(l);
     if (v) allTeams.add(v);
   });
   equipos.forEach(eq => {
-    const n = teamNameToSpanish_(eq.nombre || eq.name || eq.equipo || '');
+    const n = displayTeamName(eq.nombre || eq.name || eq.equipo || '');
     if (n) allTeams.add(n);
   });
 
   const seenNombres = new Set();
   return Array.from(allTeams).map(nombre => {
-    if (!nombre || seenNombres.has(nombre)) return null;
-    seenNombres.add(nombre);
-    const k     = norm(nombre);
+    const k     = teamKey(nombre);
+    if (!nombre || seenNombres.has(k)) return null;
+    seenNombres.add(k);
     const meta  = equiposMeta[k] || {};
     const cData = clasMap[k] || {};
     return {
@@ -1313,7 +1350,7 @@ function getWebTeams_() {
       confederacion: meta.confederacion || '',
       entrenador:    meta.entrenador    || '',
       espn_id:       meta.espn_id       || '',
-      partidos_wc:   (teamMatchesMap[nombre] || []).sort((a,b) => a.fecha > b.fecha ? 1 : -1)
+      partidos_wc:   (teamMatchesMap[k] || []).sort((a,b) => a.fecha > b.fecha ? 1 : -1)
     };
   }).filter(Boolean).sort((a, b) => (b.elo || 0) - (a.elo || 0));
 }
