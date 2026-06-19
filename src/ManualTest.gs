@@ -522,7 +522,7 @@ function test15_Dashboard() {
  * Ejecutar una única vez desde Apps Script Editor.
  * Idempotente: si ya está corregido, cada paso logea "ya OK" y no modifica datos.
  */
-function fixCriticos_() {
+function fixCriticos() {
   Logger.log('══════════════════════════════════════════════');
   Logger.log('  FIX CRÍTICOS — Auditoría WC2026  Jun-19');
   Logger.log('══════════════════════════════════════════════');
@@ -749,6 +749,154 @@ function fixCriticos_() {
   Logger.log('PRÓXIMOS PASOS MANUALES:');
   Logger.log('  1. backfillByDateRange("2026-06-16","2026-06-19") — poblar fixture_id_af antes que expire la ventana API-Football');
   Logger.log('  2. backfillEspnPlayerStats() — cargar stats de jugadores Jun 15-19');
+}
+
+// ─── BACKFILL VENTANA ACTUAL ──────────────────────────────────────────────────
+
+function backfillVentanaActual() {
+  Logger.log('Ejecutando backfillByDateRange 2026-06-16 → 2026-06-19...');
+  backfillByDateRange('2026-06-16', '2026-06-19');
+  Logger.log('✅ Listo — revisa PipelineRuns y Partidos para verificar fixture_id_af populado.');
+}
+
+function backfillStatsJugadoresRecientes() {
+  Logger.log('Ejecutando backfillEspnPlayerStats...');
+  backfillEspnPlayerStats();
+  Logger.log('✅ Listo — revisa PlayerMatchStats.');
+}
+
+// ─── LIMPIAR DUPLICADOS EN PARTIDOS ──────────────────────────────────────────
+
+/**
+ * Elimina filas de Partidos con status vacío/None cuando ya existe una fila FT
+ * para el mismo par de equipos. Esto corrige el PJ=3 de Suiza y similares.
+ * Ejecutar desde GAS editor → función: limpiarPartidosDuplicados
+ */
+function limpiarPartidosDuplicados() {
+  const FT_STATUSES = ['FT','AET','PEN','CANC','PST','ABD','AWD','WO'];
+  const normP = s => String(s||'').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+
+  const sheet   = getOrCreateSheet_(CONFIG.SHEETS.PARTIDOS, null);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const locIdx  = headers.indexOf('local');
+  const visIdx  = headers.indexOf('visitante');
+  const stIdx   = headers.indexOf('status');
+  const glIdx   = headers.indexOf('goles_local');
+
+  if (locIdx === -1 || stIdx === -1) {
+    Logger.log('limpiarPartidosDuplicados: columnas no encontradas — abortando.');
+    return;
+  }
+
+  const allVals = sheet.getDataRange().getValues();
+
+  // Construir set de pares con status FT
+  const ftPairs = new Set();
+  allVals.slice(1).forEach(row => {
+    const st = String(row[stIdx] || '').toUpperCase().trim();
+    if (FT_STATUSES.includes(st)) {
+      const key = [normP(teamNameToSpanish_(row[locIdx]||'')), normP(teamNameToSpanish_(row[visIdx]||''))].sort().join('_vs_');
+      ftPairs.add(key);
+    }
+  });
+  Logger.log('limpiarPartidosDuplicados: ' + ftPairs.size + ' pares con resultado FT.');
+
+  // Identificar filas a eliminar (status vacío/None + par ya tiene FT + tiene goles)
+  const rowsToDelete = [];
+  for (let i = allVals.length - 1; i >= 1; i--) {
+    const row = allVals[i];
+    const st  = String(row[stIdx] || '').toUpperCase().trim();
+    if (FT_STATUSES.includes(st)) continue; // ya es FT — no tocar
+    if (String(row[stIdx] || '').trim() !== '' && !['NONE','NULL','UNDEFINED'].includes(String(row[stIdx]||'').toUpperCase())) {
+      // Tiene algún status no-FT pero tampoco vacío (1H, 2H, NS, etc.) — no tocar
+      continue;
+    }
+    const gl = row[glIdx];
+    if (gl === null || gl === '' || gl === undefined) continue; // sin goles — no tocar (mantener NS futuros)
+
+    const key = [normP(teamNameToSpanish_(row[locIdx]||'')), normP(teamNameToSpanish_(row[visIdx]||''))].sort().join('_vs_');
+    if (ftPairs.has(key)) {
+      rowsToDelete.push(i + 1); // 1-based row number
+      Logger.log('  ELIMINAR fila ' + (i+1) + ': ' + row[locIdx] + ' ' + row[glIdx] + '-' + (row[visIdx+1]||row[glIdx+1]) + ' ' + row[visIdx] + ' | status=' + row[stIdx]);
+    }
+  }
+
+  if (!rowsToDelete.length) {
+    Logger.log('limpiarPartidosDuplicados: no hay filas duplicadas que eliminar.');
+    return;
+  }
+
+  // Eliminar en orden descendente (ya invertido)
+  rowsToDelete.forEach(rowNum => sheet.deleteRow(rowNum));
+  Logger.log('limpiarPartidosDuplicados: ' + rowsToDelete.length + ' filas eliminadas.');
+
+  Logger.log('Recalculando posiciones...');
+  try { recalcularTablaDesdePartidos(); Logger.log('✅ Tabla actualizada.'); } catch(e_) { Logger.log('Error: ' + e_.message); }
+  try { runGroupSimulation(); Logger.log('✅ Simulación actualizada.'); } catch(e_) { Logger.log('Error: ' + e_.message); }
+}
+
+// ─── CARGAR STATS JUGADORES VIA ESPN ─────────────────────────────────────────
+
+/**
+ * Usa la API de ESPN para obtener event IDs de los partidos jugados (Jun 11-19)
+ * y carga ResumenJugadorPartido con stats de jugadores.
+ * No requiere fixture_id_af — usa ESPN como fuente directa.
+ * Ejecutar desde GAS editor → función: cargarStatsJugadoresEspn
+ */
+function cargarStatsJugadoresEspn() {
+  const FECHAS = [
+    '2026-06-11','2026-06-12','2026-06-13','2026-06-14',
+    '2026-06-15','2026-06-16','2026-06-17','2026-06-18','2026-06-19'
+  ];
+
+  const resumen = readAll_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO);
+  const yaConDatos = new Set(resumen.map(r => String(r.fixture_id || '')));
+  Logger.log('cargarStatsJugadoresEspn: ' + yaConDatos.size + ' fixtures ya con datos en ResumenJugadorPartido.');
+
+  let cargados = 0;
+  let errores  = 0;
+
+  FECHAS.forEach(fecha => {
+    let events;
+    try {
+      events = fetchEspnEventsByDate_(fecha);
+    } catch(e_) {
+      Logger.log('  ❌ No se pudo obtener eventos ESPN para ' + fecha + ': ' + e_.message);
+      return;
+    }
+
+    const ftEvents = events.filter(ev => {
+      const st = String(ev.status || ev.espn_status || '').toUpperCase();
+      return st.includes('FINAL') || st.includes('FT') || ev.home_score !== '';
+    });
+
+    Logger.log('  Fecha ' + fecha + ': ' + ftEvents.length + ' partidos terminados de ' + events.length + ' total.');
+
+    ftEvents.forEach(ev => {
+      const espnId = String(ev.espn_id || '');
+      if (!espnId) return;
+      const fakeId = 'espn_' + espnId;
+      if (yaConDatos.has(fakeId)) {
+        Logger.log('    ⏭ ' + ev.home_team + ' vs ' + ev.away_team + ' — ya tiene datos');
+        return;
+      }
+      try {
+        Logger.log('    📥 ' + ev.home_team + ' vs ' + ev.away_team + ' (' + fecha + ', espnId=' + espnId + ')');
+        const summary = fetchEspnSummary_(espnId);
+        saveEspnPlayerEventsToResumen_(fakeId, summary);
+        yaConDatos.add(fakeId);
+        cargados++;
+        Utilities.sleep(600);
+      } catch(e_) {
+        Logger.log('    ❌ Error: ' + e_.message);
+        errores++;
+      }
+    });
+  });
+
+  Logger.log('cargarStatsJugadoresEspn: LISTO. Cargados=' + cargados + ', Errores=' + errores);
+  Logger.log('Revisa ResumenJugadorPartido para verificar los datos.');
 }
 
 // ─── Helpers internos de test ─────────────────────────────────────────────────
