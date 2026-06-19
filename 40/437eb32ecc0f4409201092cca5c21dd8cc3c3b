@@ -1,0 +1,19 @@
+src/GroupSimulator.gs
+  s_8d080e6df27905::t_a435997cd086af 45-58,60-64,70,72,75-77,82-91,95-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "40437eb32ecc0f4409201092cca5c21dd8cc3c3b",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
