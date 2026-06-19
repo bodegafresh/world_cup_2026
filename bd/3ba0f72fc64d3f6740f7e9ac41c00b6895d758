@@ -1,0 +1,56 @@
+src/DataIngestion.gs
+  s_bf65d3ab005d68::t_f579520c4b18d4 2-7,28,57
+src/SourceDataNormalization.gs
+  s_bf65d3ab005d68::t_6236faaff95683 1-242,245-246,252-255,260,262-390
+  s_bf65d3ab005d68::t_c3f56c5fa85a56 243-244,247-251,256-259,261
+src/Config.gs
+  s_bf65d3ab005d68::t_6236faaff95683 45-46,304
+  s_bf65d3ab005d68::t_4385cbdd567458 87-97
+src/SheetManager.gs
+  s_bf65d3ab005d68::t_f579520c4b18d4 146-148,160-161
+  s_bf65d3ab005d68::t_6236faaff95683 53-54,200-202
+  s_bf65d3ab005d68::t_ea6a91b8a01a72 65-73,77-81,105-107,110-111
+  s_bf65d3ab005d68::t_4cf464070047cd 131-144
+src/BetfairApi.gs
+  s_bf65d3ab005d68::t_f579520c4b18d4 575-579
+src/CornersModel.gs
+  s_bf65d3ab005d68::t_f579520c4b18d4 544-545
+src/MatchMapping.gs
+  s_bf65d3ab005d68::t_f579520c4b18d4 2-5,19-20
+src/BettingHistory.gs
+  s_bf65d3ab005d68::t_51cf7bfec34de9 65-67
+docs/gas-code-normalization-plan.md
+  s_bf65d3ab005d68::t_0540d5cef69d4c 78
+  s_bf65d3ab005d68::t_d9282fbe142a8c 53-56,66-67,75-77
+  s_bf65d3ab005d68::t_5533a745423059 62
+  s_bf65d3ab005d68::t_6236faaff95683 1-52,57-59,63-65,68-74,79-90
+  s_bf65d3ab005d68::t_4385cbdd567458 60-61
+src/SheetsRepository.gs
+  s_bf65d3ab005d68::t_2b5ec0311a992c 116,121-134
+  s_bf65d3ab005d68::t_f579520c4b18d4 35-103,170
+src/CardsModel.gs
+  s_bf65d3ab005d68::t_f579520c4b18d4 579-580
+src/OddsApi.gs
+  s_bf65d3ab005d68::t_7fcc1257b1d285 23-32,72,74,92-154
+src/EvModel.gs
+  s_bf65d3ab005d68::t_40a045c8d0e42f 601
+  s_bf65d3ab005d68::t_a7560be6c3bd9a 24-31
+src/PlayerMatchStats.gs
+  s_bf65d3ab005d68::t_4386651824e02a 105-106,128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "bd3ba0f72fc64d3f6740f7e9ac41c00b6895d758",
+  "prompts": {},
+  "sessions": {
+    "s_bf65d3ab005d68": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ee13f-9d09-79f3-814a-b023e7ecce50",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
