@@ -47,10 +47,30 @@ function runGroupSimulation() {
     // Normalizar grupo para comparar: "Grupo A" == "A" == "grupo a"
     const normGrupo = g => String(g||'').toLowerCase().replace(/grupo\s*/i,'').trim();
     const gNorm = normGrupo(grupo);
-    const groupFixtures = fixtures.filter(r => {
+    let groupFixtures = fixtures.filter(r => {
       const rGrupo = normGrupo(r.grupo || r.group || '');
       return rGrupo === gNorm && !isFinishedStatus_(String(r.status || r.estado || ''));
     });
+
+    // Fallback: si la columna 'grupo' de Partidos está vacía, buscar por nombres de equipo del grupo
+    if (!groupFixtures.length) {
+      const normN = s => String(s||'').toLowerCase().normalize('NFD')
+        .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+      const teamNorms = new Set(groupTeams.map(t => normN(t.equipo || '')));
+      groupFixtures = fixtures.filter(r => {
+        if (isFinishedStatus_(String(r.status || r.estado || ''))) return false;
+        const locEs = normN(teamNameToSpanish_(r.local     || ''));
+        const visEs = normN(teamNameToSpanish_(r.visitante || ''));
+        return teamNorms.has(locEs) || teamNorms.has(visEs);
+      }).filter(r => {
+        // Verificar que AMBOS equipos pertenezcan al grupo (para no capturar octavos/semifinales)
+        const normN2 = s => String(s||'').toLowerCase().normalize('NFD')
+          .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+        const locEs = normN2(teamNameToSpanish_(r.local     || ''));
+        const visEs = normN2(teamNameToSpanish_(r.visitante || ''));
+        return teamNorms.has(locEs) && teamNorms.has(visEs);
+      });
+    }
 
     if (!groupTeams.length) return;
 
