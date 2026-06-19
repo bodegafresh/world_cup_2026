@@ -1,0 +1,21 @@
+AUDITORIA_SISTEMA.md
+  s_8d080e6df27905::t_ca23515254feaf 1-348
+src/ManualTest.gs
+  s_8d080e6df27905::t_f2aef6cb095a02 511-753
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "982e0ad6d5c6287d16665ffda1053b0881ca7a67",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
