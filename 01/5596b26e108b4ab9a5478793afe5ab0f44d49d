@@ -1,0 +1,33 @@
+src/WebApp.gs
+  s_8d080e6df27905::t_8203a0123337ac 1734-1735,1742-1756
+  s_8d080e6df27905::t_3c339a7854f314 1700-1708,1719-1728
+  s_8d080e6df27905::t_b25e257a041e78 1764-1769,1782
+src/EvModel.gs
+  s_bf65d3ab005d68::t_261e70c429c014 221-224,242-247,294,726-727,735,738,753
+src/BettingMath.gs
+  s_bf65d3ab005d68::t_5268e6a2f47e35 1-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "015596b26e108b4ab9a5478793afe5ab0f44d49d",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    },
+    "s_bf65d3ab005d68": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ee13f-9d09-79f3-814a-b023e7ecce50",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
