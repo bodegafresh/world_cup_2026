@@ -42,49 +42,60 @@ function runGroupSimulation() {
   const grupos = [...new Set(standings.map(r => r.grupo).filter(Boolean))].sort();
   const results = [];
 
+  // Helper de normalización compartido
+  const normPair = s => String(s||'').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+
+  // Pre-construir set de pares de equipos que ya tienen resultado FT en la hoja.
+  // Sirve para filtrar filas NS "fantasma" de partidos ya jugados que quedaron sin actualizar.
+  const playedPairs = new Set();
+  fixtures.filter(r => isFinishedStatus_(String(r.status || r.estado || '').toUpperCase()))
+    .forEach(r => {
+      const locEs = normPair(teamNameToSpanish_(r.local     || ''));
+      const visEs = normPair(teamNameToSpanish_(r.visitante || ''));
+      playedPairs.add([locEs, visEs].sort().join('_vs_'));
+    });
+
   grupos.forEach(grupo => {
-    const groupTeams    = standings.filter(r => r.grupo === grupo);
-    // Normalizar grupo para comparar: "Grupo A" == "A" == "grupo a"
-    const normGrupo = g => String(g||'').toLowerCase().replace(/grupo\s*/i,'').trim();
-    const gNorm = normGrupo(grupo);
+    const groupTeams = standings.filter(r => r.grupo === grupo);
+    const normGrupo  = g => String(g||'').toLowerCase().replace(/grupo\s*/i,'').trim();
+    const gNorm      = normGrupo(grupo);
+
+    // 1. Buscar por columna 'grupo' (cuando está populada)
     let groupFixtures = fixtures.filter(r => {
       const rGrupo = normGrupo(r.grupo || r.group || '');
       return rGrupo === gNorm && !isFinishedStatus_(String(r.status || r.estado || ''));
     });
 
-    // Fallback: si la columna 'grupo' de Partidos está vacía, buscar por nombres de equipo del grupo
+    // 2. Fallback: buscar por nombres de equipo del grupo cuando 'grupo' está vacío
     if (!groupFixtures.length) {
-      const normN = s => String(s||'').toLowerCase().normalize('NFD')
-        .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
-      const teamNorms = new Set(groupTeams.map(t => normN(t.equipo || '')));
+      const teamNorms = new Set(groupTeams.map(t => normPair(t.equipo || '')));
       groupFixtures = fixtures.filter(r => {
         if (isFinishedStatus_(String(r.status || r.estado || ''))) return false;
-        const locEs = normN(teamNameToSpanish_(r.local     || ''));
-        const visEs = normN(teamNameToSpanish_(r.visitante || ''));
-        return teamNorms.has(locEs) || teamNorms.has(visEs);
-      }).filter(r => {
-        // Verificar que AMBOS equipos pertenezcan al grupo (para no capturar octavos/semifinales)
-        const normN2 = s => String(s||'').toLowerCase().normalize('NFD')
-          .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
-        const locEs = normN2(teamNameToSpanish_(r.local     || ''));
-        const visEs = normN2(teamNameToSpanish_(r.visitante || ''));
+        const locEs = normPair(teamNameToSpanish_(r.local     || ''));
+        const visEs = normPair(teamNameToSpanish_(r.visitante || ''));
+        // Ambos equipos deben pertenecer al grupo
         return teamNorms.has(locEs) && teamNorms.has(visEs);
       });
     }
 
-    // Deduplicar fixtures pendientes por par canónico de equipos.
-    // La hoja Partidos puede tener 2 filas por partido (ESPN + API-Football):
-    // si una quedó en FT y la otra en NS, la NS inflaría el conteo.
+    // 3. Excluir filas NS "fantasma": partidos cuyo par ya tiene un resultado FT en otra fila.
+    //    Causa: hoja pre-cargó 6 fixtures como NS, luego el partido se jugó y se agregó fila FT
+    //    nueva → la fila NS original queda obsoleta pero sigue apareciendo como "pendiente".
+    groupFixtures = groupFixtures.filter(r => {
+      const locEs = normPair(teamNameToSpanish_(r.local     || ''));
+      const visEs = normPair(teamNameToSpanish_(r.visitante || ''));
+      return !playedPairs.has([locEs, visEs].sort().join('_vs_'));
+    });
+
+    // 4. Deduplicar pares idénticos (pueden existir 2 filas NS para el mismo partido futuro)
     {
       const seenPairs = new Map();
-      const normN2 = s => String(s||'').toLowerCase().normalize('NFD')
-        .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
       groupFixtures.forEach(r => {
-        const locEs = normN2(teamNameToSpanish_(r.local     || ''));
-        const visEs = normN2(teamNameToSpanish_(r.visitante || ''));
+        const locEs = normPair(teamNameToSpanish_(r.local     || ''));
+        const visEs = normPair(teamNameToSpanish_(r.visitante || ''));
         const key   = [locEs, visEs].sort().join('_vs_');
         if (!seenPairs.has(key)) seenPairs.set(key, r);
-        // Si ya existe, preferir la fila con fixture_id_af (más completa)
         else if (r.fixture_id_af && !seenPairs.get(key).fixture_id_af) seenPairs.set(key, r);
       });
       groupFixtures = [...seenPairs.values()];
