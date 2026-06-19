@@ -72,6 +72,24 @@ function runGroupSimulation() {
       });
     }
 
+    // Deduplicar fixtures pendientes por par canónico de equipos.
+    // La hoja Partidos puede tener 2 filas por partido (ESPN + API-Football):
+    // si una quedó en FT y la otra en NS, la NS inflaría el conteo.
+    {
+      const seenPairs = new Map();
+      const normN2 = s => String(s||'').toLowerCase().normalize('NFD')
+        .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+      groupFixtures.forEach(r => {
+        const locEs = normN2(teamNameToSpanish_(r.local     || ''));
+        const visEs = normN2(teamNameToSpanish_(r.visitante || ''));
+        const key   = [locEs, visEs].sort().join('_vs_');
+        if (!seenPairs.has(key)) seenPairs.set(key, r);
+        // Si ya existe, preferir la fila con fixture_id_af (más completa)
+        else if (r.fixture_id_af && !seenPairs.get(key).fixture_id_af) seenPairs.set(key, r);
+      });
+      groupFixtures = [...seenPairs.values()];
+    }
+
     if (!groupTeams.length) return;
 
     if (!groupFixtures.length) {
