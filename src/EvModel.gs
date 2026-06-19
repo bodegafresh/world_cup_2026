@@ -218,12 +218,10 @@ function calculateEvForFixture_(fixture) {
     const prob = modelProb(row.mercado, row.seleccion);
     if (!prob || prob <= 0 || prob >= 1) return;
 
-    const probImplicita = 1 / cuota;
-    const ev   = (prob * cuota) - 1;
-    const edge = prob - probImplicita;
-
-    const kellyRaw = (prob * cuota - 1) / (cuota - 1);
-    const kelly    = Math.max(0, Math.min(kellyRaw / KELLY_DIVISOR, KELLY_MAX_FRACTION));
+    const metrics = bettingMetrics_(prob, cuota);
+    const ev   = metrics.ev_pct;
+    const edge = metrics.edge_pp;
+    const kelly = Math.max(0, Math.min(metrics.kelly_25_pct, KELLY_MAX_FRACTION));
 
     // Confianza y fuente: IA ajustada > Poisson > ELO
     const fuenteModelo = iaProbs
@@ -241,7 +239,12 @@ function calculateEvForFixture_(fixture) {
       seleccion:        String(row.seleccion || ''),
       cuota,
       prob_modelo:      prob,
-      prob_implicita:   probImplicita,
+      prob_implicita:   metrics.market_probability,
+      cuota_justa:      metrics.fair_odds,
+      overlay:          metrics.overlay_pct,
+      kelly_full:       metrics.kelly_full_pct,
+      kelly_25:         metrics.kelly_25_pct,
+      kelly_50:         metrics.kelly_50_pct,
       ev,
       edge,
       kelly,
@@ -288,7 +291,7 @@ function saveAndAlertEvOpportunities_(fixture, opportunities) {
   ]);
 
   const rows = opportunities.map(o => {
-    const cuotaJusta = o.prob_modelo > 0 ? Math.round((1/o.prob_modelo)*100)/100 : '';
+    const cuotaJusta = o.cuota_justa ? Math.round(o.cuota_justa*100)/100 : '';
     const ev = Math.round(o.ev   * 10000) / 10000;
     const sospechoso = !o.outlier && ev > EV_SUSPICIOUS_THRESHOLD;
     const outlier    = ev > EV_OUTLIER_THRESHOLD;
@@ -720,7 +723,8 @@ function calcularEV() {
 
     mercados.forEach(m => {
       if (!m.cuota || m.cuota < 1.01 || !m.prob || m.prob <= 0 || m.prob >= 1) return;
-      const ev_val = (m.prob * m.cuota) - 1;
+      const metrics = bettingMetrics_(m.prob, m.cuota);
+      const ev_val = metrics.ev_pct;
 
       // Validación: descartar EV imposibles (bug de mapeo o cuota stale)
       if (ev_val > EV_MAX_CREDIBLE) {
@@ -728,10 +732,10 @@ function calcularEV() {
         return;
       }
 
-      const kelly       = Math.max(0, Math.min(((m.prob * m.cuota - 1) / (m.cuota - 1)) / KELLY_DIVISOR, KELLY_MAX_FRACTION));
+      const kelly       = Math.max(0, Math.min(metrics.kelly_25_pct, KELLY_MAX_FRACTION));
       const sospechoso  = ev_val > EV_SUSPICIOUS_THRESHOLD;
       const esOutlier   = ev_val > EV_OUTLIER_THRESHOLD;
-      const cuotaJusta  = m.prob > 0 ? (1 / m.prob) : null;
+      const cuotaJusta  = metrics.fair_odds;
       const confFinal   = esOutlier ? 'PELIGRO' : (sospechoso ? 'BAJA' : confianza);
 
       newRows.push({
@@ -746,7 +750,7 @@ function calcularEV() {
         cuota_justa:   cuotaJusta,
         prob_modelo:   m.prob,
         ev:            ev_val,
-        edge:          m.prob - 1/m.cuota,
+        edge:          metrics.edge_pp,
         kelly:         kelly,
         ev_positivo:   ev_val > EV_POSITIVE_THRESHOLD && !sospechoso,
         confianza:     confFinal,

@@ -1697,8 +1697,15 @@ function getWebSquad_(e) {
     if (!dedupMap[k]) dedupMap[k] = r;
   });
 
-  // Agregar por jugador_id
-  var statsByPid = {};
+  // Helper de normalización de nombre para fallback
+  function normNombre_(s) {
+    return String(s || '').toLowerCase().normalize('NFD')
+      .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  // Agregar por jugador_id — y también indexar por nombre normalizado como fallback
+  var statsByPid  = {};
+  var statsByName = {};
   Object.keys(dedupMap).forEach(function(k) {
     var r   = dedupMap[k];
     var pid = String(r.jugador_id || '');
@@ -1709,22 +1716,44 @@ function getWebSquad_(e) {
     statsByPid[pid].amarillas   += Number(r.tarjetas_amarillas || r.amarillas || 0);
     statsByPid[pid].rojas       += Number(r.tarjetas_rojas     || r.rojas    || 0);
     statsByPid[pid].partidos    += 1;
+    // Fallback por nombre
+    var nk = normNombre_(r.jugador);
+    if (nk) {
+      if (!statsByName[nk]) statsByName[nk] = { goles: 0, asistencias: 0, amarillas: 0, rojas: 0, partidos: 0 };
+      statsByName[nk].goles       += Number(r.goles             || 0);
+      statsByName[nk].asistencias += Number(r.asistencias       || 0);
+      statsByName[nk].amarillas   += Number(r.tarjetas_amarillas || r.amarillas || 0);
+      statsByName[nk].rojas       += Number(r.tarjetas_rojas     || r.rojas    || 0);
+      statsByName[nk].partidos    += 1;
+    }
   });
 
   // Rating y minutos desde PlayerMatchStats (coincide por player_id con jugador_id de Plantel)
   var ratingByPid = {};
   var minutosByPid = {};
+  var ratingByName  = {};
+  var minutosByName = {};
   try {
     var pmsRows = readAll_(CONFIG.SHEETS.PLAYER_MATCH_STATS);
     pmsRows.forEach(function(r) {
       var pid = String(r.player_id || r.jugador_id || '');
-      if (!pid || isNaN(Number(pid))) return;
       var min = Number(r.minutes_played || r.minutos || r.minutes || 0);
       var rat = Number(r.rating || 0);
-      if (!minutosByPid[pid]) minutosByPid[pid] = 0;
-      if (!ratingByPid[pid])  ratingByPid[pid]  = { sum: 0, cnt: 0 };
-      minutosByPid[pid] += min;
-      if (rat > 0) { ratingByPid[pid].sum += rat; ratingByPid[pid].cnt++; }
+      // Índice por ID numérico
+      if (pid && !isNaN(Number(pid))) {
+        if (!minutosByPid[pid]) minutosByPid[pid] = 0;
+        if (!ratingByPid[pid])  ratingByPid[pid]  = { sum: 0, cnt: 0 };
+        minutosByPid[pid] += min;
+        if (rat > 0) { ratingByPid[pid].sum += rat; ratingByPid[pid].cnt++; }
+      }
+      // Índice por nombre como fallback
+      var nk = normNombre_(r.player_name || r.jugador || '');
+      if (nk) {
+        if (!minutosByName[nk]) minutosByName[nk] = 0;
+        if (!ratingByName[nk])  ratingByName[nk]  = { sum: 0, cnt: 0 };
+        minutosByName[nk] += min;
+        if (rat > 0) { ratingByName[nk].sum += rat; ratingByName[nk].cnt++; }
+      }
     });
   } catch(e_) {}
 
@@ -1732,9 +1761,12 @@ function getWebSquad_(e) {
   var posOrder = { 'Portero': 1, 'Goalkeeper': 1, 'Defensa': 2, 'Defender': 2, 'Mediocampista': 3, 'Midfielder': 3, 'Delantero': 4, 'Forward': 4, 'Attacker': 4 };
 
   var jugadoresOut = squad.map(function(r) {
-    var pid   = String(r.player_id_api_football || r.jugador_id || '');
-    var stats = statsByPid[pid] || { goles: 0, asistencias: 0, amarillas: 0, rojas: 0, partidos: 0 };
-    var ratObj = ratingByPid[pid];
+    var pid  = String(r.player_id_api_football || r.jugador_id || '');
+    var nk   = normNombre_(r.nombre);
+    // Fallback por nombre cuando el ID es ESPN format (espn_XXXXXX) o no está en statsByPid
+    var stats    = statsByPid[pid] || statsByName[nk] || { goles: 0, asistencias: 0, amarillas: 0, rojas: 0, partidos: 0 };
+    var ratObj   = ratingByPid[pid]  || ratingByName[nk];
+    var minutos  = minutosByPid[pid] || minutosByName[nk] || 0;
     return {
       nombre:      r.nombre   || '',
       posicion:    r.posicion || '',
@@ -1747,7 +1779,7 @@ function getWebSquad_(e) {
       amarillas:   stats.amarillas,
       rojas:       stats.rojas,
       partidos:    stats.partidos,
-      minutos:     minutosByPid[pid] || 0,
+      minutos:     minutos,
       rating:      ratObj && ratObj.cnt ? Math.round(ratObj.sum / ratObj.cnt * 10) / 10 : 0
     };
   });
