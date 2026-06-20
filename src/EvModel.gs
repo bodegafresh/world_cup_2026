@@ -930,7 +930,7 @@ function isEvRowForClosedMatch_(evRow, partidos) {
  * No toca AnalisisIA ni modelos históricos; solo quita oportunidades que ya no son apostables.
  */
 function cleanupClosedEvOpportunities() {
-  const ss = SpreadsheetApp.getActive();
+  const ss = SpreadsheetApp.openById(getSpreadsheetId_());
   const sheet = ss.getSheetByName(CONFIG.SHEETS.EV_OPPORTUNITIES);
   if (!sheet) {
     Logger.log('cleanupClosedEvOpportunities: hoja EvOpportunities no existe');
