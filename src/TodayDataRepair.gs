@@ -95,6 +95,7 @@ function repairTodaySourceData() {
   Logger.log('repairTodaySourceData: inicio ' + date);
 
   try { limpiarDuplicadosPartidos(); } catch (e) { console.warn('repair dup Partidos:', e.message); }
+  try { backfillPartidosFixtureIdsFromLineups(); } catch (e) { console.warn('repair fixture ids from lineups:', e.message); }
 
   try { repairPlayerStatsForDate_(yesterdayChile_()); } catch (e) { console.warn('repair player stats:', e.message); }
 
@@ -195,6 +196,96 @@ function repairRecentOfficialPlayerStats_(daysBack, maxOfficialFixtures) {
   }
 
   Logger.log('repairRecentOfficialPlayerStats_: official attempts=' + officialAttempts + '/' + maxFixtures);
+}
+
+function repairRecentFixtureIdsAndMissingPlayerStats() {
+  const daysBack = 8;
+  const maxOfficialStats = 8;
+  const dates = [];
+  for (let i = 1; i <= daysBack; i++) dates.push(addDaysChile_(todayChile_(), -i));
+
+  Logger.log('repairRecentFixtureIdsAndMissingPlayerStats: fechas=' + dates.join(', '));
+  backfillPartidosFixtureIdsFromLineups();
+  backfillMissingApiFootballFixtureIdsForDates_(dates);
+
+  const existingStats = new Set(
+    readAll_(CONFIG.SHEETS.PLAYER_MATCH_STATS)
+      .map(r => String(r.fixture_id || '').trim())
+      .filter(Boolean)
+  );
+
+  let attempts = 0;
+  const finished = readAll_(CONFIG.SHEETS.PARTIDOS)
+    .filter(r => dates.indexOf(normalizeFecha_(r.fecha)) !== -1)
+    .filter(r => ['FT','AET','PEN'].includes(String(r.status || '').toUpperCase()))
+    .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')));
+
+  finished.forEach(r => {
+    const fixtureId = String(r.fixture_id_af || r.fixture_id_api_football || '').trim();
+    if (!fixtureId || existingStats.has(fixtureId) || attempts >= maxOfficialStats) return;
+
+    try {
+      loadPlayerStatsForFixture_(fixtureId, buildFixtureFromPartidosRow_(r));
+      existingStats.add(fixtureId);
+      attempts++;
+      Logger.log('  stats OK fixture_id=' + fixtureId + ' ' + r.local + ' vs ' + r.visitante);
+    } catch (e) {
+      console.warn('  stats FAIL fixture_id=' + fixtureId + ' ' + r.local + ' vs ' + r.visitante + ': ' + e.message);
+    }
+    Utilities.sleep(500);
+  });
+
+  try { auditPlayerStatsConsistency(); } catch(e_) {}
+  Logger.log('repairRecentFixtureIdsAndMissingPlayerStats: stats_attempts=' + attempts + '/' + maxOfficialStats);
+  return { dates: dates, stats_attempts: attempts, max_official_stats: maxOfficialStats };
+}
+
+function backfillPartidosFixtureIdsFromLineups() {
+  const lineupsByFixture = {};
+  try {
+    readAll_(CONFIG.SHEETS.ALINEACIONES).forEach(r => {
+      const fixtureId = String(r.fixture_id || '').trim();
+      if (!fixtureId || fixtureId.indexOf('espn_') === 0 || isNaN(Number(fixtureId))) return;
+      if (!lineupsByFixture[fixtureId]) lineupsByFixture[fixtureId] = {};
+      const teamKey = normalizeTeamNameStrong_(teamNameToSpanish_(r.equipo || ''));
+      if (teamKey) lineupsByFixture[fixtureId][teamKey] = true;
+    });
+  } catch(e_) {}
+
+  const sheet = getSheet_(CONFIG.SHEETS.PARTIDOS);
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) return { updated: 0, candidates: 0 };
+
+  const headers = values[0];
+  const idx = name => headers.indexOf(name);
+  const idIdx = idx('fixture_id_api_football');
+  const notesIdx = idx('data_quality_notes');
+  if (idIdx === -1) return { updated: 0, candidates: Object.keys(lineupsByFixture).length, error: 'missing_fixture_id_api_football' };
+
+  let updated = 0;
+  values.slice(1).forEach((row, offset) => {
+    if (String(row[idIdx] || '').trim()) return;
+    const localKey = normalizeTeamNameStrong_(teamNameToSpanish_(row[idx('local')] || ''));
+    const awayKey = normalizeTeamNameStrong_(teamNameToSpanish_(row[idx('visitante')] || ''));
+    if (!localKey || !awayKey) return;
+
+    const matches = Object.keys(lineupsByFixture).filter(fid => {
+      const teams = lineupsByFixture[fid];
+      return teams[localKey] && teams[awayKey];
+    });
+    if (matches.length !== 1) return;
+
+    const rowNum = offset + 2;
+    sheet.getRange(rowNum, idIdx + 1).setValue(matches[0]);
+    if (notesIdx !== -1) {
+      const prev = String(row[notesIdx] || '');
+      sheet.getRange(rowNum, notesIdx + 1).setValue((prev ? prev + ' | ' : '') + 'API_FOOTBALL_ID_FROM_LINEUPS');
+    }
+    updated++;
+    Logger.log('backfillPartidosFixtureIdsFromLineups: ' + row[idx('local')] + ' vs ' + row[idx('visitante')] + ' -> ' + matches[0]);
+  });
+
+  return { updated: updated, candidates: Object.keys(lineupsByFixture).length };
 }
 
 function saveEspnFallbackPlayerContext_(fixture, date) {
@@ -329,7 +420,6 @@ function auditStatsSheetByFixtureTeam_(sheetName, fixtureCol, teamCol, keyCols, 
     const fixture = fixtureIndex[fixtureId];
     if (!fixture) {
       invalidFixture++;
-      deleteRows.push(rowNum);
       Logger.log('INVALID_FIXTURE ' + sheetName + ' row=' + rowNum + ' fixture_id=' + fixtureId);
       return;
     }

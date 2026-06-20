@@ -1485,16 +1485,20 @@ function getWebPlayers_() {
   const deduped = Object.values(dedupMap);
 
   const byPlayer = {};
-  deduped.forEach(r => {
-    const name = r.jugador || '';
-    if (!name) return;
-    const pid = String(r.jugador_id || '');
-    if (!byPlayer[name]) {
-      const meta = fotoByPid[pid] || fotoByName[normName(name)] || {};
-      byPlayer[name] = {
-        jugador_id:  pid,
-        jugador:     name,
-        equipo:      teamNameToSpanish_(r.equipo || ''),
+  const countedFixturesByPlayer = {};
+  const playerKey_ = (pid, name, team) => {
+    const id = String(pid || '').trim();
+    if (id) return 'id:' + id;
+    return 'name:' + normName(name) + '|team:' + normalizeTeamNameStrong_(teamNameToSpanish_(team || ''));
+  };
+  const ensurePlayer_ = (pid, name, team) => {
+    const key = playerKey_(pid, name, team);
+    if (!byPlayer[key]) {
+      const meta = fotoByPid[String(pid || '')] || fotoByName[normName(name)] || {};
+      byPlayer[key] = {
+        jugador_id:  String(pid || ''),
+        jugador:     name || '',
+        equipo:      teamNameToSpanish_(team || ''),
         foto:        meta.foto     || '',
         posicion:    meta.posicion || '',
         edad:        meta.edad     || '',
@@ -1506,47 +1510,58 @@ function getWebPlayers_() {
         partidos:    0
       };
     }
-    const p = byPlayer[name];
+    if (!countedFixturesByPlayer[key]) countedFixturesByPlayer[key] = {};
+    return { key: key, player: byPlayer[key] };
+  };
+
+  deduped.forEach(r => {
+    const name = r.jugador || '';
+    if (!name) return;
+    const pid = String(r.jugador_id || '');
+    const fid = String(r.fixture_id || r.match_id || '').trim();
+    const ref = ensurePlayer_(pid, name, r.equipo || '');
+    const p = ref.player;
     p.goles       += Number(r.goles       || 0);
     p.asistencias += Number(r.asistencias || 0);
-    p.amarillas   += Number(r.amarillas   || 0);
-    p.rojas       += Number(r.rojas       || 0);
+    p.amarillas   += Number(r.tarjetas_amarillas || r.amarillas || 0);
+    p.rojas       += Number(r.tarjetas_rojas     || r.rojas     || 0);
     p.minutos     += Number(r.minutos     || 0);
-    p.partidos    += 1;
+    if (fid && !countedFixturesByPlayer[ref.key][fid]) {
+      countedFixturesByPlayer[ref.key][fid] = true;
+      p.partidos += 1;
+    }
   });
 
-  // Fallback: PlayerMatchStats (también enriquecido con fotoMap)
-  if (!Object.keys(byPlayer).length) {
-    readAll_(CONFIG.SHEETS.PLAYER_MATCH_STATS).forEach(r => {
-      const name = r.player_name || '';
-      if (!name) return;
-      const pid = String(r.player_id || '');
-      if (!byPlayer[name]) {
-        const meta = fotoByPid[pid] || fotoByName[normName(name)] || {};
-        byPlayer[name] = {
-          jugador_id:  pid,
-          jugador:     name,
-          equipo:      teamNameToSpanish_(r.team_name || ''),
-          foto:        meta.foto     || '',
-          posicion:    meta.posicion || '',
-          edad:        meta.edad     || '',
-          goles:       0,
-          asistencias: 0,
-          amarillas:   0,
-          rojas:       0,
-          minutos:     0,
-          partidos:    0
-        };
-      }
-      const p = byPlayer[name];
+  // PlayerMatchStats trae la planilla completa del partido; se fusiona siempre.
+  const pmsDedup = {};
+  readAll_(CONFIG.SHEETS.PLAYER_MATCH_STATS).forEach(r => {
+    const fid = String(r.fixture_id || '').trim();
+    const pid = String(r.player_id || '');
+    const name = r.player_name || '';
+    if (!fid || !name) return;
+    const key = fid + '_' + (pid || normName(name) + '_' + normalizeTeamNameStrong_(r.team_name || ''));
+    const ts = r.loaded_at || '';
+    if (!pmsDedup[key] || String(ts) > String(pmsDedup[key].loaded_at || '')) pmsDedup[key] = r;
+  });
+
+  Object.values(pmsDedup).forEach(r => {
+    const name = r.player_name || '';
+    if (!name) return;
+    const pid = String(r.player_id || '');
+    const fid = String(r.fixture_id || '').trim();
+    const ref = ensurePlayer_(pid, name, r.team_name || '');
+    const p = ref.player;
+
+    if (!countedFixturesByPlayer[ref.key][fid]) {
       p.goles       += Number(r.goals_scored   || 0);
       p.asistencias += Number(r.assists        || 0);
       p.amarillas   += Number(r.yellow_cards   || 0);
       p.rojas       += Number(r.red_cards      || 0);
-      p.minutos     += Number(r.minutes_played || 0);
       p.partidos    += 1;
-    });
-  }
+      countedFixturesByPlayer[ref.key][fid] = true;
+    }
+    p.minutos += Number(r.minutes_played || 0);
+  });
 
   return Object.values(byPlayer)
     .sort((a, b) => b.goles - a.goles || b.asistencias - a.asistencias)
