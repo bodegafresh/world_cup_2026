@@ -1816,6 +1816,25 @@ function getWebSquad_(e) {
   squad = Object.values(dedupSquad);
 
   var equipoName = teamNameToSpanish_(squad[0].equipo || equipoParam);
+  var equipoKey = normalizeTeamNameStrong_(equipoName);
+  var teamFixtureIds = {};
+  try {
+    readAll_(CONFIG.SHEETS.PARTIDOS).forEach(function(r) {
+      var localKey = normalizeTeamNameStrong_(teamNameToSpanish_(r.local || ''));
+      var awayKey  = normalizeTeamNameStrong_(teamNameToSpanish_(r.visitante || ''));
+      if (localKey !== equipoKey && awayKey !== equipoKey) return;
+      [r.fixture_id_api_football, r.fixture_id_af, r.match_id, r.match_key].forEach(function(fid) {
+        fid = String(fid || '').trim();
+        if (fid) teamFixtureIds[fid] = true;
+      });
+    });
+  } catch(e_) {}
+
+  function isKnownTeamFixture_(fixtureId) {
+    fixtureId = String(fixtureId || '').trim();
+    if (!fixtureId) return false;
+    return Object.keys(teamFixtureIds).length ? !!teamFixtureIds[fixtureId] : true;
+  }
 
   // Acumular stats de ResumenJugadorPartido (deduplicado por fixture_id+jugador_id)
   var resumen = readAll_(CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO);
@@ -1840,6 +1859,10 @@ function getWebSquad_(e) {
   var statsByName = {};
   Object.keys(dedupMap).forEach(function(k) {
     var r   = dedupMap[k];
+    var fid = String(r.fixture_id || r.match_id || '').trim();
+    if (!isKnownTeamFixture_(fid)) return;
+    var rowEquipoKey = normalizeTeamNameStrong_(teamNameToSpanish_(r.equipo || ''));
+    if (rowEquipoKey && rowEquipoKey !== equipoKey) return;
     var pid = String(r.jugador_id || '');
     if (!pid) return;
     if (!statsByPid[pid]) statsByPid[pid] = { goles: 0, asistencias: 0, amarillas: 0, rojas: 0, partidos: 0 };
@@ -1865,9 +1888,15 @@ function getWebSquad_(e) {
   var minutosByPid = {};
   var ratingByName  = {};
   var minutosByName = {};
+  var pmsGamesByPid = {};
+  var pmsGamesByName = {};
   try {
     var pmsRows = readAll_(CONFIG.SHEETS.PLAYER_MATCH_STATS);
     pmsRows.forEach(function(r) {
+      var fid = String(r.fixture_id || r.match_id || '').trim();
+      if (!isKnownTeamFixture_(fid)) return;
+      var rowEquipoKey = normalizeTeamNameStrong_(teamNameToSpanish_(r.team_name || r.equipo || ''));
+      if (rowEquipoKey && rowEquipoKey !== equipoKey) return;
       var pid = String(r.player_id || r.jugador_id || '');
       var min = Number(r.minutes_played || r.minutos || r.minutes || 0);
       var rat = Number(r.rating || 0);
@@ -1875,7 +1904,9 @@ function getWebSquad_(e) {
       if (pid && !isNaN(Number(pid))) {
         if (!minutosByPid[pid]) minutosByPid[pid] = 0;
         if (!ratingByPid[pid])  ratingByPid[pid]  = { sum: 0, cnt: 0 };
+        if (!pmsGamesByPid[pid]) pmsGamesByPid[pid] = {};
         minutosByPid[pid] += min;
+        pmsGamesByPid[pid][fid] = true;
         if (rat > 0) { ratingByPid[pid].sum += rat; ratingByPid[pid].cnt++; }
       }
       // Índice por nombre como fallback
@@ -1883,7 +1914,9 @@ function getWebSquad_(e) {
       if (nk) {
         if (!minutosByName[nk]) minutosByName[nk] = 0;
         if (!ratingByName[nk])  ratingByName[nk]  = { sum: 0, cnt: 0 };
+        if (!pmsGamesByName[nk]) pmsGamesByName[nk] = {};
         minutosByName[nk] += min;
+        pmsGamesByName[nk][fid] = true;
         if (rat > 0) { ratingByName[nk].sum += rat; ratingByName[nk].cnt++; }
       }
     });
@@ -1910,8 +1943,9 @@ function getWebSquad_(e) {
     var stats    = statsByPid[pid] || statsByName[nk] || { goles: 0, asistencias: 0, amarillas: 0, rojas: 0, partidos: 0 };
     var ratObj   = ratingByPid[pid]  || ratingByName[nk];
     var minutos  = minutosByPid[pid] || minutosByName[nk] || 0;
-    var lineupStats = lineupByName[nk] || null;
-    var partidos = stats.partidos || (lineupStats ? lineupStats.partidos : 0);
+    var pmsPartidos = pmsGamesByPid[pid] ? Object.keys(pmsGamesByPid[pid]).length :
+      (pmsGamesByName[nk] ? Object.keys(pmsGamesByName[nk]).length : 0);
+    var partidos = stats.partidos || pmsPartidos || 0;
     return {
       nombre:      r.nombre   || '',
       posicion:    r.posicion || '',

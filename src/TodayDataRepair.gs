@@ -240,6 +240,119 @@ function auditOfficialPlayerStatsCoverage() {
   });
 }
 
+function auditPlayerStatsConsistency() {
+  return playerStatsConsistency_(false);
+}
+
+function repairPlayerStatsConsistency() {
+  return playerStatsConsistency_(true);
+}
+
+function playerStatsConsistency_(applyFix) {
+  const fixtureIndex = buildPlayerStatsFixtureIndex_();
+  const result = {
+    mode: applyFix ? 'repair' : 'audit',
+    player_match_stats: auditStatsSheetByFixtureTeam_(
+      CONFIG.SHEETS.PLAYER_MATCH_STATS,
+      'fixture_id',
+      'team_name',
+      ['fixture_id', 'player_id'],
+      fixtureIndex,
+      applyFix
+    ),
+    resumen_jugador_partido: auditStatsSheetByFixtureTeam_(
+      CONFIG.SHEETS.RESUMEN_JUGADOR_PARTIDO,
+      'fixture_id',
+      'equipo',
+      ['fixture_id', 'jugador_id'],
+      fixtureIndex,
+      applyFix
+    )
+  };
+
+  Logger.log('playerStatsConsistency_: ' + JSON.stringify(result));
+  return result;
+}
+
+function buildPlayerStatsFixtureIndex_() {
+  const index = {};
+  readAll_(CONFIG.SHEETS.PARTIDOS).forEach(r => {
+    const teams = [
+      normalizeTeamNameStrong_(teamNameToSpanish_(r.local || '')),
+      normalizeTeamNameStrong_(teamNameToSpanish_(r.visitante || ''))
+    ].filter(Boolean);
+    [r.fixture_id_api_football, r.fixture_id_af, r.match_id, r.match_key].forEach(fid => {
+      fid = String(fid || '').trim();
+      if (!fid) return;
+      index[fid] = { teams: teams, match_key: r.match_key || '', fecha: normalizeFecha_(r.fecha) };
+    });
+  });
+  return index;
+}
+
+function auditStatsSheetByFixtureTeam_(sheetName, fixtureCol, teamCol, keyCols, fixtureIndex, applyFix) {
+  const sheet = getSheet_(sheetName);
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) return { rows: 0, duplicates: 0, invalid_fixture: 0, team_mismatch: 0, deleted: 0 };
+
+  const headers = values[0];
+  const idx = name => headers.indexOf(name);
+  const fixtureIdx = idx(fixtureCol);
+  const teamIdx = idx(teamCol);
+  const keyIdxs = keyCols.map(idx);
+  if (fixtureIdx === -1 || teamIdx === -1 || keyIdxs.some(i => i === -1)) {
+    Logger.log('auditStatsSheetByFixtureTeam_: columnas faltantes en ' + sheetName);
+    return { rows: values.length - 1, error: 'missing_columns' };
+  }
+
+  const seen = {};
+  const deleteRows = [];
+  let duplicates = 0;
+  let invalidFixture = 0;
+  let teamMismatch = 0;
+
+  values.slice(1).forEach((row, offset) => {
+    const rowNum = offset + 2;
+    const fixtureId = String(row[fixtureIdx] || '').trim();
+    const key = keyIdxs.map(i => String(row[i] || '').trim()).join('_');
+    const teamKey = normalizeTeamNameStrong_(teamNameToSpanish_(row[teamIdx] || ''));
+
+    if (key && seen[key]) {
+      duplicates++;
+      deleteRows.push(rowNum);
+      Logger.log('DUP ' + sheetName + ' row=' + rowNum + ' key=' + key);
+      return;
+    }
+    if (key) seen[key] = true;
+
+    if (!fixtureId || fixtureId.indexOf('espn_') === 0) return;
+    const fixture = fixtureIndex[fixtureId];
+    if (!fixture) {
+      invalidFixture++;
+      deleteRows.push(rowNum);
+      Logger.log('INVALID_FIXTURE ' + sheetName + ' row=' + rowNum + ' fixture_id=' + fixtureId);
+      return;
+    }
+    if (teamKey && fixture.teams.indexOf(teamKey) === -1) {
+      teamMismatch++;
+      deleteRows.push(rowNum);
+      Logger.log('TEAM_MISMATCH ' + sheetName + ' row=' + rowNum + ' fixture_id=' + fixtureId + ' team=' + row[teamIdx]);
+    }
+  });
+
+  if (applyFix && deleteRows.length) {
+    deleteRows.sort((a, b) => b - a).forEach(rowNum => sheet.deleteRow(rowNum));
+  }
+
+  return {
+    rows: values.length - 1,
+    duplicates: duplicates,
+    invalid_fixture: invalidFixture,
+    team_mismatch: teamMismatch,
+    deleted: applyFix ? deleteRows.length : 0
+  };
+}
+
 function backfillMissingApiFootballFixtureIds() {
   return backfillMissingApiFootballFixtureIdsForDates_([yesterdayChile_(), todayChile_()]);
 }
