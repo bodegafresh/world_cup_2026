@@ -165,15 +165,32 @@ function getWebEvOpps_() {
       var sospechoso = !outlier && (ev > 0.25 || String(r.sospechoso).toUpperCase() === 'TRUE' || r.sospechoso === true);
       var prob       = Number(r.prob_modelo || r.model_prob || 0);
       var cuota      = Number(r.cuota || r.odds || 0);
+      var mercado    = r.mercado || r.market || '';
+      var seleccion  = r.seleccion || r.selection || '';
+      var local      = teamNameToSpanish_(r.local || r.home_team || '');
+      var visitante  = teamNameToSpanish_(r.visitante || r.away_team || '');
+      var official   = null;
+      try { official = getOfficialModelProbabilities_(local, visitante, r.fixture_id || r.match_key || ''); } catch(e_) {}
+      if (official && String(mercado).toLowerCase().match(/^(1x2|h2h|match winner)$/)) {
+        var selKey = normalizeTeamNameStrong_(teamNameToSpanish_(seleccion));
+        var officialProb = selKey === normalizeTeamNameStrong_(local) ? official.prob_home :
+          selKey === normalizeTeamNameStrong_(visitante) ? official.prob_away :
+          (/empate|draw|^x$/i.test(String(seleccion)) ? official.prob_draw : null);
+        if (officialProb !== null && Math.abs(prob - officialProb) > 0.02) {
+          Logger.log('EV hidden: prob_modelo stale ' + local + ' vs ' + visitante + ' ' + seleccion +
+            ' sheet=' + prob.toFixed(4) + ' official=' + officialProb.toFixed(4));
+          return null;
+        }
+      }
       var cuotaJusta = prob > 0 ? (1 / prob) : null;
       var edge       = prob > 0 && cuota > 0 ? prob - (1/cuota) : 0;
       var confianza  = outlier ? 'PELIGRO' : (sospechoso ? 'BAJA' : (r.confianza || r.confidence || ''));
       return {
         fecha:        normalizeFecha_(r.fecha || r.date || ''),
-        local:        teamNameToSpanish_(r.local || r.home_team || ''),
-        visitante:    teamNameToSpanish_(r.visitante || r.away_team || ''),
-        mercado:      r.mercado    || r.market    || '',
-        seleccion:    r.seleccion  || r.selection || '',
+        local:        local,
+        visitante:    visitante,
+        mercado:      mercado,
+        seleccion:    seleccion,
         prob_modelo:  prob,
         cuota:        cuota,
         cuota_justa:  cuotaJusta,
@@ -377,12 +394,9 @@ function getWebPredictions_() {
   return proximos.map(r => {
     const home = r.local     || '';
     const away = r.visitante || '';
-    let poisson = null;
-    try { poisson = getPoissonOdds_(home, away, r.match_key || ''); } catch (e_) {}
-    let elo = null;
-    try { elo = getEloProbabilities_(home, away); } catch (e_) {}
+    let official = null;
+    try { official = getOfficialModelProbabilities_(home, away, r.match_key || r.fixture_id_api_football || ''); } catch (e_) {}
 
-    const mkts = poisson ? poisson.markets : null;
     return {
       match_key:  r.match_key || '',
       fecha:      normalizeFecha_(r.fecha),
@@ -392,21 +406,16 @@ function getWebPredictions_() {
       grupo:      r.grupo  || '',
       ronda:      r.ronda  || '',
       estadio:    r.estadio || '',
-      poisson: mkts ? {
-        prob_home:  Number((mkts['1'] || 0) * 100).toFixed(1),
-        prob_draw:  Number((mkts['X'] || 0) * 100).toFixed(1),
-        prob_away:  Number((mkts['2'] || 0) * 100).toFixed(1),
-        lambda_h:   Number(poisson.lambdaH || 0).toFixed(2),
-        lambda_a:   Number(poisson.lambdaA || 0).toFixed(2),
-        over25:     Number((mkts['over_2.5'] || 0) * 100).toFixed(1),
-        btts:       Number((mkts['btts_yes'] || 0) * 100).toFixed(1)
-      } : null,
-      elo: elo ? {
-        prob_home: Number((elo.home_win || elo.home || 0) * 100).toFixed(1),
-        prob_draw: Number((elo.draw     || 0)             * 100).toFixed(1),
-        prob_away: Number((elo.away_win || elo.away || 0) * 100).toFixed(1),
-        elo_home:  Number(elo.elo_home || 0),
-        elo_away:  Number(elo.elo_away || 0)
+      poisson: official ? {
+        prob_home: Number((official.prob_home || 0) * 100).toFixed(1),
+        prob_draw: Number((official.prob_draw || 0) * 100).toFixed(1),
+        prob_away: Number((official.prob_away || 0) * 100).toFixed(1),
+        lambda_h:  Number(official.lambda_h || 0).toFixed(2),
+        lambda_a:  Number(official.lambda_a || 0).toFixed(2),
+        over25:    official.over25 ? Number(official.over25 * 100).toFixed(1) : '',
+        btts:      official.btts ? Number(official.btts * 100).toFixed(1) : '',
+        source:    official.source || '',
+        confidence: official.confidence || ''
       } : null
     };
   });

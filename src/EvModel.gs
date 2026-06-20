@@ -32,6 +32,92 @@ const PROB_SUM_TOLERANCE     = (typeof CONFIG !== 'undefined' && CONFIG.BETTING)
 
 // ─── Cálculo de EV ────────────────────────────────────────────────────────────
 
+function getOfficialModelProbabilities_(homeTeam, awayTeam, matchKey) {
+  const home = teamNameToSpanish_(homeTeam || '');
+  const away = teamNameToSpanish_(awayTeam || '');
+  const cap = (p, lo, hi) => Math.min(Math.max(Number(p), lo), hi);
+  const normalize = (h, d, a) => {
+    let pH = Number(h), pD = Number(d), pA = Number(a);
+    if (![pH, pD, pA].every(p => isFinite(p) && p > 0)) return null;
+    pH = cap(pH, 0.04, 0.92);
+    pD = cap(pD, 0.04, 0.60);
+    pA = cap(pA, 0.04, 0.92);
+    const s = pH + pD + pA;
+    if (!s || s < 0.5 || s > 1.5) return null;
+    return { home: pH / s, draw: pD / s, away: pA / s };
+  };
+
+  let ai = null;
+  try {
+    const today = todayChile_();
+    const aiRows = readAll_(CONFIG.SHEETS.AI_ANALYSIS);
+    const row = aiRows.find(r => {
+      const byFixture = matchKey && String(r.fixture_id || r.match_key || '') === String(matchKey);
+      const byTeams = teamNameMatches_(r.equipo_local || '', home) &&
+        teamNameMatches_(r.equipo_visitante || '', away);
+      const fresh = !r.updated_at || String(r.updated_at || '').substring(0, 10) === today;
+      return fresh && (byFixture || byTeams);
+    });
+    if (row && Number(row.prob_local) > 0) {
+      const p = normalize(Number(row.prob_local), Number(row.prob_empate), Number(row.prob_visitante));
+      if (p) ai = {
+        prob_home: p.home,
+        prob_draw: p.draw,
+        prob_away: p.away,
+        over25: Number(row.prob_over25 || row.over_2_5 || 0) || null,
+        btts: Number(row.prob_btts || row.btts || 0) || null,
+        source: String(row.fuente || 'IA_AJUSTADA').toUpperCase(),
+        confidence: String(row.confianza || 'MEDIA').toUpperCase()
+      };
+    }
+  } catch(e_) {}
+  if (ai) return ai;
+
+  let poisson = null;
+  try { poisson = getPoissonOdds_(homeTeam, awayTeam, matchKey); } catch(e_) {}
+  if (!poisson) { try { poisson = getPoissonOdds_(home, away, matchKey); } catch(e_) {} }
+  if (poisson) {
+    const rawH = poisson.prob_home != null ? Number(poisson.prob_home) / 100 :
+      (poisson.markets && poisson.markets['1'] != null ? Number(poisson.markets['1']) : null);
+    const rawD = poisson.prob_draw != null ? Number(poisson.prob_draw) / 100 :
+      (poisson.markets && poisson.markets['X'] != null ? Number(poisson.markets['X']) : null);
+    const rawA = poisson.prob_away != null ? Number(poisson.prob_away) / 100 :
+      (poisson.markets && poisson.markets['2'] != null ? Number(poisson.markets['2']) : null);
+    const p = normalize(rawH, rawD, rawA);
+    if (p) return {
+      prob_home: p.home,
+      prob_draw: p.draw,
+      prob_away: p.away,
+      over25: poisson.over_2_5 != null ? Number(poisson.over_2_5) / 100 :
+        (poisson.markets && poisson.markets['over_2.5'] != null ? Number(poisson.markets['over_2.5']) : null),
+      btts: poisson.prob_btts_si != null ? Number(poisson.prob_btts_si) / 100 :
+        (poisson.markets && poisson.markets.btts_yes != null ? Number(poisson.markets.btts_yes) : null),
+      lambda_h: Number(poisson.lambda_home || poisson.lambdaH || 0),
+      lambda_a: Number(poisson.lambda_away || poisson.lambdaA || 0),
+      source: 'POISSON',
+      confidence: poisson.source === 'poisson_cache' ? 'ALTA' : 'MEDIA'
+    };
+  }
+
+  let elo = null;
+  try { elo = getEloProbabilities_(homeTeam, awayTeam); } catch(e_) {}
+  if (!elo) { try { elo = getEloProbabilities_(home, away); } catch(e_) {} }
+  if (elo) {
+    const p = normalize(elo.home_win || elo.home, elo.draw, elo.away_win || elo.away);
+    if (p) return {
+      prob_home: p.home,
+      prob_draw: p.draw,
+      prob_away: p.away,
+      source: 'ELO',
+      confidence: 'MEDIA',
+      elo_home: Number(elo.elo_home || 0),
+      elo_away: Number(elo.elo_away || 0)
+    };
+  }
+
+  return null;
+}
+
 /**
  * Calcula EV y Kelly para todos los mercados de un fixture.
  * Usa probabilidades del modelo Poisson como estimación independiente.
@@ -92,45 +178,8 @@ function calculateEvForFixture_(fixture) {
   const oddsRows = allOddsRows || [];
   if (!oddsRows.length) return [];
 
-  // 2. Probabilidades del modelo — prioridad: IA ajustada > Poisson > ELO
-  let poisson   = null;
-  let eloProbs  = null;
-  let iaProbs   = null; // probabilidades ajustadas por IA (AnalisisIA fresco de hoy)
-
-  // 2a. AnalisisIA: si hay análisis de hoy con fuente ia_ajustada, úsarlo como primario
-  try {
-    const today   = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
-    const aiRows  = readAll_(CONFIG.SHEETS.AI_ANALYSIS);
-    const aiRow   = aiRows.find(r => {
-      const updatedToday = String(r.updated_at || '').substring(0, 10) === today;
-      const matchesHome  = teamNameMatches_(r.equipo_local    || '', home);
-      const matchesAway  = teamNameMatches_(r.equipo_visitante|| '', away);
-      return updatedToday && matchesHome && matchesAway;
-    });
-    if (aiRow && aiRow.prob_local && Number(aiRow.prob_local) > 0) {
-      const pH = Number(aiRow.prob_local);
-      const pD = Number(aiRow.prob_empate);
-      const pA = Number(aiRow.prob_visitante);
-      const s  = pH + pD + pA;
-      if (s > 0.5 && s < 1.5) { // sanity check: suma razonable
-        iaProbs = {
-          home_win: pH / s,
-          draw:     pD / s,
-          away_win: pA / s,
-          over_2_5: Number(aiRow.over_2_5) || null,
-          btts_yes: Number(aiRow.btts)     || null,
-          fuente:   String(aiRow.fuente    || 'ia_ajustada'),
-          confianza: String(aiRow.confianza || 'media')
-        };
-      }
-    }
-  } catch (e_) { console.warn('EvModel IA probs:', e_.message); }
-
-  // 2b. Poisson y ELO siempre se cargan como respaldo
-  try { poisson = getPoissonOdds_(home, away); } catch (e_) {}
-  if (!poisson) {
-    try { eloProbs = getEloProbabilities_(home, away); } catch (e_) {}
-  }
+  const official = getOfficialModelProbabilities_(home, away, fixtureId);
+  if (!official) return [];
 
   /**
    * Retorna la probabilidad de nuestro modelo para un mercado+selección dados.
@@ -155,30 +204,9 @@ function calculateEvForFixture_(fixture) {
 
       const capP = (p, lo, hi) => Math.min(Math.max(p, lo), hi);
 
-      // Prioridad: IA ajustada → Poisson → ELO
-      if (iaProbs) {
-        if (isHome) return capP(iaProbs.home_win, 0.04, 0.92);
-        if (isAway) return capP(iaProbs.away_win, 0.04, 0.92);
-        return capP(iaProbs.draw, 0.04, 0.60);
-      }
-      if (poisson) {
-        let pH = capP(poisson.prob_home/100, 0.04, 0.92);
-        let pD = capP(poisson.prob_draw/100, 0.04, 0.60);
-        let pA = capP(poisson.prob_away/100, 0.04, 0.92);
-        const s = pH + pD + pA; pH/=s; pD/=s; pA/=s;
-        if (isHome) return pH;
-        if (isAway) return pA;
-        return pD;
-      }
-      if (eloProbs) {
-        let pH = capP(eloProbs.home, 0.04, 0.92);
-        let pD = capP(eloProbs.draw, 0.04, 0.60);
-        let pA = capP(eloProbs.away, 0.04, 0.92);
-        const s = pH + pD + pA; pH/=s; pD/=s; pA/=s;
-        if (isHome) return pH;
-        if (isAway) return pA;
-        return pD;
-      }
+      if (isHome) return official.prob_home;
+      if (isAway) return official.prob_away;
+      return official.prob_draw;
     }
 
     // Over/Under — IA tiene over_2_5, fallback Poisson
@@ -186,24 +214,18 @@ function calculateEvForFixture_(fixture) {
       const lineMatch = mkt.match(/(\d+\.?\d*)/);
       const line = lineMatch ? parseFloat(lineMatch[1]) : 2.5;
       if (line === 2.5) {
-        if (iaProbs && iaProbs.over_2_5) {
-          return sel.includes('over') ? iaProbs.over_2_5 : (1 - iaProbs.over_2_5);
+        if (official.over25) {
+          return sel.includes('over') ? official.over25 : (1 - official.over25);
         }
       }
-      if (!poisson) return null;
-      const lineKey = line === 1.5 ? 'over_1_5' : line === 3.5 ? 'over_3_5' : 'over_2_5';
-      if (sel.includes('over')) return (poisson[lineKey] || poisson.over_2_5) / 100;
-      if (sel.includes('under')) return (poisson[`under_${lineKey.replace('over_','')}`] || poisson.under_2_5) / 100;
+      return null;
     }
 
     // BTTS — IA tiene btts_yes, fallback Poisson
     if (mkt.includes('btts') || mkt.includes('both teams')) {
-      if (iaProbs && iaProbs.btts_yes) {
-        return (sel === 'yes' || sel === 'si' || sel === 'ambos') ? iaProbs.btts_yes : (1 - iaProbs.btts_yes);
+      if (official.btts) {
+        return (sel === 'yes' || sel === 'si' || sel === 'ambos') ? official.btts : (1 - official.btts);
       }
-      if (!poisson) return null;
-      if (sel === 'yes' || sel === 'si' || sel === 'ambos') return poisson.prob_btts_si / 100;
-      return poisson.prob_btts_no / 100;
     }
 
     return null;
@@ -224,12 +246,8 @@ function calculateEvForFixture_(fixture) {
     const kelly = Math.max(0, Math.min(metrics.kelly_25_pct, KELLY_MAX_FRACTION));
 
     // Confianza y fuente: IA ajustada > Poisson > ELO
-    const fuenteModelo = iaProbs
-      ? (iaProbs.fuente === 'ia_ajustada' ? 'IA_AJUSTADA' : ('IA_' + String(iaProbs.fuente).toUpperCase()))
-      : (poisson ? 'POISSON' : (eloProbs ? 'ELO' : 'N/A'));
-    const confianza = iaProbs
-      ? (iaProbs.confianza === 'alta' ? 'ALTA' : iaProbs.confianza === 'baja' ? 'BAJA' : 'MEDIA')
-      : (poisson ? (poisson.source === 'poisson_cache' ? 'ALTA' : 'MEDIA') : (eloProbs ? 'MEDIA' : 'BAJA'));
+    const fuenteModelo = official.source || 'N/A';
+    const confianza = official.confidence || 'MEDIA';
 
     opportunities.push({
       fixture_id:       fixtureId,
@@ -596,10 +614,6 @@ function calcularEV() {
     }
   } catch(ec_) { Logger.log('Error preparando hoja EV: ' + ec_.message); }
 
-  // Cargar AnalisisIA para usar como fuente primaria de probabilidades
-  let aiRows = [];
-  try { aiRows = readAll_(CONFIG.SHEETS.AI_ANALYSIS) || []; } catch(e_) {}
-
   let totalOpps = 0;
   const now = nowChile_();
   const newRows = [];
@@ -617,42 +631,28 @@ function calcularEV() {
       (commenceChileDate === tomorrow && commenceChileTime === '00:00');
     if (!isTodayBlock) return;
 
-    // 0. AnalisisIA como fuente primaria (misma fuente que el panel de análisis)
-    let iaProbs = null;
-    const aiRow = aiRows.find(r => {
-      const updatedToday = String(r.updated_at||'').substring(0,10) === today;
-      return updatedToday && teamNameMatches_(r.equipo_local||'', homeEs) && teamNameMatches_(r.equipo_visitante||'', awayEs);
-    });
-    if (aiRow && Number(aiRow.prob_local) > 0) {
-      const pH = Number(aiRow.prob_local), pD = Number(aiRow.prob_empate), pA = Number(aiRow.prob_visitante);
-      const s = pH + pD + pA;
-      if (s > 0.5 && s < 1.5) {
-        iaProbs = { home_win: pH/s, draw: pD/s, away_win: pA/s,
-                    over_2_5: Number(aiRow.prob_over25||0) || null,
-                    btts_yes:  Number(aiRow.prob_btts||0)  || null };
-        Logger.log(`🧠 calcularEV IA probs: ${homeEs} ${(iaProbs.home_win*100).toFixed(1)}% / ${(iaProbs.draw*100).toFixed(1)}% / ${(iaProbs.away_win*100).toFixed(1)}%`);
-      }
-    }
-
-    // Obtener probabilidades del modelo (Poisson/ELO como fallback)
-    let poisson = null;
-    let eloProbs = null;
     let oddsInvertidas = false; // La API puede devolver el partido con equipos invertidos
 
-    try { poisson = getPoissonOdds_(homeEn, awayEn); } catch(e_) {}
-    if (!poisson) { try { poisson = getPoissonOdds_(homeEs, awayEs); } catch(e_) {} }
-    // Intentar con equipos invertidos (API tiene away/home al revés)
-    if (!poisson) {
-      try { poisson = getPoissonOdds_(awayEn, homeEn); oddsInvertidas = !!poisson; } catch(e_) {}
+    let official = getOfficialModelProbabilities_(homeEs, awayEs);
+    if (!official) official = getOfficialModelProbabilities_(homeEn, awayEn);
+    if (!official) {
+      const inverted = getOfficialModelProbabilities_(awayEs, homeEs) || getOfficialModelProbabilities_(awayEn, homeEn);
+      if (inverted) {
+        oddsInvertidas = true;
+        official = {
+          prob_home: inverted.prob_away,
+          prob_draw: inverted.prob_draw,
+          prob_away: inverted.prob_home,
+          over25: inverted.over25,
+          btts: inverted.btts,
+          source: inverted.source,
+          confidence: inverted.confidence,
+          lambda_h: inverted.lambda_a,
+          lambda_a: inverted.lambda_h
+        };
+      }
     }
-    if (!poisson) {
-      try { poisson = getPoissonOdds_(awayEs, homeEs); oddsInvertidas = !!poisson; } catch(e_) {}
-    }
-    if (!poisson) {
-      try { eloProbs = getEloProbabilities_(homeEn, awayEn); } catch(e_) {}
-      if (!eloProbs) { try { eloProbs = getEloProbabilities_(awayEn, homeEn); oddsInvertidas = !!eloProbs; } catch(e_) {} }
-    }
-    if (!poisson && !eloProbs) {
+    if (!official) {
       Logger.log(`⚠️  Sin modelo para ${homeEs} vs ${awayEs}`);
       return;
     }
@@ -668,37 +668,16 @@ function calcularEV() {
       Logger.log(`🔄 Equipos invertidos detectados: ${homeEs} vs ${awayEs} — cuotas corregidas`);
     }
 
-    // Determinar fuente y confianza (IA primero, luego Poisson/ELO)
-    const fuente = iaProbs ? 'IA_AJUSTADA' : (poisson ? 'POISSON' : 'ELO');
-    const confianza = iaProbs ? 'ALTA'
-      : (poisson ? (poisson.source === 'poisson_cache' ? 'ALTA' : 'MEDIA') : 'MEDIA');
+    const fuente = official.source || 'N/A';
+    const confianza = official.confidence || 'MEDIA';
 
     const mkKey = `${normT(homeEs)}_vs_${normT(awayEs)}_${commenceChileDate}`;
 
-    // Cap de probabilidades: ningún resultado puede ser < 3% ni > 92% en fútbol real
-    const capProb = (p, min, max) => p == null ? null : Math.min(Math.max(p, min), max);
-
-    // IA probs como primaria; si no, Poisson; si no, ELO
-    const rawHome = iaProbs ? iaProbs.home_win : (poisson ? poisson.prob_home/100 : (eloProbs ? eloProbs.home : null));
-    const rawDraw = iaProbs ? iaProbs.draw      : (poisson ? poisson.prob_draw/100 : (eloProbs ? eloProbs.draw : null));
-    const rawAway = iaProbs ? iaProbs.away_win  : (poisson ? poisson.prob_away/100 : (eloProbs ? eloProbs.away : null));
-
-    // Aplicar cap y renormalizar para que sumen 1
-    let cH = capProb(rawHome, 0.04, 0.92);
-    let cD = capProb(rawDraw, 0.04, 0.60);
-    let cA = capProb(rawAway, 0.04, 0.92);
-    if (cH != null && cD != null && cA != null) {
-      const s = cH + cD + cA;
-      cH = cH/s; cD = cD/s; cA = cA/s;
-    }
-
-    // Prob over_2_5 y BTTS: IA primero, luego Poisson
-    const pOver25 = iaProbs && iaProbs.over_2_5
-      ? capProb(iaProbs.over_2_5, 0.05, 0.90)
-      : (poisson ? capProb((poisson.over_2_5||poisson['over_2.5']||0)/100, 0.05, 0.90) : null);
-    const pBtts = iaProbs && iaProbs.btts_yes
-      ? capProb(iaProbs.btts_yes, 0.05, 0.90)
-      : (poisson ? capProb((poisson.prob_btts_si||poisson.btts_yes||0)/100, 0.05, 0.90) : null);
+    const cH = official.prob_home;
+    const cD = official.prob_draw;
+    const cA = official.prob_away;
+    const pOver25 = official.over25;
+    const pBtts = official.btts;
 
     // Calcular EV para cada mercado disponible
     const mercados = [
