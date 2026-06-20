@@ -119,6 +119,7 @@ function repairTodaySourceData() {
 
   // Orden correcto: primero tabla, después simulación.
   try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('repair tabla:', e.message); }
+  try { initializeEloRatings(); } catch (e) { console.warn('repair elo defaults:', e.message); }
   try { runGroupSimulation(); } catch (e) { console.warn('repair sim:', e.message); }
   try { refreshDashboard(); } catch (e) { console.warn('repair dashboard:', e.message); }
 

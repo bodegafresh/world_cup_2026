@@ -1208,9 +1208,17 @@ function getWebTeams_() {
   const eloMap   = {};
   elo.forEach(r => {
     const nombre = teamNameToSpanish_(r.equipo || '');
-    eloMap[norm(nombre)] = Number(r.elo_actual || r.elo || 0);
-    eloMap[norm(r.equipo || '')] = Number(r.elo_actual || r.elo || 0); // also store raw
+    const value = Number(r.elo_actual || r.elo || 0);
+    if (!value) return;
+    eloMap[teamKey(nombre)] = value;
+    eloMap[teamKey(r.equipo || '')] = value; // also store raw alias
   });
+  try {
+    Object.keys(ELO_DEFAULTS || {}).forEach(function(name) {
+      const key = teamKey(name);
+      if (key && !eloMap[key]) eloMap[key] = Number(ELO_DEFAULTS[name] || 0);
+    });
+  } catch (e_) {}
 
   // Mapa de pares de equipos que se enfrentaron en el torneo (fecha >= 2026-06-11)
   const TORNEO_START = '2026-06-11';
@@ -1346,7 +1354,7 @@ function getWebTeams_() {
       grupo:         meta.grupo || cData.grupo || '',
       pos:           cData.pos  || 0,
       pts:           cData.pts  || 0,
-      elo:           eloMap[k]  || 0,
+      elo:           eloMap[k] || getTeamElo_(nombre) || 0,
       forma:         (formaMap[k] && formaMap[k].raw)    || '',
       forma_detail:  (formaMap[k] && formaMap[k].detail) || [],
       confederacion: meta.confederacion || '',
