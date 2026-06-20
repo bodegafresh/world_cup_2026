@@ -1,0 +1,47 @@
+src/Telegram.gs
+  s_bf65d3ab005d68::t_4a7d51ccbd7242 318,397
+src/ManualTest.gs
+  s_8d080e6df27905::t_81401008ea85c0 754-876,878-897
+  s_8d080e6df27905::t_51eacc20be20a6 877
+src/Standings.gs
+  s_bf65d3ab005d68::t_6343d976bf51f8 420
+src/WebApp.gs
+  s_bf65d3ab005d68::t_5e3458574b6b3b 465-466,603-604
+src/TodayDataRepair.gs
+  s_bf65d3ab005d68::t_9cd622ceb4095e 1-130
+src/Wather.gs
+  s_bf65d3ab005d68::t_852a664f6373f8 26-27,92-105,215-217,233-236,255-256
+  s_bf65d3ab005d68::t_5d97ce63c4eed2 257
+src/EvModel.gs
+  s_bf65d3ab005d68::t_393f299d96a4c9 613-618
+  s_bf65d3ab005d68::t_31b8271d4c7021 676
+  s_bf65d3ab005d68::t_deef6747024ef1 747,780-794
+src/Main.gs
+  s_bf65d3ab005d68::t_e043ed3c62ea26 41-44,48
+  s_bf65d3ab005d68::t_4a00fc56639f56 78,80,88,90,98,101-103,160,192,679
+  s_bf65d3ab005d68::t_ee5275607e2319 180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "3c0f5ab25dee1dfbe2c3faa7b7e34ff2b4f09d7b",
+  "prompts": {},
+  "sessions": {
+    "s_8d080e6df27905": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "564b2d3d-c8da-44ef-a747-435eb45baa64",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    },
+    "s_bf65d3ab005d68": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ee13f-9d09-79f3-814a-b023e7ecce50",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
