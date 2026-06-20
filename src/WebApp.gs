@@ -48,6 +48,7 @@ function routeWebRequest_(e) {
       case 'hoy':         data = getWebHoy_();           break;
       case 'live':        data = getWebLive_();         break;
       case 'teams':       data = getWebTeams_();        break;
+      case 'knockout':    data = getWebKnockout_();     break;
       case 'players':     data = getWebPlayers_();      break;
       case 'match':       data = getWebMatch_(e);       break;
       case 'ayer':        data = getWebAyer_();          break;
@@ -496,7 +497,10 @@ function getWebHoy_() {
     if (!ex || STATUS_PRIORITY(p.status) > STATUS_PRIORITY(ex.status)) deduped.set(key, p);
   });
   const lista = [...deduped.values()]
-    .sort((a, b) => (a.hora_chile || '').localeCompare(b.hora_chile || ''));
+    .sort((a, b) => {
+      if (!!a.operational_next_day !== !!b.operational_next_day) return a.operational_next_day ? 1 : -1;
+      return (a.hora_chile || '').localeCompare(b.hora_chile || '');
+    });
 
   // ESPN scoreboard — override status y scores en tiempo real
   const liveScoreMap = {};
@@ -1336,8 +1340,8 @@ function getWebTeams_() {
   partidos.forEach(r => {
     const l = displayTeamName(r.local || '');
     const v = displayTeamName(r.visitante || '');
-    if (l) allTeams.add(l);
-    if (v) allTeams.add(v);
+    if (l && !isKnockoutPlaceholderTeam_(l)) allTeams.add(l);
+    if (v && !isKnockoutPlaceholderTeam_(v)) allTeams.add(v);
   });
   equipos.forEach(eq => {
     const n = displayTeamName(eq.nombre || eq.name || eq.equipo || '');
@@ -1365,6 +1369,81 @@ function getWebTeams_() {
       partidos_wc:   (teamMatchesMap[k] || []).sort((a,b) => a.fecha > b.fecha ? 1 : -1)
     };
   }).filter(Boolean).sort((a, b) => (b.elo || 0) - (a.elo || 0));
+}
+
+function isKnockoutPlaceholderTeam_(name) {
+  const s = String(name || '').toLowerCase();
+  return s.includes('winner') ||
+    s.includes('loser') ||
+    s.includes('2nd place') ||
+    s.includes('third place') ||
+    s.includes('round of') ||
+    s.includes('quarterfinal') ||
+    s.includes('semifinal') ||
+    /^group [a-l]/i.test(String(name || ''));
+}
+
+function getWebKnockout_() {
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
+    .filter(r => isKnockoutPlaceholderTeam_(r.local) || isKnockoutPlaceholderTeam_(r.visitante))
+    .map((r, idx) => {
+      const phase = inferKnockoutPhase_(r, idx);
+      return {
+        id: r.match_key || r.match_id || ('ko_' + idx),
+        fecha: normalizeFecha_(r.fecha),
+        hora_chile: safeHoraChile_(r.hora_chile || r.hora),
+        fase: phase.key,
+        fase_label: phase.label,
+        order: phase.order,
+        local: knockoutSlotLabel_(r.local || ''),
+        visitante: knockoutSlotLabel_(r.visitante || ''),
+        local_raw: r.local || '',
+        visitante_raw: r.visitante || '',
+        estadio: r.estadio || '',
+        ciudad: r.ciudad || '',
+        status: String(r.status || 'NS').toUpperCase(),
+        match_key: r.match_key || ''
+      };
+    })
+    .sort((a, b) => (a.fecha + ' ' + a.hora_chile).localeCompare(b.fecha + ' ' + b.hora_chile));
+
+  const rounds = {};
+  partidos.forEach(p => {
+    if (!rounds[p.fase]) rounds[p.fase] = { key: p.fase, label: p.fase_label, order: p.order, partidos: [] };
+    rounds[p.fase].partidos.push(p);
+  });
+
+  return {
+    rounds: Object.values(rounds).sort((a, b) => a.order - b.order),
+    partidos
+  };
+}
+
+function inferKnockoutPhase_(row, idx) {
+  const text = [
+    row.local, row.visitante, row.match_id, row.match_key, row.ronda, row.fase
+  ].join(' ').toLowerCase();
+  const date = normalizeFecha_(row.fecha);
+  if (text.includes('semifinal') && text.includes('loser')) return { key: 'third', label: 'Tercer puesto', order: 6 };
+  if (text.includes('semifinal') && text.includes('winner')) return { key: 'final', label: 'Final', order: 7 };
+  if (text.includes('quarterfinal')) return { key: 'semifinal', label: 'Semifinales', order: 5 };
+  if (text.includes('round of 16')) return { key: 'quarterfinal', label: 'Cuartos de final', order: 4 };
+  if (text.includes('round of 32')) return { key: 'r16', label: 'Octavos de final', order: 3 };
+  if (date && date >= '2026-06-28' && date <= '2026-07-03') return { key: 'r32', label: 'Dieciseisavos de final', order: 2 };
+  return { key: 'qualified', label: 'Clasificados / cruces', order: 1 };
+}
+
+function knockoutSlotLabel_(raw) {
+  let s = String(raw || '');
+  s = s.replace(/^Group ([A-L]) Winner$/i, 'Grupo $1 · 1°');
+  s = s.replace(/^Group ([A-L]) 2nd Place$/i, 'Grupo $1 · 2°');
+  s = s.replace(/^Third Place Group ([A-L/]+)$/i, 'Mejor 3° · Grupos $1');
+  s = s.replace(/^Round of 32 ([0-9]+) Winner$/i, 'Ganador 16avos $1');
+  s = s.replace(/^Round of 16 ([0-9]+) Winner$/i, 'Ganador octavos $1');
+  s = s.replace(/^Quarterfinal ([0-9]+) Winner$/i, 'Ganador cuartos $1');
+  s = s.replace(/^Semifinal ([0-9]+) Winner$/i, 'Ganador semifinal $1');
+  s = s.replace(/^Semifinal ([0-9]+) Loser$/i, 'Perdedor semifinal $1');
+  return teamNameToSpanish_(s);
 }
 
 // ─── Tab: players ────────────────────────────────────────────────────────────
