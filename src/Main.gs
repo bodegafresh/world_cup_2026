@@ -38,11 +38,14 @@ function getContextoDelDia_() {
     partidosMañana = all.filter(r => normalizeFecha_(r.fecha) === tomorrow);
   }
 
-  const hayPartidosHoy    = partidosHoy.length > 0;
+  let partidosOperacionalesHoy = [];
+  try { partidosOperacionalesHoy = getOperationalFixturesForDate_(today); } catch (e_) {}
+
+  const hayPartidosHoy    = partidosHoy.length > 0 || partidosOperacionalesHoy.length > 0;
   const hayPartidosMañana = partidosMañana.length > 0;
 
   const ctx = { today, tomorrow, hayPartidosHoy, hayPartidosMañana,
-    nHoy: partidosHoy.length, nMañana: partidosMañana.length };
+    nHoy: Math.max(partidosHoy.length, partidosOperacionalesHoy.length), nMañana: partidosMañana.length };
 
   props.setProperty(cacheKey, JSON.stringify(ctx));
   return ctx;
@@ -65,22 +68,18 @@ function cronDailySetup() {
     Logger.log(`cronDailySetup | hoy: ${ctx.nHoy} partidos | mañana: ${ctx.nMañana}`);
 
     // 1. Actualizar datos del día anterior con API-Football (estadísticas detalladas)
+    try { backfillMissingApiFootballFixtureIdsForDate(yesterdayChile_()); } catch (e) { console.warn('Fixture IDs ayer:', e.message); }
     try { loadWorldCupDay_(yesterdayChile_()); } catch (e) { console.warn('LoadDay ayer:', e.message); }
+    try { repairPlayerStatsForDate_(yesterdayChile_()); } catch (e) { console.warn('PlayerStats ayer:', e.message); }
 
     // 2. Actualizar solo hoy y mañana desde ESPN (rápido — 2 llamadas)
     try { loadEspnMatchesForDays_([yesterdayChile_(), ctx.today, ctx.tomorrow]); } catch (e) { console.warn('ESPN hoy/mañana/ayer:', e.message); }
 
     // 3. Contexto de partidos de hoy (clima, noticias, H2H, cuotas) — fuentes gratuitas
     if (ctx.hayPartidosHoy) {
-      const fixturesHoy = readAll_(CONFIG.SHEETS.PARTIDOS)
-        .filter(r => normalizeFecha_(r.fecha) === ctx.today);
+      const fixturesHoy = getOperationalFixturesForDate_(ctx.today);
       fixturesHoy.forEach(r => {
-        const fixtureId = r.fixture_id_af || r.match_key || (r.local + '_' + r.visitante);
-        const fakeFixture = {
-          fixture: { id: fixtureId, date: r.fecha },
-          teams:   { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
-          league:  { round: r.ronda || '' }
-        };
+        const fakeFixture = buildFixtureFromPartidosRow_(r);
         try { gatherFixtureContext_(fakeFixture); } catch (e_) {}
         Utilities.sleep(500);
       });
@@ -88,15 +87,9 @@ function cronDailySetup() {
 
     // 4. Análisis IA para partidos de hoy (OpenAI, cachea si ya existe)
     if (ctx.hayPartidosHoy) {
-      const fixturesHoy = readAll_(CONFIG.SHEETS.PARTIDOS)
-        .filter(r => normalizeFecha_(r.fecha) === ctx.today);
+      const fixturesHoy = getOperationalFixturesForDate_(ctx.today);
       fixturesHoy.forEach(r => {
-        const fixtureId = r.fixture_id_af || r.match_key || (r.local + '_' + r.visitante);
-        const fakeFixture = {
-          fixture: { id: fixtureId, date: r.fecha },
-          teams:   { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
-          league:  { round: r.ronda || '' }
-        };
+        const fakeFixture = buildFixtureFromPartidosRow_(r);
         try { analyzeAndSaveFixture_(fakeFixture); } catch (e_) { Logger.log('AnalisisIA ERROR ' + r.local + ' vs ' + r.visitante + ': ' + e_.message); }
         Utilities.sleep(1000);
       });
@@ -104,11 +97,11 @@ function cronDailySetup() {
 
     // 5. Modelo Poisson: movido a cronOddsCalc (trigger separado 7:15 AM) para evitar timeout
 
-    // 6. EV y simulación de grupos (Poisson ya disponible → EV usa modelo independiente)
-    try { runGroupSimulation(); } catch (e) { console.warn('GroupSim:', e.message); }
-
-    // 7. Recalcular tabla de posiciones
+    // 6. Recalcular tabla de posiciones antes de simular.
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
+
+    // 7. EV y simulación de grupos (Poisson ya disponible → EV usa modelo independiente)
+    try { runGroupSimulation(); } catch (e) { console.warn('GroupSim:', e.message); }
 
     // 8. Refrescar horas de partidos NS desde ESPN (corrige :42 del backfill)
     try { refreshNSMatchTimes(); } catch (e) { console.warn('RefreshNS:', e.message); }
@@ -166,8 +159,7 @@ function cronPostMatch() {
   runWithHealthCheck_('cronPostMatch', () => {
     const now      = new Date();
     const today    = todayChile_();
-    const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
-      .filter(r => normalizeFecha_(r.fecha) === today);
+    const partidos = getOperationalFixturesForDate_(today);
 
     const recienTerminados = partidos.filter(r => {
       if (!['FT','AET','PEN'].includes(String(r.status || '').toUpperCase())) return false;
@@ -187,10 +179,7 @@ function cronPostMatch() {
     try {
       const proximos = partidos.filter(r => String(r.status || '').toUpperCase() === 'NS');
       proximos.slice(0, 3).forEach(r => {
-        const fakeFixture = {
-          fixture: { id: r.fixture_id_af || r.match_key || '', date: r.fecha },
-          teams: { home: { name: r.local || '' }, away: { name: r.visitante || '' } }
-        };
+        const fakeFixture = buildFixtureFromPartidosRow_(r);
         const news = fetchNewsForFixture_(fakeFixture);
         if (news.length && news[0].source !== 'cache') saveNewsForFixture_(fakeFixture, news);
         Utilities.sleep(500);
@@ -202,11 +191,7 @@ function cronPostMatch() {
 
     recienTerminados.forEach(r => {
       // ESPN stats + árbitro post-partido (usa findEspnEventId_ internamente)
-      const fakeFixture = {
-        fixture: { id: r.fixture_id_af || r.match_key || '', date: r.fecha, status: { short: r.status || 'FT' } },
-        teams: { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
-        league: { round: r.ronda || '' }
-      };
+      const fakeFixture = buildFixtureFromPartidosRow_(r);
       try { saveEspnDataForFixture_(fakeFixture, today); } catch (e_) { console.warn('PostMatch ESPN:', e_.message); }
 
       // SofaScore deshabilitado (HTTP 403 desde GAS)
@@ -220,6 +205,10 @@ function cronPostMatch() {
 
     // Recalcular tabla después de partidos terminados
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla post:', e.message); }
+    // Resolver histórico EV y retirar oportunidades ya cerradas de la vista activa.
+    try { resolvePendingEvHistoricoFromPartidos(); } catch (e) { console.warn('EvHistResolve post:', e.message); }
+    try { cleanupClosedEvOpportunities(); } catch (e) { console.warn('EvCleanup post:', e.message); }
+    try { calculateModelCalibration_(); } catch (e) { console.warn('Calib post:', e.message); }
     // Actualizar % clasificación Monte Carlo con standings frescos
     try { runGroupSimulation(); } catch (e) { console.warn('GroupSim post:', e.message); }
     // Refrescar horas de partidos NS desde ESPN (corrige valores :42 del backfill)
@@ -239,7 +228,12 @@ function cronWeeklyMaintenance() {
     Logger.log('cronWeeklyMaintenance: inicio');
     try { limpiarDuplicadosPartidos(); }   catch (e) { console.warn('LimpDup:', e.message); }
     try { limpiarDuplicadosResumen(); }    catch (e) { console.warn('LimpResumen:', e.message); }
+    try { initializeEloRatings(); }         catch (e) { console.warn('EloInit:', e.message); }
+    try { repairRecentOfficialPlayerStats_(7, 8); } catch (e) { console.warn('PlayerStatsRepair:', e.message); }
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
+    try { runGroupSimulation(); }           catch (e) { console.warn('GroupSim:', e.message); }
+    try { resolvePendingEvHistoricoFromPartidos(); } catch (e) { console.warn('EvHistResolve:', e.message); }
+    try { cleanupClosedEvOpportunities(); } catch (e) { console.warn('EvCleanup:', e.message); }
     // Cargar/actualizar planteles desde ESPN (fotos incluidas, sin cuota API-Football)
     try { cargarPlantelesDesdeEspn(); } catch (e) { console.warn('PlantelesEspn:', e.message); }
     try { calculateModelCalibration_(); }   catch (e) { console.warn('Calib:', e.message); }
@@ -262,7 +256,7 @@ function cronDailyLoadTodayStats() {
 function _buildFakeFixturesFromPartidos_(date) {
   const rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r =>
     String(r.fecha || '').substring(0, 10) === date &&
-    String(r.fixture_id_af || '').trim() !== '' &&
+    String(r.fixture_id_af || r.fixture_id_api_football || '').trim() !== '' &&
     ['FT','AET','PEN'].includes(String(r.status || '').toUpperCase())
   );
   if (!rows.length) return [];
@@ -278,7 +272,7 @@ function _buildFakeFixturesFromPartidos_(date) {
 
   return rows.map(r => ({
     fixture: {
-      id: Number(r.fixture_id_af),
+      id: Number(r.fixture_id_af || r.fixture_id_api_football),
       date: date,
       referee: null,
       status: { short: String(r.status || 'FT') }

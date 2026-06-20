@@ -315,9 +315,11 @@ function buildOddsMap_() {
 function getTodayFixturesForReport_(date) {
   const rows = readAll_(CONFIG.SHEETS.PARTIDOS);
 
-  return rows.filter(r => normalizeFecha_(r.fecha) === date)
+  return rows.filter(r => isOperationalReportDate_(r, date))
     .map(r => ({
       fixture_id:     r.match_key || r.fixture_id_af || '',
+      fecha:          normalizeFecha_(r.fecha),
+      operational_next_day: isOperationalNextDayFixture_(r, date),
       local:          r.local        || '',
       visitante:      r.visitante    || '',
       hora_chile:     normalizeHora_(r.hora_chile),
@@ -329,7 +331,10 @@ function getTodayFixturesForReport_(date) {
       grupo:          r.grupo        || '',
       ronda:          r.ronda        || ''
     }))
-    .sort((a, b) => (a.hora_chile || '').localeCompare(b.hora_chile || ''));
+    .sort((a, b) => {
+      if (!!a.operational_next_day !== !!b.operational_next_day) return a.operational_next_day ? 1 : -1;
+      return (a.hora_chile || '').localeCompare(b.hora_chile || '');
+    });
 }
 
 function getTodayAiReports_() {

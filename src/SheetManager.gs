@@ -50,7 +50,8 @@ const VALID_SHEETS = new Set([
   'SimulacionGrupos',
   // Hojas nuevas — fuentes adicionales
   'EspnStats',
-  'FormaEquipos'
+  'FormaEquipos',
+  'NormalizationAudit'
 ]);
 
 /**
@@ -61,20 +62,23 @@ const VALID_SHEETS = new Set([
  */
 const SHEET_HEADERS = {
   Partidos: [
-    'match_key','local','visitante','fecha','hora_chile','estadio','ciudad',
-    'pais_estadio','lat','lon','timezone_estadio','resultado','goles_local',
-    'goles_visitante','status','ronda','grupo','posesion_local','posesion_visitante',
-    'tiros_local','tiros_visitante','tiros_al_arco_local','tiros_al_arco_visitante',
-    'corners_local','corners_visitante','faltas_local','faltas_visitante',
-    'amarillas_local','amarillas_visitante','rojas_local','rojas_visitante',
-    'fixture_id_af','fixture_id_fd','sources_count','conflict_detail','updated_at'
+    'match_id','fecha','fecha_chile','hora_chile','fase','local','visitante',
+    'estadio','ciudad','pais','pais_torneo','pais_estadio','venue_id','lat','lon',
+    'timezone_estadio','goles_local','goles_visitante','posesion_local','posesion_visitante',
+    'tiros_local','tiros_visitante','xg_local','xg_visitante','corners_local',
+    'corners_visitante','faltas_local','faltas_visitante','amarillas_local',
+    'amarillas_visitante','rojas_local','rojas_visitante','fuente','match_key',
+    'fixture_id_api_football','match_id_football_data','sources_used','sources_count',
+    'confidence_score','has_conflict','conflict_detail','golden_source_score',
+    'last_validated_at','status','winner','data_quality_notes'
   ],
   PlayerMatchStats: [
     'fixture_id','player_id','player_name','team_id','team_name',
-    'minutes_played','rating','goals_scored','assists',
-    'yellow_cards','red_cards','passes_total','passes_accuracy',
-    'tackles_total','interceptions','duels_total','duels_won',
-    'dribbles_attempts','dribbles_success','shots_total','shots_on','updated_at'
+    'minutes_played','rating','position','captain','shots_total','shots_on',
+    'goals_scored','goals_conceded','assists','passes_total','passes_accuracy',
+    'key_passes','tackles_total','interceptions','blocks','duels_total','duels_won',
+    'dribbles_attempts','dribbles_success','fouls_committed','fouls_drawn',
+    'yellow_cards','red_cards','loaded_at'
   ],
   ResumenJugadorPartido: [
     'fixture_id','jugador_id','jugador','equipo_id','equipo',
@@ -98,13 +102,13 @@ const SHEET_HEADERS = {
     'probabilidad_modelo','ev','timestamp','confianza','razon'
   ],
   EstadiosClima: [
-    'fixture_id','estadio','ciudad','lat','lon','temperatura_c','sensacion_termica',
-    'humedad','viento_kmh','prob_lluvia','precipitacion_mm','condicion',
-    'hora_partido_utc','updated_at'
+    'venue_id','estadio','ciudad','pais','latitud_longitud',
+    'temperatura_c','humedad','viento_kmh','prob_lluvia','condicion',
+    'updated_at','fuente','fixture_id'
   ],
   Noticias: [
-    'id_hash','fixture_id','titulo','descripcion','fuente',
-    'url','pubDate','equipos_mencionados','updated_at'
+    'id_hash','pubDate','updated_at','source_match_id','query','titulo',
+    'tipo','status','url','fuente','fixture_id','equipo_local','equipo_visitante'
   ],
   HistorialH2H: [
     'fixture_ref_id','fecha','local','visitante','goles_local',
@@ -124,9 +128,24 @@ const SHEET_HEADERS = {
   Alertas: [
     'timestamp','tipo','prioridad','fixture_id','mensaje','enviado_telegram'
   ],
+  SourceFixtures: [
+    'source_fixture_key','source','source_match_id','competition_id','competition_name',
+    'season','stage','group_name','matchday','date_utc','date_chile','status',
+    'home_team_id','home_team_name','away_team_id','away_team_name',
+    'home_score','away_score','winner','venue_name','venue_city','raw_file_url','loaded_at'
+  ],
+  MatchMapping: [
+    'match_key','fixture_id_api_football','match_id_football_data','home_normalized',
+    'away_normalized','date_utc','confidence','mapping_method','created_at','updated_at'
+  ],
+  DataQualityLog: [
+    'quality_id','match_key','check_type','field_name','api_football_value',
+    'football_data_value','selected_value','severity','confidence','resolution','created_at'
+  ],
   PipelineRuns: [
-    'run_id','job_name','started_at','finished_at',
-    'status','records_processed','errors','error_msg'
+    'run_id','started_at','finished_at','mode','date_from','date_to','step',
+    'status','api_football_count','football_data_count','golden_count',
+    'enriched_count','teams_count','players_count','errors','notes'
   ],
   Suscriptores: [
     'chat_id','username','fecha_registro','activo'
@@ -138,7 +157,8 @@ const SHEET_HEADERS = {
   ],
   EvOpportunities: [
     'fixture_id','timestamp','fecha','local','visitante','mercado','seleccion','cuota',
-    'prob_modelo','ev','edge','kelly','ev_positivo','confianza','fuente_modelo'
+    'cuota_justa','prob_modelo','ev','edge','kelly','ev_positivo',
+    'confianza','fuente_modelo','sospechoso','outlier'
   ],
   BettingHistory: [
     'bet_id','fixture_id','fecha','equipo_local','equipo_visitante',
@@ -177,6 +197,9 @@ const SHEET_HEADERS = {
     'equipo','espn_team_id',
     'ultimos_5_resultados','ultimos_5_rivales','ultimos_5_marcadores',
     'updated_at'
+  ],
+  NormalizationAudit: [
+    'timestamp','sheet','check_type','severity','details','recommended_action','apply_status'
   ]
 };
 

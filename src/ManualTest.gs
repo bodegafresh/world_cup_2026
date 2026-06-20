@@ -751,6 +751,150 @@ function fixCriticos() {
   Logger.log('  2. backfillEspnPlayerStats() — cargar stats de jugadores Jun 15-19');
 }
 
+// ─── COMPLETAR HOJA EQUIPOS ──────────────────────────────────────────────────
+
+/**
+ * Completa la hoja Equipos con los 48 equipos del Mundial 2026.
+ * Fuentes:
+ *   - Grupo: desde hoja Clasificacion (automático)
+ *   - team_id_api_football + logo: desde hoja Jugadores (automático)
+ *   - código ISO, ranking_fifa, director_tecnico: mapa hardcodeado (editar si cambia)
+ *
+ * Ejecutar desde GAS editor → función: completarEquipos
+ */
+function completarEquipos() {
+  // Metadatos estáticos por equipo (nombre español = clave de Clasificacion)
+  // Fuente ranking: FIFA oct 2025 (aproximado). DT: plantillas iniciales WC 2026.
+  const META = {
+    // Grupo A
+    'México':           { codigo: 'MEX', ranking_fifa: 11, director_tecnico: 'Javier Aguirre' },
+    'Corea del Sur':    { codigo: 'KOR', ranking_fifa: 22, director_tecnico: 'Hong Myung-bo' },
+    'República Checa':  { codigo: 'CZE', ranking_fifa: 37, director_tecnico: 'Ivan Hašek' },
+    'Sudáfrica':        { codigo: 'RSA', ranking_fifa: 65, director_tecnico: 'Hugo Broos' },
+    // Grupo B
+    'Canadá':           { codigo: 'CAN', ranking_fifa: 47, director_tecnico: 'Jesse Marsch' },
+    'Suiza':            { codigo: 'SUI', ranking_fifa: 19, director_tecnico: 'Murat Yakin' },
+    'Bosnia':           { codigo: 'BIH', ranking_fifa: 67, director_tecnico: 'Sergej Barbarez' },
+    'Catar':            { codigo: 'QAT', ranking_fifa: 37, director_tecnico: 'Luis García Plaza' },
+    // Grupo C
+    'Marruecos':        { codigo: 'MAR', ranking_fifa: 14, director_tecnico: 'Walid Regragui' },
+    'Escocia':          { codigo: 'SCO', ranking_fifa: 38, director_tecnico: 'Steve Clarke' },
+    'Brasil':           { codigo: 'BRA', ranking_fifa: 5,  director_tecnico: 'Dorival Júnior' },
+    'Haití':            { codigo: 'HAI', ranking_fifa: 87, director_tecnico: 'Marc Collat' },
+    // Grupo D
+    'EE.UU.':           { codigo: 'USA', ranking_fifa: 16, director_tecnico: 'Mauricio Pochettino' },
+    'Australia':        { codigo: 'AUS', ranking_fifa: 23, director_tecnico: 'Tony Popovic' },
+    'Turquía':          { codigo: 'TUR', ranking_fifa: 26, director_tecnico: 'Vincenzo Montella' },
+    'Paraguay':         { codigo: 'PAR', ranking_fifa: 65, director_tecnico: 'Gustavo Alfaro' },
+    // Grupo E
+    'Alemania':         { codigo: 'GER', ranking_fifa: 13, director_tecnico: 'Julian Nagelsmann' },
+    'Costa de Marfil':  { codigo: 'CIV', ranking_fifa: 45, director_tecnico: 'Emerse Faé' },
+    'Ecuador':          { codigo: 'ECU', ranking_fifa: 44, director_tecnico: 'Sebastián Beccacece' },
+    'Curazao':          { codigo: 'CUW', ranking_fifa: 82, director_tecnico: 'Remko Bicentini' },
+    // Grupo F
+    'Suecia':           { codigo: 'SWE', ranking_fifa: 25, director_tecnico: 'Jon Dahl Tomasson' },
+    'Países Bajos':     { codigo: 'NED', ranking_fifa: 8,  director_tecnico: 'Ronald Koeman' },
+    'Japón':            { codigo: 'JPN', ranking_fifa: 17, director_tecnico: 'Hajime Moriyasu' },
+    'Túnez':            { codigo: 'TUN', ranking_fifa: 30, director_tecnico: 'Maher Kanzari' },
+    // Grupo G
+    'Irán':             { codigo: 'IRN', ranking_fifa: 25, director_tecnico: 'Amir Ghalenoei' },
+    'Nueva Zelanda':    { codigo: 'NZL', ranking_fifa: 100, director_tecnico: 'Darren Bazeley' },
+    'Bélgica':          { codigo: 'BEL', ranking_fifa: 3,  director_tecnico: 'Domenico Tedesco' },
+    'Egipto':           { codigo: 'EGY', ranking_fifa: 35, director_tecnico: 'Hossam El-Badry' },
+    // Grupo H
+    'Arabia Saudita':   { codigo: 'KSA', ranking_fifa: 56, director_tecnico: '' },
+    'Uruguay':          { codigo: 'URU', ranking_fifa: 12, director_tecnico: 'Marcelo Bielsa' },
+    'España':           { codigo: 'ESP', ranking_fifa: 4,  director_tecnico: 'Luis de la Fuente' },
+    'Cabo Verde':       { codigo: 'CPV', ranking_fifa: 68, director_tecnico: 'Pedro Leitão' },
+    // Grupo I
+    'Noruega':          { codigo: 'NOR', ranking_fifa: 33, director_tecnico: 'Ståle Solbakken' },
+    'Francia':          { codigo: 'FRA', ranking_fifa: 2,  director_tecnico: 'Didier Deschamps' },
+    'Senegal':          { codigo: 'SEN', ranking_fifa: 15, director_tecnico: 'Aliou Cissé' },
+    'Irak':             { codigo: 'IRQ', ranking_fifa: 73, director_tecnico: 'Jesús Casas' },
+    // Grupo J
+    'Argentina':        { codigo: 'ARG', ranking_fifa: 1,  director_tecnico: 'Lionel Scaloni' },
+    'Austria':          { codigo: 'AUT', ranking_fifa: 29, director_tecnico: 'Ralf Rangnick' },
+    'Jordania':         { codigo: 'JOR', ranking_fifa: 87, director_tecnico: 'Adnan Hamad' },
+    'Argelia':          { codigo: 'ALG', ranking_fifa: 52, director_tecnico: 'Vladimir Petkovic' },
+    // Grupo K
+    'Colombia':         { codigo: 'COL', ranking_fifa: 27, director_tecnico: 'Néstor Lorenzo' },
+    'Portugal':         { codigo: 'POR', ranking_fifa: 6,  director_tecnico: 'Roberto Martínez' },
+    'Congo DR':         { codigo: 'COD', ranking_fifa: 51, director_tecnico: 'Sébastien Desabre' },
+    'Uzbekistán':       { codigo: 'UZB', ranking_fifa: 76, director_tecnico: 'Timur Kapadze' },
+    // Grupo L
+    'Inglaterra':       { codigo: 'ENG', ranking_fifa: 5,  director_tecnico: 'Thomas Tuchel' },
+    'Ghana':            { codigo: 'GHA', ranking_fifa: 60, director_tecnico: 'Otto Addo' },
+    'Panamá':           { codigo: 'PAN', ranking_fifa: 77, director_tecnico: 'Thomas Christiansen' },
+    'Croacia':          { codigo: 'CRO', ranking_fifa: 11, director_tecnico: 'Zlatko Dalić' },
+  };
+
+  Logger.log('completarEquipos: leyendo fuentes...');
+
+  // 1. Grupos desde Clasificacion
+  const clasificacion = readAll_(CONFIG.SHEETS.CLASIFICACION);
+  const grupoByEquipo = {};
+  clasificacion.forEach(r => {
+    if (r.equipo) grupoByEquipo[r.equipo] = String(r.grupo || '').replace(/^Grupo\s*/i, '').trim();
+  });
+  Logger.log('  Grupos leídos: ' + Object.keys(grupoByEquipo).length + ' equipos.');
+
+  // 2. team_id_api_football desde Jugadores (primer jugador de cada equipo)
+  const jugadores = readAll_(CONFIG.SHEETS.JUGADORES);
+  const afIdByEquipo = {}; // equipo español → team_id_api_football
+  jugadores.forEach(r => {
+    const eq = r.equipo || '';
+    const eqEs = teamNameToSpanish_(eq);
+    const eid = r.equipo_id;
+    if (!eid) return;
+    // Solo guardar si no hay uno ya (o si el formato del equipo es español)
+    if (!afIdByEquipo[eqEs]) afIdByEquipo[eqEs] = Number(eid);
+  });
+  Logger.log('  team_id encontrados: ' + Object.keys(afIdByEquipo).length + ' equipos.');
+
+  // 3. Leer Equipos existentes para merge
+  const existingEquipos = readAll_(CONFIG.SHEETS.EQUIPOS);
+  const existingByNorm = {};
+  existingEquipos.forEach(r => {
+    if (r.nombre_normalizado) existingByNorm[r.nombre_normalizado] = r;
+  });
+
+  // 4. Construir objeto para cada uno de los 48 equipos
+  const normEquipo = s => String(s||'').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+
+  const teams = Object.keys(grupoByEquipo).map(nombreEs => {
+    const meta   = META[nombreEs] || {};
+    const afId   = afIdByEquipo[nombreEs] || null;
+    const norm   = normEquipo(nombreEs);
+    const existing = existingByNorm[norm] || {};
+
+    // Logo: URL directa de API-Football si tenemos el team_id
+    const logo = existing.logo || (afId ? 'https://media.api-sports.io/football/teams/' + afId + '.png' : '');
+
+    return {
+      team_id_api_football:    afId   || existing.team_id_api_football    || '',
+      team_id_football_data:   existing.team_id_football_data              || '',
+      nombre:                  existing.nombre || nombreEs,
+      nombre_normalizado:      norm,
+      pais:                    existing.pais   || nombreEs,
+      codigo:                  meta.codigo     || existing.codigo           || '',
+      grupo:                   grupoByEquipo[nombreEs] || existing.grupo    || '',
+      ranking_fifa:            meta.ranking_fifa !== undefined ? meta.ranking_fifa : (existing.ranking_fifa || ''),
+      director_tecnico:        meta.director_tecnico  || existing.director_tecnico || '',
+      fuente:                  existing.fuente  || 'MANUAL',
+      sources_used:            existing.sources_used  || 'CLASIFICACION,MANUAL',
+      confidence_score:        existing.confidence_score || 1,
+      logo:                    logo,
+      last_updated:            nowChile_(),
+    };
+  });
+
+  Logger.log('completarEquipos: upserting ' + teams.length + ' equipos...');
+  upsertTeams_(teams);
+  Logger.log('completarEquipos: ✅ listo. Revisa hoja Equipos.');
+  Logger.log('  ⚠️  Verifica DTs y rankings manualmente — datos aproximados a Oct 2025.');
+}
+
 // ─── BACKFILL VENTANA ACTUAL ──────────────────────────────────────────────────
 
 function backfillVentanaActual() {

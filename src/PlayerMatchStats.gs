@@ -102,15 +102,11 @@ function parsePlayerStatsResponse_(response, fixtureId) {
 }
 
 /**
- * Inserta filas en PlayerMatchStats. No hace upsert ya que
- * una misma combinación fixture+player no debería repetirse.
+ * Upsert por fixture_id + player_id.
+ * Evita duplicados y refresca stats si una fuente trae datos mas completos.
  */
 function savePlayerMatchStats_(players) {
   const sheetName = CONFIG.SHEETS.PLAYER_MATCH_STATS;
-  const sheet = ensurePlayerStatsSheet_(sheetName);
-
-  const existing = getExistingPlayerStatsPairs_(sheet);
-
   const HEADERS = [
     'fixture_id', 'player_id', 'player_name', 'team_id', 'team_name',
     'minutes_played', 'rating', 'position', 'captain',
@@ -126,15 +122,10 @@ function savePlayerMatchStats_(players) {
   const rows = [];
 
   players.forEach(p => {
-    const pairKey = `${p.fixture_id}_${p.player_id}`;
-    if (existing[pairKey]) return;
-
     rows.push(HEADERS.map(h => safe_(p[h])));
   });
 
-  if (rows.length) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
-  }
+  upsertRowsByKey_(sheetName, HEADERS, rows, ['fixture_id', 'player_id']);
 }
 
 function getExistingPlayerStatsPairs_(sheet) {

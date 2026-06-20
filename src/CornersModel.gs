@@ -541,8 +541,8 @@ function buildCornersEVText_(homeTeam, awayTeam) {
       const bookOver  = parseFloat(matchOdds.corners_over95  || matchOdds.bookmaker_corners_over  || 0);
       const bookUnder = parseFloat(matchOdds.corners_under95 || matchOdds.bookmaker_corners_under || 0);
       if (bookOver > 1 && fairOver95 > 0) {
-        const evOver  = over95prob       * bookOver  - 1;
-        const evUnder = (1 - over95prob) * bookUnder - 1;
+        const evOver  = bettingMetrics_(over95prob, bookOver).ev_pct;
+        const evUnder = bettingMetrics_(1 - over95prob, bookUnder).ev_pct;
         txt += `\n<b>EV vs mercado (O/U 9.5)</b>\n`;
         txt += `  Over  9.5 @ ${bookOver.toFixed(2)}  → EV ${evOver  > 0 ? '✅' : '❌'} <b>${(evOver  * 100).toFixed(1)}%</b>\n`;
         txt += `  Under 9.5 @ ${bookUnder.toFixed(2)} → EV ${evUnder > 0 ? '✅' : '❌'} <b>${(evUnder * 100).toFixed(1)}%</b>\n`;

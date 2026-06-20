@@ -572,11 +572,11 @@ function calculateBetfairEV_(homeTeam, awayTeam, matchKey) {
   // 3. Función interna de EV
   function evCalc_(probModelo, cuota) {
     if (!probModelo || !cuota || cuota <= 1) return null;
-    const ev     = parseFloat(((probModelo * cuota) - 1).toFixed(4));
-    const impl   = parseFloat((1 / cuota).toFixed(4));
-    const edge   = parseFloat((probModelo - impl).toFixed(4));
-    const kellyR = (probModelo * cuota - 1) / (cuota - 1);
-    const kelly  = parseFloat((Math.max(0, Math.min(kellyR / KELLY_DIVISOR, KELLY_MAX_FRACTION))).toFixed(4));
+    const metrics = bettingMetrics_(probModelo, cuota);
+    const ev     = parseFloat(metrics.ev_pct.toFixed(4));
+    const impl   = parseFloat(metrics.market_probability.toFixed(4));
+    const edge   = parseFloat(metrics.edge_pp.toFixed(4));
+    const kelly  = parseFloat(Math.max(0, Math.min(metrics.kelly_25_pct, KELLY_MAX_FRACTION)).toFixed(4));
     return { ev, edge, kelly, impl };
   }
 

@@ -576,8 +576,8 @@ function buildCardsEVText_(homeTeam, awayTeam) {
       const pinnOver  = parseFloat(matchOdds.cards_over45  || matchOdds.bookmaker_cards_over  || 0);
       const pinnUnder = parseFloat(matchOdds.cards_under45 || matchOdds.bookmaker_cards_under || 0);
       if (pinnOver > 1) {
-        const evOver  = over45prob  * pinnOver  - 1;
-        const evUnder = under45prob * pinnUnder - 1;
+        const evOver  = bettingMetrics_(over45prob, pinnOver).ev_pct;
+        const evUnder = bettingMetrics_(under45prob, pinnUnder).ev_pct;
         txt += `\n<b>EV vs mercado (O/U 4.5)</b>\n`;
         txt += `  Over  4.5 @ ${pinnOver.toFixed(2)}  → EV ${evOver  > 0 ? '✅' : '❌'} <b>${(evOver  * 100).toFixed(1)}%</b>\n`;
         txt += `  Under 4.5 @ ${pinnUnder.toFixed(2)} → EV ${evUnder > 0 ? '✅' : '❌'} <b>${(evUnder * 100).toFixed(1)}%</b>\n`;

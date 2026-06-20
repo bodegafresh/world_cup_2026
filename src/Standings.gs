@@ -417,6 +417,7 @@ function limpiarDuplicadosPartidos() {
       if (r.goles_local !== '' && r.goles_local !== null && r.goles_local !== undefined) s += 50;
       if (r.espn_id || r.espn_event_id) s += 20;
       if (r.fixture_id_af) s += 10;
+      if (String(r.match_key || '').toLowerCase() === '_objectobject_') s -= 200;
       // contar columnas no vacías
       s += Object.values(r).filter(v => v !== '' && v !== null && v !== undefined).length;
       return s;

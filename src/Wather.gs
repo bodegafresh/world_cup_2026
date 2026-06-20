@@ -23,7 +23,8 @@ function fetchWeatherForFixture_(fixture) {
   if (fixtureId) {
     const cached = readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).find(r =>
       String(r.fixture_id) === String(fixtureId) &&
-      r.temperatura_c !== '' && r.temperatura_c !== null && r.temperatura_c !== undefined
+      r.temperatura_c !== '' && r.temperatura_c !== null && r.temperatura_c !== undefined &&
+      weatherCacheRowMatchesFixture_(r, fixture)
     );
     if (cached) {
       return {
@@ -86,6 +87,20 @@ function fetchWeatherForFixture_(fixture) {
     condition: classifyCondition_(weather),
     source: 'open-meteo'
   };
+}
+
+function weatherCacheRowMatchesFixture_(row, fixture) {
+  const venue = (fixture.fixture && fixture.fixture.venue) || {};
+  const expectedVenue = normalizeVenueKey_(venue.name || '');
+  const expectedCity = normalizeVenueKey_(normalizeVenueCityForCatalog_(venue.city || ''));
+  const rowVenue = normalizeVenueKey_(row.estadio || row.stadium || '');
+  const rowCity = normalizeVenueKey_(row.ciudad || row.city || '');
+
+  // Si el fixture no trae sede, no confiar en cache: fue la causa de climas repetidos.
+  if (!expectedVenue || !expectedCity) return false;
+  if (!rowVenue || !rowCity) return false;
+
+  return rowVenue === expectedVenue && (rowCity === expectedCity || expectedCity.includes(rowCity) || rowCity.includes(expectedCity));
 }
 
 /**
@@ -197,6 +212,9 @@ function buildWeatherStub_(fixture, condition) {
  */
 function saveWeatherForFixture_(fixture, weather) {
   const fixtureId = String(fixture.fixture.id);
+  const venue = (fixture.fixture && fixture.fixture.venue) || {};
+  const stadium = weather.stadium || venue.name || '';
+  const city = weather.city || normalizeVenueCityForCatalog_(venue.city || '');
   const sheet = getOrCreateSheet_(CONFIG.SHEETS.ESTADIOS_CLIMA, [
     'venue_id','estadio','ciudad','pais','latitud_longitud',
     'temperatura_c','humedad','viento_kmh','prob_lluvia','condicion',
@@ -212,6 +230,10 @@ function saveWeatherForFixture_(fixture, weather) {
       // Actualizar fila existente
       const row = rowIdx + 2;
       const map = {
+        venue_id:      venue.id || '',
+        estadio:       stadium,
+        ciudad:        city,
+        pais:          fixture.league && fixture.league.country ? fixture.league.country : '',
         temperatura_c: weather.temperature_c,
         humedad:       weather.humidity,
         viento_kmh:    weather.wind_kmh,
@@ -230,9 +252,9 @@ function saveWeatherForFixture_(fixture, weather) {
 
   appendRows_(CONFIG.SHEETS.ESTADIOS_CLIMA, [[
     safe_(fixture.fixture.venue && fixture.fixture.venue.id),
-    safe_(weather.stadium),
-    safe_(weather.city),
-    safe_(fixture.league.country),
+    safe_(stadium),
+    safe_(city),
+    safe_(fixture.league && fixture.league.country),
     '',
     safe_(weather.temperature_c),
     safe_(weather.humidity),
