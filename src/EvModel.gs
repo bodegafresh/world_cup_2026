@@ -36,6 +36,48 @@ function getOfficialModelProbabilities_(homeTeam, awayTeam, matchKey) {
   const home = teamNameToSpanish_(homeTeam || '');
   const away = teamNameToSpanish_(awayTeam || '');
   const cap = (p, lo, hi) => Math.min(Math.max(Number(p), lo), hi);
+  const withQuality = (model) => {
+    if (!model) return null;
+    const h = Number(model.prob_home || 0);
+    const d = Number(model.prob_draw || 0);
+    const a = Number(model.prob_away || 0);
+    const lH = Number(model.lambda_h || 0);
+    const lA = Number(model.lambda_a || 0);
+    const source = String(model.source || '').toUpperCase();
+    const reasons = [];
+
+    if (![h, d, a].every(p => isFinite(p) && p > 0 && p < 1)) {
+      reasons.push('INVALID_PROB');
+    }
+
+    // Patron típico de saturación generado por clamp: 92/4/4 o 4/4/92.
+    if ((h >= 0.915 && d <= 0.045 && a <= 0.045) ||
+        (a >= 0.915 && d <= 0.045 && h <= 0.045)) {
+      reasons.push('SATURATED_92_4_4');
+    }
+
+    // Fallback neutro sospechoso: local y visita casi iguales, empate artificialmente favorito.
+    if (Math.abs(h - a) <= 0.01 && d >= 0.34 && d > h && d > a) {
+      reasons.push('DRAW_FAVORITE_SYMMETRIC_FALLBACK');
+    }
+
+    // Lambdas de fútbol internacional de 90' con >5 goles esperados para un equipo son demasiado frágiles para EV.
+    if (source === 'POISSON' && (lH >= 5 || lA >= 5)) {
+      reasons.push('EXTREME_POISSON_LAMBDA');
+    }
+
+    // Si una fuente aparece como alta confianza pero es fallback/calculada, degradar y bloquear EV.
+    const confidence = String(model.confidence || '').toUpperCase();
+    if (confidence === 'ALTA' && /FALLBACK|CACHE|POISSON/.test(String(model.source || '').toUpperCase())) {
+      model.confidence = 'BAJA';
+      if (source !== 'POISSON') reasons.push('HIGH_CONFIDENCE_FALLBACK');
+    }
+
+    model.model_quality = reasons.length ? 'INVALID_MODEL' : 'OK';
+    model.invalid_reasons = reasons.join('|');
+    model.is_valid_model = reasons.length === 0;
+    return model;
+  };
   const normalize = (h, d, a) => {
     let pH = Number(h), pD = Number(d), pA = Number(a);
     if (![pH, pD, pA].every(p => isFinite(p) && p > 0)) return null;
@@ -71,7 +113,7 @@ function getOfficialModelProbabilities_(homeTeam, awayTeam, matchKey) {
       };
     }
   } catch(e_) {}
-  if (ai) return ai;
+  if (ai) return withQuality(ai);
 
   let poisson = null;
   try { poisson = getPoissonOdds_(homeTeam, awayTeam, matchKey); } catch(e_) {}
@@ -84,7 +126,7 @@ function getOfficialModelProbabilities_(homeTeam, awayTeam, matchKey) {
     const rawA = poisson.prob_away != null ? Number(poisson.prob_away) / 100 :
       (poisson.markets && poisson.markets['2'] != null ? Number(poisson.markets['2']) : null);
     const p = normalize(rawH, rawD, rawA);
-    if (p) return {
+    if (p) return withQuality({
       prob_home: p.home,
       prob_draw: p.draw,
       prob_away: p.away,
@@ -96,7 +138,7 @@ function getOfficialModelProbabilities_(homeTeam, awayTeam, matchKey) {
       lambda_a: Number(poisson.lambda_away || poisson.lambdaA || 0),
       source: 'POISSON',
       confidence: poisson.source === 'poisson_cache' ? 'ALTA' : 'MEDIA'
-    };
+    });
   }
 
   let elo = null;
@@ -104,7 +146,7 @@ function getOfficialModelProbabilities_(homeTeam, awayTeam, matchKey) {
   if (!elo) { try { elo = getEloProbabilities_(home, away); } catch(e_) {} }
   if (elo) {
     const p = normalize(elo.home_win || elo.home, elo.draw, elo.away_win || elo.away);
-    if (p) return {
+    if (p) return withQuality({
       prob_home: p.home,
       prob_draw: p.draw,
       prob_away: p.away,
@@ -112,7 +154,7 @@ function getOfficialModelProbabilities_(homeTeam, awayTeam, matchKey) {
       confidence: 'MEDIA',
       elo_home: Number(elo.elo_home || 0),
       elo_away: Number(elo.elo_away || 0)
-    };
+    });
   }
 
   return null;
@@ -180,6 +222,10 @@ function calculateEvForFixture_(fixture) {
 
   const official = getOfficialModelProbabilities_(home, away, fixtureId);
   if (!official) return [];
+  if (official.is_valid_model === false) {
+    Logger.log(`🚫 ${home} vs ${away}: modelo inválido para EV (${official.invalid_reasons || 'INVALID_MODEL'})`);
+    return [];
+  }
 
   /**
    * Retorna la probabilidad de nuestro modelo para un mercado+selección dados.
@@ -648,12 +694,19 @@ function calcularEV() {
           source: inverted.source,
           confidence: inverted.confidence,
           lambda_h: inverted.lambda_a,
-          lambda_a: inverted.lambda_h
+          lambda_a: inverted.lambda_h,
+          model_quality: inverted.model_quality,
+          invalid_reasons: inverted.invalid_reasons,
+          is_valid_model: inverted.is_valid_model
         };
       }
     }
     if (!official) {
       Logger.log(`⚠️  Sin modelo para ${homeEs} vs ${awayEs}`);
+      return;
+    }
+    if (official.is_valid_model === false) {
+      Logger.log(`🚫 ${homeEs} vs ${awayEs}: EV bloqueado por modelo inválido (${official.invalid_reasons || 'INVALID_MODEL'})`);
       return;
     }
 
@@ -771,4 +824,60 @@ function oddsCommenceTimeChile_(commenceTime) {
   } catch (e) {
     return '';
   }
+}
+
+/**
+ * Auditoría manual: detecta patrones repetidos o saturados en el modelo oficial
+ * para los próximos partidos. No consume APIs; lee Partidos/PoissonOdds/AnalisisIA.
+ */
+function auditOfficialModelPatterns() {
+  const today = todayChile_();
+  const rows = readAll_('Partidos')
+    .filter(r => normalizeFecha_(r.fecha) >= today)
+    .filter(r => !['FT','AET','PEN'].includes(String(r.status || '').toUpperCase()));
+
+  const byPattern = {};
+  const issues = [];
+
+  rows.forEach(r => {
+    const home = r.local || '';
+    const away = r.visitante || '';
+    const official = getOfficialModelProbabilities_(home, away, r.match_key || r.fixture_id_api_football || '');
+    if (!official) {
+      issues.push([normalizeFecha_(r.fecha), home, away, 'NO_MODEL', '', '', '']);
+      return;
+    }
+
+    const pattern = [
+      Math.round(Number(official.prob_home || 0) * 1000),
+      Math.round(Number(official.prob_draw || 0) * 1000),
+      Math.round(Number(official.prob_away || 0) * 1000),
+      Number(official.lambda_h || 0).toFixed(2),
+      Number(official.lambda_a || 0).toFixed(2)
+    ].join('/');
+
+    if (!byPattern[pattern]) byPattern[pattern] = [];
+    byPattern[pattern].push(`${home} vs ${away}`);
+
+    if (official.is_valid_model === false) {
+      issues.push([
+        normalizeFecha_(r.fecha),
+        home,
+        away,
+        official.model_quality || 'INVALID_MODEL',
+        official.invalid_reasons || '',
+        `${(official.prob_home * 100).toFixed(1)}/${(official.prob_draw * 100).toFixed(1)}/${(official.prob_away * 100).toFixed(1)}`,
+        `${Number(official.lambda_h || 0).toFixed(2)}-${Number(official.lambda_a || 0).toFixed(2)}`
+      ]);
+    }
+  });
+
+  Object.keys(byPattern).forEach(pattern => {
+    if (byPattern[pattern].length < 2) return;
+    issues.push(['', '', '', 'REPEATED_MODEL_PATTERN', pattern, byPattern[pattern].join(' | '), '']);
+  });
+
+  Logger.log('auditOfficialModelPatterns: ' + issues.length + ' hallazgos');
+  issues.forEach(i => Logger.log(i.join(' | ')));
+  return issues;
 }

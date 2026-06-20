@@ -171,6 +171,11 @@ function getWebEvOpps_() {
       var visitante  = teamNameToSpanish_(r.visitante || r.away_team || '');
       var official   = null;
       try { official = getOfficialModelProbabilities_(local, visitante, r.fixture_id || r.match_key || ''); } catch(e_) {}
+      if (official && official.is_valid_model === false) {
+        Logger.log('EV hidden: invalid model ' + local + ' vs ' + visitante +
+          ' reasons=' + (official.invalid_reasons || 'INVALID_MODEL'));
+        return null;
+      }
       if (official && String(mercado).toLowerCase().match(/^(1x2|h2h|match winner)$/)) {
         var selKey = normalizeTeamNameStrong_(teamNameToSpanish_(seleccion));
         var officialProb = selKey === normalizeTeamNameStrong_(local) ? official.prob_home :
@@ -415,7 +420,10 @@ function getWebPredictions_() {
         over25:    official.over25 ? Number(official.over25 * 100).toFixed(1) : '',
         btts:      official.btts ? Number(official.btts * 100).toFixed(1) : '',
         source:    official.source || '',
-        confidence: official.confidence || ''
+        confidence: official.confidence || '',
+        model_quality: official.model_quality || 'OK',
+        invalid_reasons: official.invalid_reasons || '',
+        is_valid_model: official.is_valid_model !== false
       } : null
     };
   });
