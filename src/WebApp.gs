@@ -1402,6 +1402,10 @@ function getWebKnockout_() {
         estadio: r.estadio || '',
         ciudad: r.ciudad || '',
         status: String(r.status || 'NS').toUpperCase(),
+        goles_local: r.goles_local !== '' && r.goles_local != null ? Number(r.goles_local) : null,
+        goles_visitante: r.goles_visitante !== '' && r.goles_visitante != null ? Number(r.goles_visitante) : null,
+        penales_local: r.penales_local !== '' && r.penales_local != null ? Number(r.penales_local) : null,
+        penales_visitante: r.penales_visitante !== '' && r.penales_visitante != null ? Number(r.penales_visitante) : null,
         match_key: r.match_key || ''
       };
     })
