@@ -945,14 +945,28 @@ function cleanupClosedEvOpportunities() {
   headers.forEach((h, i) => idx[h] = i);
   const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
   const rowsToDelete = [];
+  const rowsToArchive = [];
 
   for (let i = 1; i < values.length; i++) {
     const obj = {};
     headers.forEach((h, c) => obj[h] = values[i][c]);
-    if (isEvRowForClosedMatch_(obj, partidos)) rowsToDelete.push(i + 1);
+    if (isEvRowForClosedMatch_(obj, partidos)) {
+      rowsToDelete.push(i + 1);
+      rowsToArchive.push(obj);
+    }
+  }
+
+  if (rowsToArchive.length && typeof snapshotEvRows_ === 'function') {
+    try {
+      snapshotEvRows_(rowsToArchive, todayChile_());
+      Logger.log('cleanupClosedEvOpportunities: archivadas ' + rowsToArchive.length + ' fila(s) en EvHistorico');
+    } catch(e) {
+      Logger.log('cleanupClosedEvOpportunities: no se pudo archivar en EvHistorico: ' + e.message);
+      throw e;
+    }
   }
 
   rowsToDelete.reverse().forEach(rowNum => sheet.deleteRow(rowNum));
   Logger.log('cleanupClosedEvOpportunities: eliminadas ' + rowsToDelete.length + ' fila(s)');
-  return { deleted: rowsToDelete.length };
+  return { deleted: rowsToDelete.length, archived: rowsToArchive.length };
 }

@@ -205,6 +205,10 @@ function cronPostMatch() {
 
     // Recalcular tabla después de partidos terminados
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla post:', e.message); }
+    // Resolver histórico EV y retirar oportunidades ya cerradas de la vista activa.
+    try { resolvePendingEvHistoricoFromPartidos(); } catch (e) { console.warn('EvHistResolve post:', e.message); }
+    try { cleanupClosedEvOpportunities(); } catch (e) { console.warn('EvCleanup post:', e.message); }
+    try { calculateModelCalibration_(); } catch (e) { console.warn('Calib post:', e.message); }
     // Actualizar % clasificación Monte Carlo con standings frescos
     try { runGroupSimulation(); } catch (e) { console.warn('GroupSim post:', e.message); }
     // Refrescar horas de partidos NS desde ESPN (corrige valores :42 del backfill)
@@ -228,6 +232,8 @@ function cronWeeklyMaintenance() {
     try { repairRecentOfficialPlayerStats_(7, 8); } catch (e) { console.warn('PlayerStatsRepair:', e.message); }
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
     try { runGroupSimulation(); }           catch (e) { console.warn('GroupSim:', e.message); }
+    try { resolvePendingEvHistoricoFromPartidos(); } catch (e) { console.warn('EvHistResolve:', e.message); }
+    try { cleanupClosedEvOpportunities(); } catch (e) { console.warn('EvCleanup:', e.message); }
     // Cargar/actualizar planteles desde ESPN (fotos incluidas, sin cuota API-Football)
     try { cargarPlantelesDesdeEspn(); } catch (e) { console.warn('PlantelesEspn:', e.message); }
     try { calculateModelCalibration_(); }   catch (e) { console.warn('Calib:', e.message); }

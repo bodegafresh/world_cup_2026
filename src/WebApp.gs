@@ -363,7 +363,7 @@ function getWebPerformance_() {
     const pairs = [];
     aiRows.forEach(ai => {
       if (!ai.prob_local) return;
-      const match = matchRows.find(m => String(m.fixture_id_af||'') === String(ai.fixture_id));
+      const match = findMatchForAiAnalysis_(ai, matchRows);
       if (!match || !['FT','AET','PEN'].includes(String(match.status||'').toUpperCase())) return;
       const gH = Number(match.goles_local ?? -1), gA = Number(match.goles_visitante ?? -1);
       if (gH < 0 || gA < 0) return;
@@ -2245,7 +2245,7 @@ function getWebCalibrationData_() {
     const matchRows = readAll_(CONFIG.SHEETS.PARTIDOS);
     aiRows.forEach(ai => {
       if (!ai.prob_local) return;
-      const match = matchRows.find(m => String(m.fixture_id_af||'') === String(ai.fixture_id));
+      const match = findMatchForAiAnalysis_(ai, matchRows);
       if (!match || !isFinishedStatus_(match.status)) return;
       const gH = Number(match.goles_local ?? -1), gA = Number(match.goles_visitante ?? -1);
       if (gH < 0 || gA < 0) return;

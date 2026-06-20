@@ -25,6 +25,37 @@ const CALIBRATION_HEADERS = [
   'fecha','partidos_evaluados','accuracy','brier_score','interpretacion','updated_at'
 ];
 
+function getMatchFixtureId_(match) {
+  return String(
+    (match && (match.fixture_id_api_football || match.fixture_id_af || match.fixture_id || match.match_id || match.match_key)) || ''
+  ).trim();
+}
+
+function findMatchForAiAnalysis_(ai, matchRows) {
+  const aiFixture = String(ai.fixture_id || ai.match_key || '').trim();
+  if (aiFixture) {
+    const byId = matchRows.find(m => [
+      m.fixture_id_api_football,
+      m.fixture_id_af,
+      m.fixture_id,
+      m.match_id,
+      m.match_key
+    ].some(id => String(id || '').trim() === aiFixture));
+    if (byId) return byId;
+  }
+
+  const aiDate = normalizeFecha_(ai.fecha_hora_chile || ai.fecha || '');
+  const aiHome = teamNameToSpanish_(ai.equipo_local || '');
+  const aiAway = teamNameToSpanish_(ai.equipo_visitante || '');
+  if (!aiDate || !aiHome || !aiAway) return null;
+
+  return matchRows.find(m => {
+    const matchDate = normalizeFecha_(m.fecha || m.fecha_chile || '');
+    if (matchDate !== aiDate) return false;
+    return teamNameMatches_(m.local || '', aiHome) && teamNameMatches_(m.visitante || '', aiAway);
+  }) || null;
+}
+
 // ─── Registro de apuestas ─────────────────────────────────────────────────────
 
 /**
@@ -72,7 +103,7 @@ function registerBet_(fixtureId, mercado, seleccion, cuota, stake, notas) {
   let visitante = '';
   try {
     const matchRow = readAll_(CONFIG.SHEETS.PARTIDOS)
-      .find(r => String(r.fixture_id_af || '') === fid);
+      .find(r => getMatchFixtureId_(r) === fid);
     if (matchRow) { local = matchRow.local || ''; visitante = matchRow.visitante || ''; }
   } catch (e) { /* sin datos */ }
 
@@ -272,9 +303,7 @@ function calculateModelCalibration_() {
   aiRows.forEach(ai => {
     if (!ai.prob_local) return;
 
-    const match = matchRows.find(m =>
-      String(m.fixture_id_af || '') === String(ai.fixture_id)
-    );
+    const match = findMatchForAiAnalysis_(ai, matchRows);
     if (!match || !isFinishedStatus_(match.status)) return;
 
     const goalsH = Number(match.goles_local     || 0);
@@ -409,7 +438,7 @@ function buildCalibrationBucketTable_() {
   const pairs = [];
   aiRows.forEach(ai => {
     if (!ai.prob_local) return;
-    const match = matchRows.find(m => String(m.fixture_id_af||'') === String(ai.fixture_id));
+    const match = findMatchForAiAnalysis_(ai, matchRows);
     if (!match || !isFinishedStatus_(match.status)) return;
     const goalsH = Number(match.goles_local     ?? -1);
     const goalsA = Number(match.goles_visitante ?? -1);
@@ -783,16 +812,17 @@ function snapshotEvRows_(rows, fecha) {
   getOrCreateSheet_(CONFIG.SHEETS.EV_HISTORICO, EV_HIST_HEADERS);
   const existing = readAll_(CONFIG.SHEETS.EV_HISTORICO);
   const existingKeys = new Set(existing.map(r =>
-    `${r.fecha}|${String(r.local||'').toLowerCase()}|${String(r.visitante||'').toLowerCase()}|${r.mercado}|${r.seleccion}`
+    `${normalizeFecha_(r.fecha)}|${String(r.local||'').toLowerCase()}|${String(r.visitante||'').toLowerCase()}|${r.mercado}|${r.seleccion}`
   ));
   const now = nowChile_();
   const toAdd = [];
   rows.forEach(r => {
-    const key = `${r.fecha}|${String(r.local||'').toLowerCase()}|${String(r.visitante||'').toLowerCase()}|${r.mercado}|${r.seleccion}`;
+    const fechaNorm = normalizeFecha_(r.fecha);
+    const key = `${fechaNorm}|${String(r.local||'').toLowerCase()}|${String(r.visitante||'').toLowerCase()}|${r.mercado}|${r.seleccion}`;
     if (existingKeys.has(key)) return;
     const probMercado = r.cuota > 0 ? Math.round((1/r.cuota)*10000)/10000 : 0;
     toAdd.push([
-      now, r.fecha, r.local, r.visitante, r.mercado, r.seleccion,
+      now, fechaNorm, r.local, r.visitante, r.mercado, r.seleccion,
       r.prob_modelo, probMercado, r.cuota, r.ev, r.edge, r.kelly,
       r.fuente_modelo || '', 'PENDIENTE', ''
     ]);
@@ -811,24 +841,25 @@ function snapshotEvRows_(rows, fecha) {
  * @param {number} goalsA    Goles visitante
  */
 function resolveEvHistorico_(local, visitante, goalsH, goalsA) {
-  if (goalsH < 0 || goalsA < 0) return;
+  if (goalsH < 0 || goalsA < 0) return 0;
   let rows;
-  try { rows = readAll_(CONFIG.SHEETS.EV_HISTORICO); } catch(e) { return; }
+  try { rows = readAll_(CONFIG.SHEETS.EV_HISTORICO); } catch(e) { return 0; }
 
   const normT = s => String(s||'').toLowerCase().replace(/\s+/g,'').replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n');
   const localN = normT(local), visN = normT(visitante);
 
   const ss = SpreadsheetApp.openById(getSpreadsheetId_());
   const sheet = ss.getSheetByName(CONFIG.SHEETS.EV_HISTORICO);
-  if (!sheet) return;
+  if (!sheet) return 0;
   const data = sheet.getDataRange().getValues();
-  if (data.length < 2) return;
+  if (data.length < 2) return 0;
   const hdrs = data[0];
   const idxLocal = hdrs.indexOf('local'), idxVis = hdrs.indexOf('visitante');
   const idxMercado = hdrs.indexOf('mercado'), idxSel = hdrs.indexOf('seleccion');
   const idxResult = hdrs.indexOf('resultado'), idxCuota = hdrs.indexOf('cuota');
   const idxPnl = hdrs.indexOf('pnl'), idxProb = hdrs.indexOf('prob_modelo');
 
+  let updated = 0;
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
     if (String(row[idxResult] || '') !== 'PENDIENTE') continue;
@@ -856,5 +887,32 @@ function resolveEvHistorico_(local, visitante, goalsH, goalsA) {
     const pnl       = gano ? (cuota - 1) : -1; // en unidades base (stake = 1)
     sheet.getRange(i + 1, idxResult + 1).setValue(resultado);
     sheet.getRange(i + 1, idxPnl    + 1).setValue(Math.round(pnl * 100) / 100);
+    updated++;
   }
+  return updated;
+}
+
+function resolvePendingEvHistoricoFromPartidos() {
+  let partidos;
+  try { partidos = readAll_(CONFIG.SHEETS.PARTIDOS); } catch(e) { return { resolved: 0, error: e.message }; }
+
+  let processed = 0;
+  let resolvedRows = 0;
+  partidos.forEach(p => {
+    const status = String(p.status || p.estado || '').toUpperCase();
+    const hasFinalStatus = ['FT','AET','PEN'].indexOf(status) !== -1;
+    const hasScore = p.goles_local !== '' && p.goles_local !== null && p.goles_local !== undefined &&
+      p.goles_visitante !== '' && p.goles_visitante !== null && p.goles_visitante !== undefined;
+    if (!hasFinalStatus || !hasScore) return;
+    try {
+      processed++;
+      resolvedRows += resolveEvHistorico_(teamNameToSpanish_(p.local || ''), teamNameToSpanish_(p.visitante || ''),
+        Number(p.goles_local), Number(p.goles_visitante));
+    } catch(e) {
+      Logger.log('resolvePendingEvHistoricoFromPartidos: ' + (p.local || '') + ' vs ' + (p.visitante || '') + ': ' + e.message);
+    }
+  });
+
+  Logger.log('resolvePendingEvHistoricoFromPartidos: partidos=' + processed + ' filas_resueltas=' + resolvedRows);
+  return { processed_matches: processed, resolved_rows: resolvedRows };
 }
