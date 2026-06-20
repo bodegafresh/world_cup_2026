@@ -1,0 +1,31 @@
+src/Main.gs
+  s_bf65d3ab005d68::t_5312397320d074 226-227,229
+  s_bf65d3ab005d68::t_06f7eb3d6a152d 72
+src/TodayDataRepair.gs
+  s_bf65d3ab005d68::t_0fbf55f1cfd09c 19-23,99-100,139-167,200-240
+  s_bf65d3ab005d68::t_7257e9fd021a1b 168-199
+src/WebApp.gs
+  s_bf65d3ab005d68::t_5b995e5578c6b6 1809-1819,1830-1831,1843
+  s_bf65d3ab005d68::t_e6babe04c9a6e4 570-571
+src/Telegram.gs
+  s_bf65d3ab005d68::t_0a00d562f42d12 321-322,334-337
+src/GroupSimulator.gs
+  s_bf65d3ab005d68::t_099d8454e944cf 168,242-252
+  s_bf65d3ab005d68::t_8d783d4074e19f 161,170-177,253-264
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "0f43ec748d7c4aaa0207ac458fd025d43412076f",
+  "prompts": {},
+  "sessions": {
+    "s_bf65d3ab005d68": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ee13f-9d09-79f3-814a-b023e7ecce50",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
