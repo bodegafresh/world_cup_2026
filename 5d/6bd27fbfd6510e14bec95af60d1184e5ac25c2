@@ -1,0 +1,21 @@
+src/TodayDataRepair.gs
+  s_bf65d3ab005d68::t_92317cea0aadc4 243-355
+src/WebApp.gs
+  s_bf65d3ab005d68::t_9205463254988a 1819-1837,1862-1865,1891-1892,1896-1899,1907,1909,1917,1919,1946-1948
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "5d6bd27fbfd6510e14bec95af60d1184e5ac25c2",
+  "prompts": {},
+  "sessions": {
+    "s_bf65d3ab005d68": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ee13f-9d09-79f3-814a-b023e7ecce50",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
