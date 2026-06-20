@@ -68,6 +68,7 @@ function cronDailySetup() {
     Logger.log(`cronDailySetup | hoy: ${ctx.nHoy} partidos | mañana: ${ctx.nMañana}`);
 
     // 1. Actualizar datos del día anterior con API-Football (estadísticas detalladas)
+    try { backfillMissingApiFootballFixtureIdsForDate(yesterdayChile_()); } catch (e) { console.warn('Fixture IDs ayer:', e.message); }
     try { loadWorldCupDay_(yesterdayChile_()); } catch (e) { console.warn('LoadDay ayer:', e.message); }
     try { repairPlayerStatsForDate_(yesterdayChile_()); } catch (e) { console.warn('PlayerStats ayer:', e.message); }
 
@@ -249,7 +250,7 @@ function cronDailyLoadTodayStats() {
 function _buildFakeFixturesFromPartidos_(date) {
   const rows = readAll_(CONFIG.SHEETS.PARTIDOS).filter(r =>
     String(r.fecha || '').substring(0, 10) === date &&
-    String(r.fixture_id_af || '').trim() !== '' &&
+    String(r.fixture_id_af || r.fixture_id_api_football || '').trim() !== '' &&
     ['FT','AET','PEN'].includes(String(r.status || '').toUpperCase())
   );
   if (!rows.length) return [];
@@ -265,7 +266,7 @@ function _buildFakeFixturesFromPartidos_(date) {
 
   return rows.map(r => ({
     fixture: {
-      id: Number(r.fixture_id_af),
+      id: Number(r.fixture_id_af || r.fixture_id_api_football),
       date: date,
       referee: null,
       status: { short: String(r.status || 'FT') }
