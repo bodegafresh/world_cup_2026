@@ -681,6 +681,10 @@ function calcularEV() {
     const isTodayBlock = commenceChileDate === today ||
       (commenceChileDate === tomorrow && commenceChileTime === '00:00');
     if (!isTodayBlock) return;
+    if (new Date(ev.commence_time).getTime() <= Date.now()) {
+      Logger.log(`⏱️  ${homeEs} vs ${awayEs}: partido ya iniciado/cerrado — EV omitido`);
+      return;
+    }
 
     let oddsInvertidas = false; // La API puede devolver el partido con equipos invertidos
 
@@ -885,4 +889,70 @@ function auditOfficialModelPatterns() {
   Logger.log('auditOfficialModelPatterns: ' + issues.length + ' hallazgos');
   issues.forEach(i => Logger.log(i.join(' | ')));
   return issues;
+}
+
+function isEvRowForClosedMatch_(evRow, partidos) {
+  const finalStatuses = ['FT','AET','PEN','CANC','PST','ABD'];
+  const liveStatuses = ['1H','2H','HT','ET','BT','P','LIVE'];
+  const fecha = normalizeFecha_(evRow.fecha || evRow.date || '');
+  const today = todayChile_();
+  const local = normalizeTeamNameStrong_(teamNameToSpanish_(evRow.local || evRow.home_team || ''));
+  const visitante = normalizeTeamNameStrong_(teamNameToSpanish_(evRow.visitante || evRow.away_team || ''));
+
+  if (!fecha || fecha < today) return true;
+
+  const match = partidos.find(function(p) {
+    const pf = normalizeFecha_(p.fecha || p.fecha_chile || '');
+    if (pf !== fecha) return false;
+    const pl = normalizeTeamNameStrong_(teamNameToSpanish_(p.local || ''));
+    const pv = normalizeTeamNameStrong_(teamNameToSpanish_(p.visitante || ''));
+    return (pl === local && pv === visitante) || (pl === visitante && pv === local);
+  });
+
+  if (!match) return false;
+  const status = String(match.status || match.estado || '').toUpperCase();
+  if (finalStatuses.indexOf(status) !== -1 || liveStatuses.indexOf(status) !== -1) return true;
+  if (match.goles_local !== '' && match.goles_local !== null && match.goles_local !== undefined &&
+      match.goles_visitante !== '' && match.goles_visitante !== null && match.goles_visitante !== undefined) {
+    return true;
+  }
+
+  const hora = typeof safeHoraChile_ === 'function' ? safeHoraChile_(match.hora_chile || match.hora) : '';
+  if (fecha === today && hora) {
+    const nowTime = nowChile_().substring(11, 16);
+    if (hora <= nowTime) return true;
+  }
+  return false;
+}
+
+/**
+ * Limpia EvOpportunities eliminando filas de partidos cerrados, en vivo o ya iniciados.
+ * No toca AnalisisIA ni modelos históricos; solo quita oportunidades que ya no son apostables.
+ */
+function cleanupClosedEvOpportunities() {
+  const ss = SpreadsheetApp.getActive();
+  const sheet = ss.getSheetByName(CONFIG.SHEETS.EV_OPPORTUNITIES);
+  if (!sheet) {
+    Logger.log('cleanupClosedEvOpportunities: hoja EvOpportunities no existe');
+    return { deleted: 0 };
+  }
+
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) return { deleted: 0 };
+
+  const headers = values[0].map(String);
+  const idx = {};
+  headers.forEach((h, i) => idx[h] = i);
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
+  const rowsToDelete = [];
+
+  for (let i = 1; i < values.length; i++) {
+    const obj = {};
+    headers.forEach((h, c) => obj[h] = values[i][c]);
+    if (isEvRowForClosedMatch_(obj, partidos)) rowsToDelete.push(i + 1);
+  }
+
+  rowsToDelete.reverse().forEach(rowNum => sheet.deleteRow(rowNum));
+  Logger.log('cleanupClosedEvOpportunities: eliminadas ' + rowsToDelete.length + ' fila(s)');
+  return { deleted: rowsToDelete.length };
 }

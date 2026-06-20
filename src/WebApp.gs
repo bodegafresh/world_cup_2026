@@ -144,15 +144,54 @@ function getWebStandings_() {
 
 // ─── Tab: ev ─────────────────────────────────────────────────────────────────
 
+function isEvMatchStillBettable_(matchRow, evDate) {
+  const finalStatuses = ['FT','AET','PEN','CANC','PST','ABD'];
+  const liveStatuses = ['1H','2H','HT','ET','BT','P','LIVE'];
+  const today = todayChile_();
+  const fecha = normalizeFecha_(matchRow && matchRow.fecha ? matchRow.fecha : evDate);
+  const status = String((matchRow && (matchRow.status || matchRow.estado)) || '').toUpperCase();
+
+  if (!fecha || fecha < today) return false;
+  if (finalStatuses.indexOf(status) !== -1 || liveStatuses.indexOf(status) !== -1) return false;
+  if (matchRow && (matchRow.goles_local !== '' && matchRow.goles_local !== null && matchRow.goles_local !== undefined) &&
+      (matchRow.goles_visitante !== '' && matchRow.goles_visitante !== null && matchRow.goles_visitante !== undefined)) {
+    return false;
+  }
+
+  // Si el partido es hoy y la hora Chile ya pasó, no debe seguir como EV pre-match.
+  const hora = matchRow ? safeHoraChile_(matchRow.hora_chile || matchRow.hora) : '';
+  if (fecha === today && hora) {
+    const nowTime = nowChile_().substring(11, 16);
+    if (hora <= nowTime) return false;
+  }
+  return true;
+}
+
 function getWebEvOpps_() {
   const rows = readAll_(CONFIG.SHEETS.EV_OPPORTUNITIES);
+  const partidos = readAll_(CONFIG.SHEETS.PARTIDOS);
   const today = todayChile_();
+
+  function findMatchForEv_(r) {
+    const f = normalizeFecha_(r.fecha || r.date || '');
+    const local = normalizeTeamNameStrong_(teamNameToSpanish_(r.local || r.home_team || ''));
+    const visitante = normalizeTeamNameStrong_(teamNameToSpanish_(r.visitante || r.away_team || ''));
+    return partidos.find(function(p) {
+      const pf = normalizeFecha_(p.fecha || p.fecha_chile || '');
+      if (pf !== f) return false;
+      const pl = normalizeTeamNameStrong_(teamNameToSpanish_(p.local || ''));
+      const pv = normalizeTeamNameStrong_(teamNameToSpanish_(p.visitante || ''));
+      return (pl === local && pv === visitante) || (pl === visitante && pv === local);
+    }) || null;
+  }
 
   // Deduplicar por partido+mercado+selección (más reciente gana)
   const dedupMap = {};
   rows.forEach(function(r) {
     var f = normalizeFecha_(r.fecha || r.date || '');
     if (f < today) return;
+    var match = findMatchForEv_(r);
+    if (!isEvMatchStillBettable_(match, f)) return;
     var k = (r.local||'') + '|' + (r.visitante||'') + '|' + (r.mercado||'') + '|' + (r.seleccion||'');
     if (!dedupMap[k] || String(r.timestamp||'') > String(dedupMap[k].timestamp||'')) dedupMap[k] = r;
   });
