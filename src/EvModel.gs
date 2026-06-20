@@ -668,6 +668,8 @@ function calcularEV() {
   let totalOpps = 0;
   const now = nowChile_();
   const newRows = [];
+  let partidosRows = [];
+  try { partidosRows = readAll_(CONFIG.SHEETS.PARTIDOS); } catch(e_) { partidosRows = []; }
 
   oddsEvents.forEach(ev => {
     const homeEn = ev.home_team || '';
@@ -683,6 +685,20 @@ function calcularEV() {
     if (!isTodayBlock) return;
     if (new Date(ev.commence_time).getTime() <= Date.now()) {
       Logger.log(`⏱️  ${homeEs} vs ${awayEs}: partido ya iniciado/cerrado — EV omitido`);
+      return;
+    }
+    const matchRow = findPartidosMatchForEv_({
+      fecha: commenceChileDate,
+      local: homeEs,
+      visitante: awayEs
+    }, partidosRows);
+    const canonicalDate = matchRow ? normalizeFecha_(matchRow.fecha || matchRow.fecha_chile || commenceChileDate) : commenceChileDate;
+    if (matchRow && isEvRowForClosedMatch_({
+      fecha: canonicalDate,
+      local: homeEs,
+      visitante: awayEs
+    }, partidosRows)) {
+      Logger.log(`⏱️  ${homeEs} vs ${awayEs}: partido cerrado según Partidos — EV omitido`);
       return;
     }
 
@@ -733,7 +749,7 @@ function calcularEV() {
     const fuente = official.source || 'N/A';
     const confianza = official.confidence || 'MEDIA';
 
-    const mkKey = `${normT(homeEs)}_vs_${normT(awayEs)}_${commenceChileDate}`;
+    const mkKey = `${normT(homeEs)}_vs_${normT(awayEs)}_${canonicalDate}`;
 
     const cH = official.prob_home;
     const cD = official.prob_draw;
@@ -785,7 +801,7 @@ function calcularEV() {
       newRows.push({
         fixture_id:    mkKey,
         timestamp:     now,
-        fecha:         commenceChileDate,
+        fecha:         canonicalDate,
         local:         homeEs,
         visitante:     awayEs,
         mercado:       m.mercado,
@@ -901,13 +917,7 @@ function isEvRowForClosedMatch_(evRow, partidos) {
 
   if (!fecha || fecha < today) return true;
 
-  const match = partidos.find(function(p) {
-    const pf = normalizeFecha_(p.fecha || p.fecha_chile || '');
-    if (pf !== fecha) return false;
-    const pl = normalizeTeamNameStrong_(teamNameToSpanish_(p.local || ''));
-    const pv = normalizeTeamNameStrong_(teamNameToSpanish_(p.visitante || ''));
-    return (pl === local && pv === visitante) || (pl === visitante && pv === local);
-  });
+  const match = findPartidosMatchForEv_(evRow, partidos);
 
   if (!match) return false;
   const status = String(match.status || match.estado || '').toUpperCase();
@@ -923,6 +933,31 @@ function isEvRowForClosedMatch_(evRow, partidos) {
     if (hora <= nowTime) return true;
   }
   return false;
+}
+
+function findPartidosMatchForEv_(evRow, partidos) {
+  const fecha = normalizeFecha_(evRow.fecha || evRow.date || '');
+  const local = normalizeTeamNameStrong_(teamNameToSpanish_(evRow.local || evRow.home_team || ''));
+  const visitante = normalizeTeamNameStrong_(teamNameToSpanish_(evRow.visitante || evRow.away_team || ''));
+  const dateDistance = function(a, b) {
+    const da = new Date(a + 'T00:00:00Z').getTime();
+    const db = new Date(b + 'T00:00:00Z').getTime();
+    if (!isFinite(da) || !isFinite(db)) return 999;
+    return Math.abs(Math.round((da - db) / 86400000));
+  };
+  return partidos.filter(function(p) {
+    const pf = normalizeFecha_(p.fecha || p.fecha_chile || '');
+    if (!pf || dateDistance(pf, fecha) > 1) return false;
+    const pl = normalizeTeamNameStrong_(teamNameToSpanish_(p.local || ''));
+    const pv = normalizeTeamNameStrong_(teamNameToSpanish_(p.visitante || ''));
+    return (pl === local && pv === visitante) || (pl === visitante && pv === local);
+  }).sort(function(a, b) {
+    const da = dateDistance(normalizeFecha_(a.fecha || a.fecha_chile || ''), fecha);
+    const db = dateDistance(normalizeFecha_(b.fecha || b.fecha_chile || ''), fecha);
+    const sa = ['FT','AET','PEN'].indexOf(String(a.status || a.estado || '').toUpperCase()) !== -1 ? -1 : 0;
+    const sb = ['FT','AET','PEN'].indexOf(String(b.status || b.estado || '').toUpperCase()) !== -1 ? -1 : 0;
+    return da - db || sa - sb;
+  })[0] || null;
 }
 
 /**
@@ -951,6 +986,8 @@ function cleanupClosedEvOpportunities() {
     const obj = {};
     headers.forEach((h, c) => obj[h] = values[i][c]);
     if (isEvRowForClosedMatch_(obj, partidos)) {
+      const match = findPartidosMatchForEv_(obj, partidos);
+      if (match) obj.fecha = normalizeFecha_(match.fecha || match.fecha_chile || obj.fecha);
       rowsToDelete.push(i + 1);
       rowsToArchive.push(obj);
     }

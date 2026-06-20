@@ -176,13 +176,25 @@ function getWebEvOpps_() {
     const f = normalizeFecha_(r.fecha || r.date || '');
     const local = normalizeTeamNameStrong_(teamNameToSpanish_(r.local || r.home_team || ''));
     const visitante = normalizeTeamNameStrong_(teamNameToSpanish_(r.visitante || r.away_team || ''));
-    return partidos.find(function(p) {
+    const dateDistance = function(a, b) {
+      const da = new Date(a + 'T00:00:00Z').getTime();
+      const db = new Date(b + 'T00:00:00Z').getTime();
+      if (!isFinite(da) || !isFinite(db)) return 999;
+      return Math.abs(Math.round((da - db) / 86400000));
+    };
+    return partidos.filter(function(p) {
       const pf = normalizeFecha_(p.fecha || p.fecha_chile || '');
-      if (pf !== f) return false;
+      if (!pf || dateDistance(pf, f) > 1) return false;
       const pl = normalizeTeamNameStrong_(teamNameToSpanish_(p.local || ''));
       const pv = normalizeTeamNameStrong_(teamNameToSpanish_(p.visitante || ''));
       return (pl === local && pv === visitante) || (pl === visitante && pv === local);
-    }) || null;
+    }).sort(function(a, b) {
+      const da = dateDistance(normalizeFecha_(a.fecha || a.fecha_chile || ''), f);
+      const db = dateDistance(normalizeFecha_(b.fecha || b.fecha_chile || ''), f);
+      const sa = ['FT','AET','PEN'].indexOf(String(a.status || a.estado || '').toUpperCase()) !== -1 ? -1 : 0;
+      const sb = ['FT','AET','PEN'].indexOf(String(b.status || b.estado || '').toUpperCase()) !== -1 ? -1 : 0;
+      return da - db || sa - sb;
+    })[0] || null;
   }
 
   // Deduplicar por partido+mercado+selección (más reciente gana)
