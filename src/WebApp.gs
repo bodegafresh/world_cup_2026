@@ -462,7 +462,8 @@ function getWebHoy_() {
   try {
     readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).forEach(r => {
       const fid = String(r.fixture_id || r.match_id || '');
-      if (fid && fid !== 'undefined') {
+      const hasVenue = String(r.estadio || r.stadium || '').trim() && String(r.ciudad || r.city || '').trim();
+      if (fid && fid !== 'undefined' && hasVenue) {
         climaMap[fid] = {
           temperatura: r.temperatura_c  || r.temperatura || null,
           humedad:     r.humedad        || null,
@@ -599,7 +600,8 @@ function getWebLive_() {
   try {
     readAll_(CONFIG.SHEETS.ESTADIOS_CLIMA).forEach(r => {
       const fid = String(r.fixture_id || r.match_id || '');
-      if (fid && fid !== 'undefined') climaMap[fid] = {
+      const hasVenue = String(r.estadio || r.stadium || '').trim() && String(r.ciudad || r.city || '').trim();
+      if (fid && fid !== 'undefined' && hasVenue) climaMap[fid] = {
         temperatura: r.temperatura_c  || null,
         humedad:     r.humedad        || null,
         condicion:   r.condicion      || '',

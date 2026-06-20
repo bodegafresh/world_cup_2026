@@ -38,11 +38,14 @@ function getContextoDelDia_() {
     partidosMañana = all.filter(r => normalizeFecha_(r.fecha) === tomorrow);
   }
 
-  const hayPartidosHoy    = partidosHoy.length > 0;
+  let partidosOperacionalesHoy = [];
+  try { partidosOperacionalesHoy = getOperationalFixturesForDate_(today); } catch (e_) {}
+
+  const hayPartidosHoy    = partidosHoy.length > 0 || partidosOperacionalesHoy.length > 0;
   const hayPartidosMañana = partidosMañana.length > 0;
 
   const ctx = { today, tomorrow, hayPartidosHoy, hayPartidosMañana,
-    nHoy: partidosHoy.length, nMañana: partidosMañana.length };
+    nHoy: Math.max(partidosHoy.length, partidosOperacionalesHoy.length), nMañana: partidosMañana.length };
 
   props.setProperty(cacheKey, JSON.stringify(ctx));
   return ctx;
@@ -72,15 +75,9 @@ function cronDailySetup() {
 
     // 3. Contexto de partidos de hoy (clima, noticias, H2H, cuotas) — fuentes gratuitas
     if (ctx.hayPartidosHoy) {
-      const fixturesHoy = readAll_(CONFIG.SHEETS.PARTIDOS)
-        .filter(r => normalizeFecha_(r.fecha) === ctx.today);
+      const fixturesHoy = getOperationalFixturesForDate_(ctx.today);
       fixturesHoy.forEach(r => {
-        const fixtureId = r.fixture_id_af || r.match_key || (r.local + '_' + r.visitante);
-        const fakeFixture = {
-          fixture: { id: fixtureId, date: r.fecha },
-          teams:   { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
-          league:  { round: r.ronda || '' }
-        };
+        const fakeFixture = buildFixtureFromPartidosRow_(r);
         try { gatherFixtureContext_(fakeFixture); } catch (e_) {}
         Utilities.sleep(500);
       });
@@ -88,15 +85,9 @@ function cronDailySetup() {
 
     // 4. Análisis IA para partidos de hoy (OpenAI, cachea si ya existe)
     if (ctx.hayPartidosHoy) {
-      const fixturesHoy = readAll_(CONFIG.SHEETS.PARTIDOS)
-        .filter(r => normalizeFecha_(r.fecha) === ctx.today);
+      const fixturesHoy = getOperationalFixturesForDate_(ctx.today);
       fixturesHoy.forEach(r => {
-        const fixtureId = r.fixture_id_af || r.match_key || (r.local + '_' + r.visitante);
-        const fakeFixture = {
-          fixture: { id: fixtureId, date: r.fecha },
-          teams:   { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
-          league:  { round: r.ronda || '' }
-        };
+        const fakeFixture = buildFixtureFromPartidosRow_(r);
         try { analyzeAndSaveFixture_(fakeFixture); } catch (e_) { Logger.log('AnalisisIA ERROR ' + r.local + ' vs ' + r.visitante + ': ' + e_.message); }
         Utilities.sleep(1000);
       });
@@ -104,11 +95,11 @@ function cronDailySetup() {
 
     // 5. Modelo Poisson: movido a cronOddsCalc (trigger separado 7:15 AM) para evitar timeout
 
-    // 6. EV y simulación de grupos (Poisson ya disponible → EV usa modelo independiente)
-    try { runGroupSimulation(); } catch (e) { console.warn('GroupSim:', e.message); }
-
-    // 7. Recalcular tabla de posiciones
+    // 6. Recalcular tabla de posiciones antes de simular.
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
+
+    // 7. EV y simulación de grupos (Poisson ya disponible → EV usa modelo independiente)
+    try { runGroupSimulation(); } catch (e) { console.warn('GroupSim:', e.message); }
 
     // 8. Refrescar horas de partidos NS desde ESPN (corrige :42 del backfill)
     try { refreshNSMatchTimes(); } catch (e) { console.warn('RefreshNS:', e.message); }
@@ -166,8 +157,7 @@ function cronPostMatch() {
   runWithHealthCheck_('cronPostMatch', () => {
     const now      = new Date();
     const today    = todayChile_();
-    const partidos = readAll_(CONFIG.SHEETS.PARTIDOS)
-      .filter(r => normalizeFecha_(r.fecha) === today);
+    const partidos = getOperationalFixturesForDate_(today);
 
     const recienTerminados = partidos.filter(r => {
       if (!['FT','AET','PEN'].includes(String(r.status || '').toUpperCase())) return false;
@@ -187,10 +177,7 @@ function cronPostMatch() {
     try {
       const proximos = partidos.filter(r => String(r.status || '').toUpperCase() === 'NS');
       proximos.slice(0, 3).forEach(r => {
-        const fakeFixture = {
-          fixture: { id: r.fixture_id_af || r.match_key || '', date: r.fecha },
-          teams: { home: { name: r.local || '' }, away: { name: r.visitante || '' } }
-        };
+        const fakeFixture = buildFixtureFromPartidosRow_(r);
         const news = fetchNewsForFixture_(fakeFixture);
         if (news.length && news[0].source !== 'cache') saveNewsForFixture_(fakeFixture, news);
         Utilities.sleep(500);
@@ -202,11 +189,7 @@ function cronPostMatch() {
 
     recienTerminados.forEach(r => {
       // ESPN stats + árbitro post-partido (usa findEspnEventId_ internamente)
-      const fakeFixture = {
-        fixture: { id: r.fixture_id_af || r.match_key || '', date: r.fecha, status: { short: r.status || 'FT' } },
-        teams: { home: { name: r.local || '' }, away: { name: r.visitante || '' } },
-        league: { round: r.ronda || '' }
-      };
+      const fakeFixture = buildFixtureFromPartidosRow_(r);
       try { saveEspnDataForFixture_(fakeFixture, today); } catch (e_) { console.warn('PostMatch ESPN:', e_.message); }
 
       // SofaScore deshabilitado (HTTP 403 desde GAS)

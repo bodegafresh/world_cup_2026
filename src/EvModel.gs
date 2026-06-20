@@ -610,9 +610,12 @@ function calcularEV() {
     const homeEs = teamNameToSpanish_(homeEn);
     const awayEs = teamNameToSpanish_(awayEn);
 
-    // Solo partidos de hoy/mañana
-    const commence = String(ev.commence_time || '').substring(0, 10);
-    if (commence !== today && commence !== tomorrow) return;
+    // Solo bloque operativo de hoy: hoy Chile + partidos 00:00 Chile del día siguiente.
+    const commenceChileDate = oddsCommenceDateChile_(ev.commence_time);
+    const commenceChileTime = oddsCommenceTimeChile_(ev.commence_time);
+    const isTodayBlock = commenceChileDate === today ||
+      (commenceChileDate === tomorrow && commenceChileTime === '00:00');
+    if (!isTodayBlock) return;
 
     // 0. AnalisisIA como fuente primaria (misma fuente que el panel de análisis)
     let iaProbs = null;
@@ -670,7 +673,7 @@ function calcularEV() {
     const confianza = iaProbs ? 'ALTA'
       : (poisson ? (poisson.source === 'poisson_cache' ? 'ALTA' : 'MEDIA') : 'MEDIA');
 
-    const mkKey = `${normT(homeEs)}_vs_${normT(awayEs)}_${commence}`;
+    const mkKey = `${normT(homeEs)}_vs_${normT(awayEs)}_${commenceChileDate}`;
 
     // Cap de probabilidades: ningún resultado puede ser < 3% ni > 92% en fútbol real
     const capProb = (p, min, max) => p == null ? null : Math.min(Math.max(p, min), max);
@@ -741,7 +744,7 @@ function calcularEV() {
       newRows.push({
         fixture_id:    mkKey,
         timestamp:     now,
-        fecha:         commence,
+        fecha:         commenceChileDate,
         local:         homeEs,
         visitante:     awayEs,
         mercado:       m.mercado,
@@ -773,4 +776,20 @@ function calcularEV() {
   const outliers    = newRows.filter(r => r.outlier).length;
   const descartados = newRows.filter(r => r.ev > EV_MAX_CREDIBLE).length;
   Logger.log(`✅ calcularEV: ${totalOpps} mercados | ${newRows.filter(r=>r.ev_positivo).length} EV+ válidos | ${sospechosos} sospechosos (>25%) | ${outliers} outliers (>30%) | descartados EV>${EV_MAX_CREDIBLE*100}%: ${descartados}`);
+}
+
+function oddsCommenceDateChile_(commenceTime) {
+  try {
+    return Utilities.formatDate(new Date(commenceTime), CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  } catch (e) {
+    return String(commenceTime || '').substring(0, 10);
+  }
+}
+
+function oddsCommenceTimeChile_(commenceTime) {
+  try {
+    return Utilities.formatDate(new Date(commenceTime), CONFIG.TIMEZONE, 'HH:mm');
+  } catch (e) {
+    return '';
+  }
 }

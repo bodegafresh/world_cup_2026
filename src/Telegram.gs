@@ -315,7 +315,7 @@ function buildOddsMap_() {
 function getTodayFixturesForReport_(date) {
   const rows = readAll_(CONFIG.SHEETS.PARTIDOS);
 
-  return rows.filter(r => normalizeFecha_(r.fecha) === date)
+  return rows.filter(r => isOperationalReportDate_(r, date))
     .map(r => ({
       fixture_id:     r.match_key || r.fixture_id_af || '',
       local:          r.local        || '',
