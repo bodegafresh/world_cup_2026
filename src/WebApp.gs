@@ -201,6 +201,7 @@ function getWebEvOpps_() {
         cuota_justa:  cuotaJusta,
         edge:         edge,
         ev:           ev,
+        ev_category:  ev > 0 ? 'EV_PLUS' : 'MARKET_OVERPRICED',
         kelly:        Number(r.kelly || 0),
         confianza:    confianza,
         fuente:       r.fuente_modelo || '',

@@ -61,6 +61,11 @@ function getOfficialModelProbabilities_(homeTeam, awayTeam, matchKey) {
       reasons.push('DRAW_FAVORITE_SYMMETRIC_FALLBACK');
     }
 
+    // Distribución casi neutra de Poisson: útil como placeholder, no como señal apostable.
+    if (source === 'POISSON' && Math.abs(h - a) <= 0.015 && d >= 0.29 && d <= 0.36) {
+      reasons.push('NEUTRAL_POISSON_FALLBACK');
+    }
+
     // Lambdas de fútbol internacional de 90' con >5 goles esperados para un equipo son demasiado frágiles para EV.
     if (source === 'POISSON' && (lH >= 5 || lA >= 5)) {
       reasons.push('EXTREME_POISSON_LAMBDA');
