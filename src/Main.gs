@@ -69,6 +69,7 @@ function cronDailySetup() {
 
     // 1. Actualizar datos del día anterior con API-Football (estadísticas detalladas)
     try { loadWorldCupDay_(yesterdayChile_()); } catch (e) { console.warn('LoadDay ayer:', e.message); }
+    try { repairPlayerStatsForDate_(yesterdayChile_()); } catch (e) { console.warn('PlayerStats ayer:', e.message); }
 
     // 2. Actualizar solo hoy y mañana desde ESPN (rápido — 2 llamadas)
     try { loadEspnMatchesForDays_([yesterdayChile_(), ctx.today, ctx.tomorrow]); } catch (e) { console.warn('ESPN hoy/mañana/ayer:', e.message); }
@@ -222,7 +223,10 @@ function cronWeeklyMaintenance() {
     Logger.log('cronWeeklyMaintenance: inicio');
     try { limpiarDuplicadosPartidos(); }   catch (e) { console.warn('LimpDup:', e.message); }
     try { limpiarDuplicadosResumen(); }    catch (e) { console.warn('LimpResumen:', e.message); }
+    try { initializeEloRatings(); }         catch (e) { console.warn('EloInit:', e.message); }
+    try { repairRecentOfficialPlayerStats_(7, 8); } catch (e) { console.warn('PlayerStatsRepair:', e.message); }
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
+    try { runGroupSimulation(); }           catch (e) { console.warn('GroupSim:', e.message); }
     // Cargar/actualizar planteles desde ESPN (fotos incluidas, sin cuota API-Football)
     try { cargarPlantelesDesdeEspn(); } catch (e) { console.warn('PlantelesEspn:', e.message); }
     try { calculateModelCalibration_(); }   catch (e) { console.warn('Calib:', e.message); }

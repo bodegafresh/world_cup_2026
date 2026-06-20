@@ -158,15 +158,23 @@ function runGroupSimulation() {
 function simulateGroup_(standings, pendingFixtures) {
   const qualifyCount = {};
   standings.forEach(t => qualifyCount[t.equipo] = 0);
+  const standingTeamNames = standings.map(t => t.equipo);
 
   // Pre-calcular probs ELO para cada partido (costoso solo si se hace fuera del loop)
   const fixtureProbs = pendingFixtures.map(fix => {
     let probs = { home: 0.4, draw: 0.25, away: 0.35 }; // fallback
     try {
       const p = getEloProbabilities_(fix.local, fix.visitante);
-      if (p) probs = p;
+      if (p) probs = normalizeSimulationProbabilities_(p);
     } catch (e_) { /* usar fallback */ }
-    return { fix, probs };
+    return {
+      fix: {
+        ...fix,
+        local: resolveSimulationTeamName_(fix.local, standingTeamNames),
+        visitante: resolveSimulationTeamName_(fix.visitante, standingTeamNames)
+      },
+      probs
+    };
   });
 
   for (let run = 0; run < SIM_RUNS; run++) {
@@ -229,6 +237,31 @@ function simulateGroup_(standings, pendingFixtures) {
     result[eq] = qualifyCount[eq] / SIM_RUNS;
   });
   return result;
+}
+
+function normalizeSimulationProbabilities_(p) {
+  const home = Number(p.home !== undefined ? p.home : p.home_win);
+  const draw = Number(p.draw !== undefined ? p.draw : p.empate);
+  const away = Number(p.away !== undefined ? p.away : p.away_win);
+  const sum = home + draw + away;
+  if (!sum || isNaN(sum)) return { home: 0.4, draw: 0.25, away: 0.35 };
+  return {
+    home: home / sum,
+    draw: draw / sum,
+    away: away / sum
+  };
+}
+
+function resolveSimulationTeamName_(name, standingTeamNames) {
+  const direct = standingTeamNames.find(t => String(t) === String(name));
+  if (direct) return direct;
+
+  const spanish = teamNameToSpanish_(name || '');
+  const bySpanish = standingTeamNames.find(t => teamNameMatches_(t, spanish));
+  if (bySpanish) return bySpanish;
+
+  const byRaw = standingTeamNames.find(t => teamNameMatches_(t, name));
+  return byRaw || name;
 }
 
 /**

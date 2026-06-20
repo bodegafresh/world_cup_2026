@@ -567,6 +567,8 @@ function getWebHoy_() {
       goles_visitante: p.goles_visitante !== undefined && p.goles_visitante !== '' ? p.goles_visitante : null,
       status:          p.status  || 'NS',
       minuto:          p.minuto  || '',
+      fecha:           p.fecha || '',
+      operational_next_day: !!p.operational_next_day,
       hora_chile:      safeHoraChile_(p.hora_chile),
       hora_local:      hora_local,
       grupo:           p.grupo   || '',
@@ -1804,6 +1806,17 @@ function getWebSquad_(e) {
     });
   } catch(e_) {}
 
+  var lineupByName = {};
+  try {
+    readAll_(CONFIG.SHEETS.ALINEACIONES).forEach(function(r) {
+      if (teamNameToSpanish_(r.equipo || '') !== equipoName) return;
+      var nk = normNombre_(r.jugador || '');
+      if (!nk) return;
+      if (!lineupByName[nk]) lineupByName[nk] = { partidos: 0 };
+      lineupByName[nk].partidos += 1;
+    });
+  } catch(e_) {}
+
   // Posicion sort order
   var posOrder = { 'Portero': 1, 'Goalkeeper': 1, 'Defensa': 2, 'Defender': 2, 'Mediocampista': 3, 'Midfielder': 3, 'Delantero': 4, 'Forward': 4, 'Attacker': 4 };
 
@@ -1814,6 +1827,8 @@ function getWebSquad_(e) {
     var stats    = statsByPid[pid] || statsByName[nk] || { goles: 0, asistencias: 0, amarillas: 0, rojas: 0, partidos: 0 };
     var ratObj   = ratingByPid[pid]  || ratingByName[nk];
     var minutos  = minutosByPid[pid] || minutosByName[nk] || 0;
+    var lineupStats = lineupByName[nk] || null;
+    var partidos = stats.partidos || (lineupStats ? lineupStats.partidos : 0);
     return {
       nombre:      r.nombre   || '',
       posicion:    r.posicion || '',
@@ -1825,7 +1840,7 @@ function getWebSquad_(e) {
       asistencias: stats.asistencias,
       amarillas:   stats.amarillas,
       rojas:       stats.rojas,
-      partidos:    stats.partidos,
+      partidos:    partidos,
       minutos:     minutos,
       rating:      ratObj && ratObj.cnt ? Math.round(ratObj.sum / ratObj.cnt * 10) / 10 : 0
     };
