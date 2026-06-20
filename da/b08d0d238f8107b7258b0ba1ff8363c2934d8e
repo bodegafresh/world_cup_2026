@@ -1,0 +1,23 @@
+src/Main.gs
+  s_bf65d3ab005d68::t_e3e28c0267eb8e 71
+  s_bf65d3ab005d68::t_498dc65925e201 253,269
+src/TodayDataRepair.gs
+  s_bf65d3ab005d68::t_0b187d009bf617 244-245,247-265,267-272,333-364,366-380
+  s_bf65d3ab005d68::t_38cdc2d390414a 242-243,246,266,273-332,365,381-409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "dab08d0d238f8107b7258b0ba1ff8363c2934d8e",
+  "prompts": {},
+  "sessions": {
+    "s_bf65d3ab005d68": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ee13f-9d09-79f3-814a-b023e7ecce50",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
