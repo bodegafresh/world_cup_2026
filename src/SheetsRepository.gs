@@ -30,6 +30,13 @@ function appendRows_(sheetName, rows) {
   const startCol = 1;
 
   sheet.getRange(startRow, startCol, rows.length, rows[0].length).setValues(rows);
+
+  try {
+    const headers = getHeaders_(sheetName);
+    supabaseMirrorRows_(sheetName, headers, rows);
+  } catch (e_) {
+    Logger.log('Supabase mirror appendRows_ skipped for ' + sheetName + ': ' + e_.message);
+  }
 }
 
 function appendRow_(sheetName, rowData) {
@@ -39,6 +46,12 @@ function appendRow_(sheetName, rowData) {
     ? rowData
     : headers.map(h => safe_(rowData[h]));
   sheet.getRange(sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+
+  try {
+    supabaseMirrorRows_(sheetName, headers, [row]);
+  } catch (e_) {
+    Logger.log('Supabase mirror appendRow_ skipped for ' + sheetName + ': ' + e_.message);
+  }
 }
 
 function updateRow_(sheetName, zeroBasedDataIndex, rowData) {
@@ -90,6 +103,13 @@ function upsertRowsByKey_(sheetName, headers, rows, keyColumns, options) {
   if (toAppend.length) {
     sheet.getRange(sheet.getLastRow() + 1, 1, toAppend.length, headers.length).setValues(toAppend);
   }
+
+  try {
+    const mirroredRows = rows.map(row => Array.isArray(row) ? row : headers.map(h => safe_(row[h])));
+    supabaseMirrorRows_(sheetName, headers, mirroredRows);
+  } catch (e_) {
+    Logger.log('Supabase mirror upsertRowsByKey_ skipped for ' + sheetName + ': ' + e_.message);
+  }
   return { inserted: inserted, updated: updated };
 }
 
@@ -102,6 +122,16 @@ function buildSheetKey_(row, headers, keyColumns) {
 }
 
 function readAll_(sheetName) {
+  try {
+    const supabaseRows = supabaseReadSheet_(sheetName);
+    if (supabaseRows) return supabaseRows;
+  } catch (e_) {
+    Logger.log('Supabase primary read fallback to Sheets for ' + sheetName + ': ' + e_.message);
+  }
+  return readAllFromSheet_(sheetName);
+}
+
+function readAllFromSheet_(sheetName) {
   let sheet;
   try { sheet = getSheet_(sheetName); } catch(e_) { return []; }
   const values = sheet.getDataRange().getValues();

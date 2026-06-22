@@ -100,6 +100,38 @@ const CONFIG = {
     MODEL: 'gpt-4.1-mini'
   },
 
+  SUPABASE: {
+    REST_PATH: '/rest/v1',
+    DEFAULT_BATCH_SIZE: 200,
+    MAX_BATCH_SIZE: 500,
+    PRIMARY_READ_PROP: 'SUPABASE_PRIMARY_READ',
+    DUAL_WRITE_PROP: 'SUPABASE_DUAL_WRITE',
+    MIGRATION_BATCH_SIZE_PROP: 'SUPABASE_MIGRATION_BATCH_SIZE',
+    SUPPORTED_SHEETS: [
+      'Partidos',
+      'Equipos',
+      'Jugadores',
+      'Clasificacion',
+      'PlayerMatchStats',
+      'ResumenJugadorPartido',
+      'OddsApuestas',
+      'PoissonOdds',
+      'AnalisisIA',
+      'EvOpportunities',
+      'EvHistorico',
+      'BettingHistory',
+      'ModelCalibration',
+      'SimulacionGrupos',
+      'EloRatings',
+      'PipelineRuns',
+      'DataQualityLog',
+      'SourceFixtures',
+      'MatchMapping',
+      'EstadiosClima',
+      'Noticias'
+    ]
+  },
+
   TELEGRAM: {
     BASE_URL: 'https://api.telegram.org/bot'
   },
@@ -180,6 +212,18 @@ function getTelegramChatId_() {
 
 function getWebAppUrl_() {
   return getProp_('URL_WEB_APP');
+}
+
+function getSupabaseUrl_() {
+  return getProp_('SUPABASE_URL').replace(/\/+$/, '');
+}
+
+function getSupabaseServiceRoleKey_() {
+  return getProp_('SUPABASE_SERVICE_ROLE_KEY');
+}
+
+function getSupabaseAnonKey_() {
+  return getOptionalProp_('SUPABASE_ANON_KEY', '');
 }
 
 /**

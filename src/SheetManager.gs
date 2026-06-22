@@ -51,6 +51,13 @@ const VALID_SHEETS = new Set([
   // Hojas nuevas — fuentes adicionales
   'EspnStats',
   'FormaEquipos',
+  'SofaStats',
+  'PoissonOdds',
+  'BetfairOdds',
+  'GoalScorerOdds',
+  'CornersOdds',
+  'CardsOdds',
+  'EvHistorico',
   'NormalizationAudit'
 ]);
 
@@ -200,6 +207,40 @@ const SHEET_HEADERS = {
   ],
   NormalizationAudit: [
     'timestamp','sheet','check_type','severity','details','recommended_action','apply_status'
+  ],
+  PoissonOdds: [
+    'match_key','fecha','local','visitante',
+    'prob_home','prob_draw','prob_away',
+    'cuota_fair_h','cuota_fair_d','cuota_fair_a',
+    'dc_1X','dc_X2','dc_12',
+    'prob_btts_si','prob_btts_no',
+    'over_2_5','under_2_5','over_1_5','over_3_5',
+    'ah_home_minus05','ah_away_minus05',
+    'ah_home_minus15','ah_away_minus15',
+    'ah_home_plus05','ah_away_plus05',
+    'lambda_home','lambda_away','goles_esperados',
+    'score_probable','score_prob_pct','top_scores_json',
+    'updated_at'
+  ],
+  CornersOdds: [
+    'match_key','fecha','local','visitante',
+    'lambda_home','lambda_away','lambda_total',
+    'over_8_5','over_9_5','over_10_5','over_11_5',
+    'home_over_4_5','away_over_4_5',
+    'prob_home_more','cuota_fair_over95','cuota_fair_under95',
+    'updated_at'
+  ],
+  CardsOdds: [
+    'match_key','fecha','local','visitante','arbitro',
+    'lambda_home','lambda_away','lambda_total',
+    'over_3_5','over_4_5','over_5_5',
+    'home_over_1_5','away_over_1_5',
+    'prob_roja_si','cuota_fair_over45','cuota_fair_under45','updated_at'
+  ],
+  EvHistorico: [
+    'timestamp','fecha','local','visitante','mercado','seleccion',
+    'prob_modelo','prob_mercado','cuota','ev','edge','kelly','fuente',
+    'resultado','pnl'
   ]
 };
 

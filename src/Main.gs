@@ -100,6 +100,9 @@ function cronDailySetup() {
     // 6. Recalcular tabla de posiciones antes de simular.
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
 
+    // 6b. Auditoria operacional: bloquea confianza ciega antes de publicar datos derivados.
+    try { runDailyDataQualityAudit(); } catch (e) { console.warn('DataQualityAudit:', e.message); }
+
     // 7. EV y simulación de grupos (Poisson ya disponible → EV usa modelo independiente)
     try { runGroupSimulation(); } catch (e) { console.warn('GroupSim:', e.message); }
 
@@ -231,6 +234,7 @@ function cronWeeklyMaintenance() {
     try { initializeEloRatings(); }         catch (e) { console.warn('EloInit:', e.message); }
     try { repairRecentOfficialPlayerStats_(7, 8); } catch (e) { console.warn('PlayerStatsRepair:', e.message); }
     try { recalcularTablaDesdePartidos(); } catch (e) { console.warn('Tabla:', e.message); }
+    try { runDailyDataQualityAudit(); } catch (e) { console.warn('DataQualityAudit:', e.message); }
     try { runGroupSimulation(); }           catch (e) { console.warn('GroupSim:', e.message); }
     try { resolvePendingEvHistoricoFromPartidos(); } catch (e) { console.warn('EvHistResolve:', e.message); }
     try { cleanupClosedEvOpportunities(); } catch (e) { console.warn('EvCleanup:', e.message); }
