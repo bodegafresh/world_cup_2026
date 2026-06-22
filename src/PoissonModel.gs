@@ -27,7 +27,7 @@
 const POISSON_HOME_ADV   = 1.15;   // fallback si getActiveLeague_ no disponible
 const POISSON_MAX_GOALS  = 8;      // goles máximos a considerar por lado
 const POISSON_MIN_GAMES  = 1;      // partidos mínimos para incluir equipo en modelo
-const POISSON_ELO_BLEND  = 0.4;    // peso del ELO cuando hay pocos partidos (0=solo Poisson, 1=solo ELO)
+const POISSON_ELO_BLEND  = 0.8;    // peso del ELO cuando hay pocos partidos (0=solo Poisson, 1=solo ELO)
 
 // Corrección Dixon-Coles para resultados bajos (sobre/sub representados en fútbol)
 const DC_RHO = -0.13;
@@ -213,18 +213,16 @@ function _getEloPoissonBlend_(home, away, strengths, lH, lA) {
   const pjA = _teamGamesPlayed_(away, strengths);
   const minPj = Math.min(pjH, pjA);
   // Peso ELO decrece linealmente: 3 partidos = 0 peso ELO
-  const eloWeight = Math.max(0, POISSON_ELO_BLEND * (1 - minPj / 3));
+  // Con pocos partidos, el ELO tiene más peso. Inactivo desde 6+ partidos por equipo.
+  const eloWeight = Math.max(0, POISSON_ELO_BLEND * (1 - minPj / 6));
 
   if (eloWeight === 0) return { lH, lA };
 
   // Obtener λ implícitas desde ELO si existe EloRating.gs
   try {
     const eloProbs = getEloProbabilities_(home, away);
-    if (eloProbs && eloProbs.home > 0) {
-      // Invertir prob ELO a λ usando que P(home > away) ≈ Σ P(H>A)
-      // Aproximación: λ_elo via P(draw) ≈ P(Poisson match) con λ ajustado
-      // En la práctica, ajustamos la media manteniendo la relación λH/λA
-      const eloRatio = eloProbs.home / Math.max(eloProbs.away, 0.01);
+    if (eloProbs && eloProbs.home_win > 0) {
+      const eloRatio = eloProbs.home_win / Math.max(eloProbs.away_win, 0.01);
       const mu = (lH + lA) / 2;
       const eloLH = mu * Math.sqrt(eloRatio);
       const eloLA = mu / Math.sqrt(eloRatio);
