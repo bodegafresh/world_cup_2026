@@ -68,9 +68,20 @@ function cronDailySetup() {
     Logger.log(`cronDailySetup | hoy: ${ctx.nHoy} partidos | mañana: ${ctx.nMañana}`);
 
     // 1. Actualizar datos del día anterior con API-Football (estadísticas detalladas)
-    try { backfillMissingApiFootballFixtureIdsForDate(yesterdayChile_()); } catch (e) { console.warn('Fixture IDs ayer:', e.message); }
+    // NOTA: backfillMissingApiFootballFixtureIdsForDate se movió a cronBackfillFixtureIds (trigger 6:00 AM)
+    // para no bloquear este cron con la llamada lenta a API-Football (~3 min en plan gratis).
     try { loadWorldCupDay_(yesterdayChile_()); } catch (e) { console.warn('LoadDay ayer:', e.message); }
-    try { repairPlayerStatsForDate_(yesterdayChile_()); } catch (e) { console.warn('PlayerStats ayer:', e.message); }
+    // repairPlayerStatsForDate_ solo corre si hay partidos terminados sin fixture_id_af (ESPN fallback).
+    // loadWorldCupDay_ ya cubrió los que tienen ID oficial.
+    try {
+      const ayer = yesterdayChile_();
+      const sinId = readAll_(CONFIG.SHEETS.PARTIDOS)
+        .filter(r => normalizeFecha_(r.fecha) === ayer)
+        .filter(r => ['FT','AET','PEN'].includes(String(r.status || '').toUpperCase()))
+        .some(r => !String(r.fixture_id_af || r.fixture_id_api_football || '').trim());
+      if (sinId) repairPlayerStatsForDate_(ayer);
+      else Logger.log('repairPlayerStatsForDate_: todos los partidos de ayer tienen fixture_id_af, skip.');
+    } catch (e) { console.warn('PlayerStats ayer:', e.message); }
 
     // 2. Actualizar solo hoy y mañana desde ESPN (rápido — 2 llamadas)
     try { loadEspnMatchesForDays_([yesterdayChile_(), ctx.today, ctx.tomorrow]); } catch (e) { console.warn('ESPN hoy/mañana/ayer:', e.message); }
@@ -687,4 +698,18 @@ function diagnosticarPlayerStats() {
   if (conId > conDatos) {
     Logger.log('  → ' + (conId - conDatos) + ' partido(s) tienen fixture_id_af pero sin stats. Ejecutar loadWorldCupDay_("YYYY-MM-DD")');
   }
+}
+
+
+/**
+ * CRON separado — Day timer → 6:00 AM (antes de cronDailySetup)
+ * Resuelve fixture_id_api_football para los partidos de ayer vía API-Football.
+ * Separado de cronDailySetup porque la llamada al plan gratis tarda ~3 min.
+ * Trigger: Apps Script → Triggers → Day timer → 6:00–7:00 AM → cronBackfillFixtureIds
+ */
+function cronBackfillFixtureIds() {
+  runWithHealthCheck_('cronBackfillFixtureIds', () => {
+    try { backfillMissingApiFootballFixtureIdsForDate(yesterdayChile_()); }
+    catch (e) { console.warn('cronBackfillFixtureIds:', e.message); }
+  });
 }

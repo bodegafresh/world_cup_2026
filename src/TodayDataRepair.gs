@@ -454,6 +454,26 @@ function backfillMissingApiFootballFixtureIdsForDate(date) {
 function backfillMissingApiFootballFixtureIdsForDates_(dates) {
   Logger.log('backfillMissingApiFootballFixtureIdsForDates_: inicio ' + dates.join(', '));
 
+  // Early exit: si todas las filas de las fechas pedidas ya tienen fixture_id_af, no llamar a la API
+  {
+    const dateSet = new Set(dates.map(d => normalizeFecha_(d)).filter(Boolean));
+    const allRows = readAll_(CONFIG.SHEETS.PARTIDOS);
+    const rowsForDates = allRows.filter(r => {
+      const f = normalizeFecha_(r.fecha) || normalizeFecha_(r.fecha_chile);
+      return dateSet.has(f);
+    });
+    const pending = rowsForDates.filter(r => {
+      const id = String(r.fixture_id_api_football || '').trim();
+      const notes = String(r.notas || '');
+      return !id && !notes.includes('NO_API_FOOTBALL_ID_MATCH');
+    });
+    if (!pending.length) {
+      Logger.log('backfillMissingApiFootballFixtureIdsForDates_: todas las filas ya tienen ID o están marcadas, skip API call.');
+      return { updated: 0, unresolved: 0, candidates: 0 };
+    }
+    Logger.log('backfillMissingApiFootballFixtureIdsForDates_: ' + pending.length + ' filas sin ID, procediendo con API call.');
+  }
+
   let official = [];
   dates.forEach(date => {
     try {
