@@ -38,6 +38,26 @@ SUPABASE_MIGRATION_BATCH_SIZE=200     opcional
 
 Importante: `SUPABASE_SERVICE_ROLE_KEY` nunca debe ir al frontend ni al repositorio. Solo se usa en GAS backend.
 
+Valores recomendados ahora que las migraciones ya fueron ejecutadas:
+
+```text
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<service-role-secret>
+SUPABASE_ANON_KEY=<anon-public-key>              opcional, solo si algun frontend futuro lo necesita
+SUPABASE_DUAL_WRITE=false                        antes de migrar historico
+SUPABASE_PRIMARY_READ=false                      mantener false hasta validar conteos
+SUPABASE_MIGRATION_BATCH_SIZE=200                100 si ves timeouts; 500 si la migracion va estable
+```
+
+Despues de `supabaseMigrateMvp30Apply()`, el propio script deja:
+
+```text
+SUPABASE_DUAL_WRITE=true
+SUPABASE_PRIMARY_READ=false
+```
+
+No activar `SUPABASE_PRIMARY_READ=true` hasta revisar `supabaseValidateAgainstSheets()` y probar dashboard/bot con dual-write.
+
 ## Crear la base
 
 1. Abrir Supabase SQL Editor.
@@ -47,7 +67,13 @@ Importante: `SUPABASE_SERVICE_ROLE_KEY` nunca debe ir al frontend ni al reposito
 supabase/migrations/001_initial_schema.sql
 ```
 
-3. Confirmar que existen estas tablas principales:
+3. Ejecutar luego:
+
+```text
+supabase/migrations/002_multi_competition_readiness.sql
+```
+
+4. Confirmar que existen estas tablas principales:
 
 - `teams`
 - `players`
@@ -65,6 +91,102 @@ supabase/migrations/001_initial_schema.sql
 - `pipeline_runs`
 - `data_quality_log`
 - `sheet_raw_rows`
+- `competitions`
+- `competition_seasons`
+- `competition_status`
+- `competition_readiness_checks`
+- `team_aliases`
+- `competition_team_mapping`
+- `source_team_mapping`
+- `model_runs`
+- `model_predictions`
+- `calibration_runs`
+- `calibration_bins`
+- `betting_decisions`
+- `market_closing_odds`
+- `model_metrics`
+- `data_quality_events`
+
+## Runbook actual: MVP 30 dias
+
+Con ambas migraciones aplicadas, ejecutar en este orden desde Apps Script:
+
+```javascript
+supabaseStatus()
+supabaseMigrationDryRun()
+supabaseMigrateMvp30Apply()
+supabaseMvp30Status()
+```
+
+`supabaseMigrateMvp30Apply()` hace todo el arranque del MVP:
+
+- seed de catalogo multi-competencia,
+- seed de status/readiness,
+- migracion core de Sheets a Supabase,
+- migracion de aliases y mappings de equipos,
+- validacion contra Sheets,
+- activacion de dual-write,
+- mantiene primary-read apagado.
+
+El resultado esperado es:
+
+```text
+SUPABASE_DUAL_WRITE=true
+SUPABASE_PRIMARY_READ=false
+WC2026=PAPER_TRADING salvo que se promueva manualmente luego de readiness
+Nuevas ligas=OBSERVATION
+```
+
+Para operar readiness:
+
+```javascript
+markCompetitionCheckPass('WC2026', 'fixtures_reliable', { notes: 'fixture completo validado' })
+markCompetitionCheckPass('WC2026', 'results_reliable', { notes: 'resultados resueltos' })
+markCompetitionCheckFail('WC2026', 'separate_calibration', { notes: 'muestra insuficiente' })
+evaluateCompetitionReadiness_('WC2026')
+```
+
+Transiciones:
+
+```javascript
+setCompetitionObservation('EPL_2025')
+setCompetitionPaperTrading('EPL_2025')
+setCompetitionBettable('WC2026', 'Readiness completo y CLV validado', 'operator')
+disableCompetition('CHI_PRIMERA_2025', 'Liquidez insuficiente')
+```
+
+Regla de seguridad: `setCompetitionBettable()` falla si cualquier readiness check obligatorio sigue en `FAIL`.
+
+## Runbook expansion 60 dias
+
+Cuando el MVP ya este migrado y dual-write este estable:
+
+```javascript
+supabasePrepareExpansion60Apply()
+```
+
+Esto prepara:
+
+- `competition_market_profiles` para 1X2 por competencia,
+- `feature_definitions` versionadas,
+- `league_strength_coefficients` iniciales,
+- catalogo multi-competencia resembrado sin degradar estados existentes.
+
+Las competencias siguen sin ser apostables salvo que `competition_status.status = BETTABLE`.
+
+## Runbook plataforma 90 dias
+
+Para dejar lista la capa champion/challenger:
+
+```javascript
+supabasePreparePlatform90Apply()
+```
+
+Esto ejecuta el scaffold 60d y agrega entradas iniciales en `model_registry`:
+
+- `POISSON_DC v1` como baseline champion,
+- `ELO_CONTEXTUAL v1` como challenger,
+- `LIGHTGBM_TABULAR planned_v1` como modelo planificado.
 
 ## Funciones GAS publicas
 

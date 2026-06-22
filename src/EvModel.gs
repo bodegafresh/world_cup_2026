@@ -336,6 +336,18 @@ function saveAndAlertEvOpportunities_(fixture, opportunities) {
   if (!opportunities || !opportunities.length) return;
 
   const fixtureId = String(fixture.fixture.id);
+  const competitionSeasonId = getCompetitionSeasonIdFromFixture_(fixture);
+  const bettingGate = buildCompetitionBettingGate_(competitionSeasonId);
+  if (!bettingGate.allowed) {
+    Logger.log('EV gate: ' + fixtureId + ' bloqueado para apuestas (' + bettingGate.block_reason + ')');
+    opportunities.forEach(function(o) {
+      o.es_positivo = false;
+      o.kelly = 0;
+      o.betting_decision = bettingGate.decision;
+      o.block_reason = bettingGate.block_reason;
+      try { recordCompetitionBlockedDecision_(fixture, o, bettingGate); } catch (e_) {}
+    });
+  }
 
   // Dedup: eliminar filas existentes para este fixture
   try {
@@ -378,7 +390,7 @@ function saveAndAlertEvOpportunities_(fixture, opportunities) {
       ev,
       Math.round(o.edge  * 10000) / 10000,
       Math.round(o.kelly * 10000) / 10000,
-      o.es_positivo ? 'SI' : 'NO',
+      bettingGate.allowed && o.es_positivo ? 'SI' : 'NO',
       o.confianza,
       o.fuente_modelo || '',
       sospechoso ? 'SI' : 'NO',
@@ -389,7 +401,7 @@ function saveAndAlertEvOpportunities_(fixture, opportunities) {
   appendRows_(CONFIG.SHEETS.EV_OPPORTUNITIES, rows);
 
   // Alerta solo si hay EV+ con datos de mercado real
-  const positivas = opportunities.filter(o => o.es_positivo && o.confianza !== 'BAJA');
+  const positivas = bettingGate.allowed ? opportunities.filter(o => o.es_positivo && o.confianza !== 'BAJA') : [];
   if (positivas.length) {
     try { sendEvAlert_(fixture, positivas);      } catch (e) { console.warn('EV alert:', e.message); }
     try { autoRegisterBets_(fixture, positivas); } catch (e) { console.warn('AutoBet:', e.message); }
@@ -607,7 +619,12 @@ function buildFixtureFromSheetRow_(row) {
       home: { name: row.local      || '' },
       away: { name: row.visitante  || '' }
     },
-    league: { round: row.ronda || '' },
+    league: {
+      round: row.ronda || '',
+      id: row.league_id || '',
+      season: row.season || '',
+      competition_season_id: row.competition_season_id || ''
+    },
     goals:  { home: row.goles_local || null, away: row.goles_visitante || null }
   };
 }
@@ -692,6 +709,8 @@ function calcularEV() {
       local: homeEs,
       visitante: awayEs
     }, partidosRows);
+    const competitionSeasonId = matchRow ? getCompetitionSeasonIdFromFixture_(matchRow) : getActiveCompetitionSeasonId_();
+    const bettingGate = buildCompetitionBettingGate_(competitionSeasonId);
     const canonicalDate = matchRow ? normalizeFecha_(matchRow.fecha || matchRow.fecha_chile || commenceChileDate) : commenceChileDate;
     if (matchRow && isEvRowForClosedMatch_({
       fecha: canonicalDate,
@@ -797,9 +816,11 @@ function calcularEV() {
       const esOutlier   = ev_val > EV_OUTLIER_THRESHOLD;
       const cuotaJusta  = metrics.fair_odds;
       const confFinal   = esOutlier ? 'PELIGRO' : (sospechoso ? 'BAJA' : confianza);
+      const evPositivo  = bettingGate.allowed && ev_val > EV_POSITIVE_THRESHOLD && !sospechoso;
 
-      newRows.push({
+      const evRow = {
         fixture_id:    mkKey,
+        competition_season_id: competitionSeasonId,
         timestamp:     now,
         fecha:         canonicalDate,
         local:         homeEs,
@@ -811,13 +832,23 @@ function calcularEV() {
         prob_modelo:   m.prob,
         ev:            ev_val,
         edge:          metrics.edge_pp,
-        kelly:         kelly,
-        ev_positivo:   ev_val > EV_POSITIVE_THRESHOLD && !sospechoso,
+        kelly:         bettingGate.allowed ? kelly : 0,
+        ev_positivo:   evPositivo,
         confianza:     confFinal,
         fuente_modelo: fuente,
         sospechoso:    sospechoso,
-        outlier:       esOutlier
-      });
+        outlier:       esOutlier,
+        betting_decision: bettingGate.allowed ? 'BETTABLE' : bettingGate.decision,
+        block_reason: bettingGate.allowed ? '' : bettingGate.block_reason
+      };
+      newRows.push(evRow);
+      if (!bettingGate.allowed) {
+        recordCompetitionBlockedDecision_({
+          fixture: { id: mkKey, date: canonicalDate },
+          teams: { home: { name: homeEs }, away: { name: awayEs } },
+          league: { competition_season_id: competitionSeasonId }
+        }, evRow, bettingGate);
+      }
       totalOpps++;
     });
   });

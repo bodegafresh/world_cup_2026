@@ -340,14 +340,20 @@ function ensureMatchIdFromRow_(row) {
 function supabaseMapPartido_(r) {
   const matchId = ensureMatchIdFromRow_(r);
   if (!matchId) return null;
+  const competitionSeasonId = getCompetitionSeasonIdFromFixture_(r);
+  const league = Object.keys(CONFIG.LEAGUES.CATALOG).map(function(k) { return CONFIG.LEAGUES.CATALOG[k]; }).find(function(l) {
+    return getCompetitionSeasonIdFromLeague_(l) === competitionSeasonId;
+  }) || getActiveLeague_();
   return {
     match_id: matchId,
-    competition_id: 'WC2026',
-    season: 2026,
+    competition_id: league.competition_id || competitionSeasonId,
+    competition_season_id: competitionSeasonId,
+    season: toNumberOrNull_(r.season) || league.season || 2026,
     match_key: String(r.match_key || matchId),
     date: normalizeFecha_(r.fecha || r.fecha_chile || ''),
     kickoff_chile: safeHoraChile_(r.hora_chile || r.hora || ''),
     stage: safe_(r.fase || r.ronda || ''),
+    match_type: getMatchTypeFromFixture_(r),
     group_code: safe_(r.grupo || r.group || ''),
     home_team_key: canonicalTeamKey_(r.local),
     home_team_name: teamNameToSpanish_(r.local || ''),
@@ -380,6 +386,9 @@ function supabaseMapPartido_(r) {
 function supabaseReversePartido_(r) {
   return {
     match_id: r.match_id,
+    competition_season_id: r.competition_season_id,
+    league_id: r.payload && r.payload.league_id,
+    season: r.season,
     fecha: r.date,
     fecha_chile: r.date,
     hora_chile: r.kickoff_chile,
@@ -476,8 +485,9 @@ function supabaseMapClasificacion_(r) {
   const groupCode = safe_(r.grupo || r.group || '');
   const teamKey = canonicalTeamKey_(team);
   if (!groupCode || !teamKey) return null;
+  const competitionSeasonId = getCompetitionSeasonIdFromFixture_(r);
   return {
-    competition_id: 'WC2026',
+    competition_id: competitionSeasonId,
     group_code: groupCode,
     team_key: teamKey,
     team_name: teamNameToSpanish_(team),
@@ -601,12 +611,17 @@ function supabaseMapOdds_(r) {
   if (!matchId || !market || !selection) return null;
   return {
     match_id: matchId,
+    competition_season_id: getCompetitionSeasonIdFromFixture_(r),
     bookmaker: safe_(r.fuente || r.bookmaker || 'unknown'),
     market: market,
     selection: selection,
     decimal_odds: toNumberOrNull_(r.cuota || r.odds),
     implied_probability: toNumberOrNull_(r.probabilidad_implicita || r.implied_probability),
     model_probability: toNumberOrNull_(r.probabilidad_modelo || r.prob_modelo),
+    bookmaker_count: toNumberOrNull_(r.bookmakers_count || r.bookmaker_count),
+    market_quality_score: toNumberOrNull_(r.market_quality_score),
+    liquidity_tier: safe_(r.liquidity_tier),
+    odds_volatility: toNumberOrNull_(r.odds_volatility),
     captured_at: capturedAt,
     payload: r
   };
@@ -628,11 +643,14 @@ function supabaseMapModelOutput_(r, modelName) {
   const matchId = ensureMatchIdFromRow_(r);
   if (!matchId) return null;
   const runAt = toIsoOrNull_(r.updated_at || r.timestamp || r.run_at) || nowIso_();
+  const competitionSeasonId = getCompetitionSeasonIdFromFixture_(r);
   return {
     match_id: matchId,
+    competition_season_id: competitionSeasonId,
     model_name: modelName,
     model_version: safe_(r.model_version || r.fuente_modelo || 'v1'),
     market: safe_(r.mercado || '1X2'),
+    match_type: getMatchTypeFromFixture_(r),
     run_at: runAt,
     home_team_name: teamNameToSpanish_(r.equipo_local || r.local || ''),
     away_team_name: teamNameToSpanish_(r.equipo_visitante || r.visitante || ''),
@@ -693,9 +711,11 @@ function supabaseMapEvPick_(r, defaultStatus) {
   const pickKey = safe_(r.pick_key) || hash_([matchId, market, selection, r.cuota, publishedAt].join('|'));
   if (!matchId || !market || !selection) return null;
   const ev = toNumberOrNull_(r.ev || r.expected_value) || 0;
+  const competitionSeasonId = getCompetitionSeasonIdFromFixture_(r);
   return {
     pick_key: pickKey,
     match_id: matchId,
+    competition_season_id: competitionSeasonId,
     match_date: normalizeFecha_(r.fecha || r.date || ''),
     home_team_name: teamNameToSpanish_(r.local || r.home_team || ''),
     away_team_name: teamNameToSpanish_(r.visitante || r.away_team || ''),
@@ -709,6 +729,8 @@ function supabaseMapEvPick_(r, defaultStatus) {
     kelly_fraction: toNumberOrNull_(r.kelly),
     category: ev > 0 ? 'EV_PLUS' : 'MARKET_OVERPRICED',
     status: safe_(r.status || defaultStatus || 'PUBLISHED'),
+    betting_decision: safe_(r.betting_decision || r.decision || (isCompetitionBettable_(competitionSeasonId) ? 'BETTABLE' : COMPETITION_BLOCKED_DECISION)),
+    block_reason: safe_(r.block_reason),
     confidence: safe_(r.confianza || r.confidence),
     model_source: safe_(r.fuente_modelo || r.source),
     is_suspicious: toBool_(r.sospechoso),
@@ -791,12 +813,22 @@ function supabaseReverseBet_(r) {
 
 function supabaseMapCalibration_(r) {
   const date = normalizeFecha_(r.fecha || r.date || nowChile_());
+  const competitionSeasonId = getCompetitionSeasonIdFromFixture_(r);
   return {
     calibration_key: safe_(r.calibration_key) || hash_([date, r.interpretacion || '', r.updated_at || ''].join('|')),
+    competition_season_id: competitionSeasonId,
     date: date,
+    market: safe_(r.market || r.mercado || '1X2'),
+    season: toNumberOrNull_(r.season) || (getActiveLeague_().season || null),
+    match_type: safe_(r.match_type || getMatchTypeFromFixture_(r)),
     evaluated_matches: toNumberOrNull_(r.partidos_evaluados),
     accuracy: toNumberOrNull_(r.accuracy),
     brier_score: toNumberOrNull_(r.brier_score),
+    log_loss: toNumberOrNull_(r.log_loss),
+    ece: toNumberOrNull_(r.ece),
+    sharpness: toNumberOrNull_(r.sharpness),
+    clv: toNumberOrNull_(r.clv),
+    simulated_roi: toNumberOrNull_(r.simulated_roi),
     interpretation: safe_(r.interpretacion),
     updated_at: toIsoOrNull_(r.updated_at) || nowIso_(),
     payload: r

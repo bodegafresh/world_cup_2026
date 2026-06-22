@@ -43,6 +43,310 @@ function supabaseMigrateCoreApply() {
   });
 }
 
+function supabaseMigrateMvp30Apply() {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+  const catalog = seedCompetitionCatalogToSupabase();
+  const core = supabaseMigrateCoreApply();
+  const mappings = supabaseMigrateCompetitionMappingsApply();
+  const validation = supabaseValidateAgainstSheets();
+  supabaseSetDualWrite(true);
+  supabaseSetPrimaryRead(false);
+  return {
+    status: core.totalErrors ? 'WARN' : 'OK',
+    catalog: catalog,
+    core: core,
+    mappings: mappings,
+    validation: validation,
+    runtime: supabaseStatus(),
+    next_step: 'Keep SUPABASE_PRIMARY_READ=false until validation blockers are reviewed.'
+  };
+}
+
+function supabaseMigrateCompetitionMappingsApply() {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+  const teamsPayload = [];
+  const aliasPayload = [];
+  const sourceMappingPayload = [];
+  const competitionTeamPayload = [];
+  const seen = {};
+
+  function addTeam(teamName, sourceRow) {
+    const name = teamNameToSpanish_(teamName || '');
+    const teamKey = canonicalTeamKey_(name);
+    if (!teamKey) return null;
+    if (!seen['team|' + teamKey]) {
+      teamsPayload.push({
+        team_key: teamKey,
+        display_name: name,
+        normalized_name: normalizeTeamNameStrong_(name),
+        group_code: safe_(sourceRow && (sourceRow.grupo || sourceRow.group_code)),
+        api_football_team_id: safe_(sourceRow && (sourceRow.team_id_api_football || sourceRow.equipo_id || sourceRow.team_id)),
+        football_data_team_id: safe_(sourceRow && sourceRow.team_id_football_data),
+        country_code: safe_(sourceRow && (sourceRow.country_code || sourceRow.codigo_pais)),
+        payload: sourceRow || {},
+        updated_at: nowIso_()
+      });
+      seen['team|' + teamKey] = true;
+    }
+    addAlias(teamKey, name, 'canonical', sourceRow);
+    if (sourceRow) {
+      ['nombre', 'equipo', 'team', 'display_name', 'nombre_normalizado'].forEach(function(field) {
+        if (sourceRow[field]) addAlias(teamKey, sourceRow[field], field, sourceRow);
+      });
+      addSourceMapping(teamKey, 'api_football', sourceRow.team_id_api_football || sourceRow.equipo_id || sourceRow.team_id, name, sourceRow);
+      addSourceMapping(teamKey, 'football_data', sourceRow.team_id_football_data, name, sourceRow);
+    }
+    return teamKey;
+  }
+
+  function addAlias(teamKey, alias, source, sourceRow) {
+    const raw = String(alias || '').trim();
+    const normalized = normalizeTeamNameStrong_(raw);
+    if (!teamKey || !normalized) return;
+    const key = 'alias|' + source + '|' + normalized;
+    if (seen[key]) return;
+    seen[key] = true;
+    aliasPayload.push({
+      alias_key: hash_([teamKey, source, normalized].join('|')),
+      team_key: teamKey,
+      alias: raw,
+      normalized_alias: normalized,
+      language: '',
+      source: source,
+      confidence: 1,
+      payload: sourceRow || {},
+      updated_at: nowIso_()
+    });
+  }
+
+  function addSourceMapping(teamKey, source, sourceId, sourceTeamName, sourceRow) {
+    const id = String(sourceId || '').trim();
+    if (!teamKey || !id) return;
+    const key = 'source|' + source + '|' + id;
+    if (seen[key]) return;
+    seen[key] = true;
+    sourceMappingPayload.push({
+      source: source,
+      source_team_id: id,
+      team_key: teamKey,
+      competition_season_id: safe_(sourceRow && sourceRow.competition_season_id) || 'WC2026',
+      source_team_name: safe_(sourceTeamName),
+      confidence: 1,
+      payload: sourceRow || {},
+      updated_at: nowIso_()
+    });
+  }
+
+  function addCompetitionTeam(competitionSeasonId, teamKey, teamName, groupCode, sourceRow) {
+    if (!competitionSeasonId || !teamKey) return;
+    const key = 'competition_team|' + competitionSeasonId + '|' + teamKey;
+    if (seen[key]) return;
+    seen[key] = true;
+    competitionTeamPayload.push({
+      competition_season_id: competitionSeasonId,
+      team_key: teamKey,
+      group_code: safe_(groupCode),
+      status: 'ACTIVE',
+      seed_rating: null,
+      payload: Object.assign({}, sourceRow || {}, { team_name: teamName }),
+      updated_at: nowIso_()
+    });
+  }
+
+  readAllFromSheet_(CONFIG.SHEETS.EQUIPOS).forEach(function(r) {
+    const name = r.nombre || r.equipo || r.team || r.display_name;
+    const teamKey = addTeam(name, r);
+    if (teamKey) addCompetitionTeam(r.competition_season_id || 'WC2026', teamKey, name, r.grupo || r.group_code, r);
+  });
+
+  readAllFromSheet_(CONFIG.SHEETS.CLASIFICACION).forEach(function(r) {
+    const name = r.equipo || r.team;
+    const teamKey = addTeam(name, r);
+    if (teamKey) addCompetitionTeam(r.competition_season_id || 'WC2026', teamKey, name, r.grupo || r.group_code, r);
+  });
+
+  if (teamsPayload.length) supabaseUpsert_('teams', teamsPayload, 'team_key');
+  if (aliasPayload.length) supabaseUpsert_('team_aliases', aliasPayload, 'alias_key');
+  if (sourceMappingPayload.length) supabaseUpsert_('source_team_mapping', sourceMappingPayload, 'source,source_team_id');
+  if (competitionTeamPayload.length) supabaseUpsert_('competition_team_mapping', competitionTeamPayload, 'competition_season_id,team_key');
+
+  const summary = {
+    teams: teamsPayload.length,
+    aliases: aliasPayload.length,
+    source_team_mapping: sourceMappingPayload.length,
+    competition_team_mapping: competitionTeamPayload.length
+  };
+  Logger.log('supabaseMigrateCompetitionMappingsApply: ' + JSON.stringify(summary));
+  return summary;
+}
+
+function supabaseMvp30Status() {
+  const status = supabaseStatus();
+  const activeCompetition = getActiveCompetitionSeasonId_();
+  return {
+    supabase: status,
+    active_competition_season_id: activeCompetition,
+    active_competition_status: getCompetitionStatus_(activeCompetition),
+    active_competition_readiness: evaluateCompetitionReadiness_(activeCompetition)
+  };
+}
+
+function supabasePrepareExpansion60Apply() {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+  seedCompetitionCatalogToSupabase();
+  const marketProfiles = supabaseSeedCompetitionMarketProfiles_();
+  const features = supabaseSeedFeatureDefinitions_();
+  const ratings = supabaseSeedLeagueStrengthCoefficients_();
+  return {
+    status: 'OK',
+    market_profiles: marketProfiles,
+    feature_definitions: features,
+    league_strength_coefficients: ratings,
+    note: 'Expansion 60d scaffold ready. Competitions remain non-bettable until readiness passes.'
+  };
+}
+
+function supabasePreparePlatform90Apply() {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+  const expansion = supabasePrepareExpansion60Apply();
+  const registry = [
+    {
+      model_name: 'POISSON_DC',
+      model_version: 'v1',
+      status: 'CHAMPION',
+      payload: { scope: 'baseline', requires_calibration: true }
+    },
+    {
+      model_name: 'ELO_CONTEXTUAL',
+      model_version: 'v1',
+      status: 'CHALLENGER',
+      payload: { scope: 'rating', requires_calibration: true }
+    },
+    {
+      model_name: 'LIGHTGBM_TABULAR',
+      model_version: 'planned_v1',
+      status: 'PLANNED',
+      payload: { scope: '90d', requires_feature_snapshots: true }
+    }
+  ];
+  supabaseUpsert_('model_registry', registry, 'model_name,model_version');
+  return {
+    status: 'OK',
+    expansion: expansion,
+    model_registry: registry.length,
+    note: 'Platform 90d scaffold ready for champion/challenger tracking.'
+  };
+}
+
+function supabaseSeedCompetitionMarketProfiles_() {
+  const now = nowIso_();
+  const payload = getCompetitionCatalogRows_().map(function(r) {
+    const tier = r.liquidity_tier || 'LOW';
+    const score = tier === 'HIGH' ? 0.9 : tier === 'MEDIUM' ? 0.65 : tier === 'LOW' ? 0.35 : 0;
+    return {
+      competition_season_id: r.competition_season_id,
+      market: '1X2',
+      bookmaker_count: null,
+      market_quality_score: score,
+      liquidity_tier: tier,
+      odds_volatility: null,
+      closing_efficiency: null,
+      updated_at: now,
+      payload: {
+        seeded_from_catalog: true,
+        target_status: r.target_status
+      }
+    };
+  });
+  if (payload.length) supabaseUpsert_('competition_market_profiles', payload, 'competition_season_id,market');
+  return payload.length;
+}
+
+function supabaseSeedLeagueStrengthCoefficients_() {
+  const payload = getCompetitionCatalogRows_().map(function(r) {
+    return {
+      competition_season_id: r.competition_season_id,
+      coefficient: Number(r.strength_coefficient || 1),
+      method: 'catalog_initial_prior',
+      sample_size: null,
+      updated_at: nowIso_(),
+      payload: {
+        seeded_from_catalog: true,
+        competition_id: r.competition_id
+      }
+    };
+  });
+  if (payload.length) supabaseUpsert_('league_strength_coefficients', payload, 'competition_season_id');
+  return payload.length;
+}
+
+function supabaseSeedFeatureDefinitions_() {
+  const definitions = [
+    {
+      feature_name: 'elo_global_pre_match',
+      feature_set_version: 'v1',
+      valid_contexts: ['international_cup', 'domestic_league', 'continental_club'],
+      requires_home_advantage: false,
+      requires_league_strength: false,
+      description: 'Global pre-match team ELO.'
+    },
+    {
+      feature_name: 'elo_contextual_diff',
+      feature_set_version: 'v1',
+      valid_contexts: ['international_cup', 'domestic_league', 'continental_club'],
+      requires_home_advantage: true,
+      requires_league_strength: false,
+      description: 'Contextual home-away ELO difference.'
+    },
+    {
+      feature_name: 'poisson_lambda_home',
+      feature_set_version: 'v1',
+      valid_contexts: ['international_cup', 'domestic_league', 'continental_club'],
+      requires_home_advantage: true,
+      requires_league_strength: false,
+      description: 'Home scoring intensity from Poisson model.'
+    },
+    {
+      feature_name: 'poisson_lambda_away',
+      feature_set_version: 'v1',
+      valid_contexts: ['international_cup', 'domestic_league', 'continental_club'],
+      requires_home_advantage: false,
+      requires_league_strength: false,
+      description: 'Away scoring intensity from Poisson model.'
+    },
+    {
+      feature_name: 'market_implied_probability_no_vig',
+      feature_set_version: 'v1',
+      valid_contexts: ['international_cup', 'domestic_league', 'continental_club'],
+      requires_home_advantage: false,
+      requires_league_strength: false,
+      description: 'No-vig implied probability from market odds.'
+    },
+    {
+      feature_name: 'rest_days_diff',
+      feature_set_version: 'v1',
+      valid_contexts: ['international_cup', 'domestic_league', 'continental_club'],
+      requires_home_advantage: false,
+      requires_league_strength: false,
+      description: 'Difference in rest days before match.'
+    },
+    {
+      feature_name: 'league_strength_coefficient',
+      feature_set_version: 'v1',
+      valid_contexts: ['continental_club'],
+      requires_home_advantage: false,
+      requires_league_strength: true,
+      description: 'Competition strength prior for cross-league normalization.'
+    }
+  ].map(function(d) {
+    d.payload = { seeded: true };
+    d.updated_at = nowIso_();
+    return d;
+  });
+  supabaseUpsert_('feature_definitions', definitions, 'feature_name');
+  return definitions.length;
+}
+
 function supabaseValidateAgainstSheets() {
   if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
 
