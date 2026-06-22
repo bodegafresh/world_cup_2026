@@ -490,6 +490,10 @@ function backfillMissingApiFootballFixtureIdsForDates_(dates) {
     return;
   }
 
+  // Solo procesar filas cuya fecha está dentro del rango pedido.
+  // Iterar filas de otras fechas es inútil: los candidatos officiales son solo de `dates`.
+  const dateSet = new Set(dates.map(d => normalizeFecha_(d)).filter(Boolean));
+
   let updated = 0;
   let unresolved = 0;
 
@@ -504,12 +508,17 @@ function backfillMissingApiFootballFixtureIdsForDates_(dates) {
     const fecha = normalizeFecha_(row[idx('fecha')]) || normalizeFecha_(row[idx('fecha_chile')]);
     if (!fecha) return;
 
+    // Saltar filas de fechas que no fueron pedidas — no hay candidatos para ellas
+    if (!dateSet.has(fecha)) return;
+
+    // Saltar si ya fue marcado como sin match en ejecución anterior
+    if (notesIdx !== -1 && String(row[notesIdx] || '').includes('NO_API_FOOTBALL_ID_MATCH')) return;
+
     const match = findBestApiFootballFixtureMatch_(row, headers, official);
     if (!match || match.score < 0.86) {
       unresolved++;
       if (notesIdx !== -1) {
-        const prev = String(row[notesIdx] || '');
-        sheet.getRange(rowNum, notesIdx + 1).setValue((prev ? prev + ' | ' : '') + 'NO_API_FOOTBALL_ID_MATCH');
+        sheet.getRange(rowNum, notesIdx + 1).setValue('NO_API_FOOTBALL_ID_MATCH');
       }
       Logger.log('  sin match confiable: ' + local + ' vs ' + visitante + ' ' + fecha + ' score=' + (match ? match.score : 0));
       return;
