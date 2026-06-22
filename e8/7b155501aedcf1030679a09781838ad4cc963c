@@ -1,0 +1,36 @@
+src/SheetsRepository.gs
+  s_bf65d3ab005d68::t_be0e1524d2a0ca 33-39,49-54,106-112,125-134
+src/SupabaseMigration.gs
+  s_bf65d3ab005d68::t_3f784a61b39e34 1-170,172-187,189-194,210-259
+  s_bf65d3ab005d68::t_8ecf3deca77623 171,188,195-209
+src/Config.gs
+  s_bf65d3ab005d68::t_4a7cf5e0544589 103-134,217-227
+supabase/migrations/001_initial_schema.sql
+  s_bf65d3ab005d68::t_a175a35f60fdd5 1-385
+docs/supabase-primary-migration.md
+  s_bf65d3ab005d68::t_79e57639aaccb6 1-242
+src/DataQualityAudit.gs
+  s_bf65d3ab005d68::t_322dc06b29a8fe 1-221
+src/SheetManager.gs
+  s_bf65d3ab005d68::t_362568e4762c8e 54-60,210-243
+src/Main.gs
+  s_bf65d3ab005d68::t_c2260c10fdd5e8 103-105,237
+src/SupabaseClient.gs
+  s_bf65d3ab005d68::t_e91eb60650e233 1-1104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "e87b155501aedcf1030679a09781838ad4cc963c",
+  "prompts": {},
+  "sessions": {
+    "s_bf65d3ab005d68": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ee13f-9d09-79f3-814a-b023e7ecce50",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
