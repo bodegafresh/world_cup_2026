@@ -1,0 +1,41 @@
+src/CompetitionReadiness.gs
+  s_b04792a387deb8::t_4d9a1876d709de 330-371
+  s_b04792a387deb8::t_9c1f37d1d00a82 1-155,168-169,174-176,179-180,187-188,190-199,201-329,400-433
+  s_b04792a387deb8::t_dd15f69f2a2451 165-167,170-173
+  s_b04792a387deb8::t_34bb61fda512e8 156-164,177-178
+  s_b04792a387deb8::t_a07f019e6ca739 181-186,189,200
+  s_b04792a387deb8::t_797248cde9df36 372-399
+src/Config.gs
+  s_b04792a387deb8::t_07bb7b0906e2d8 61-71
+supabase/migrations/002_multi_competition_readiness.sql
+  s_b04792a387deb8::t_f5c71841fb867d 1-414,424-446
+  s_b04792a387deb8::t_e258098f622ec9 415-423
+src/SupabaseMigration.gs
+  s_b04792a387deb8::t_91b974d79baa2e 194-349
+  s_b04792a387deb8::t_15668861b154c0 46-193
+docs/supabase-primary-migration.md
+  s_b04792a387deb8::t_2406a201bc9909 41-60,70-76,94-158
+  s_b04792a387deb8::t_7e4e7689276d40 160-189
+src/EvModel.gs
+  s_b04792a387deb8::t_efc0408a3df38b 622-627
+  s_b04792a387deb8::t_f258af055581c0 339-350,393,404
+  s_b04792a387deb8::t_a572da2c163cf8 712-713,819,821,823,835-836,840-851
+src/SupabaseClient.gs
+  s_b04792a387deb8::t_5bb473dd2bd1e9 343-346,349-351,356,389-391,488,490,614,621-624,646,649,653,714,718,732-733,816,819,821-823,827-831
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "69a4878d08159fb835a51aaa107ec3ac711811bc",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
