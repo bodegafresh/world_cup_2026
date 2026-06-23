@@ -1,0 +1,23 @@
+scripts/sql/drop_raw_tables_if_no_raw_policy.sql
+  s_b04792a387deb8::t_04c460499f6df8 1-46
+scripts/sql/drop_legacy_sheet_replica_tables.sql
+  s_b04792a387deb8::t_4d11f80bd186a8 1-65
+docs/supabase-primary-migration.md
+  s_b04792a387deb8::t_0a2fb964d41e2c 187-233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "4b697bbe531fec45b5465dc060b7f57f9196a0ad",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
