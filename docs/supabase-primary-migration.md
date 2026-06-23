@@ -198,6 +198,48 @@ curl -sS -X POST "$POOL_API_URL/api/v1/admin/supabase/rollback-sheets" \
   -H "Authorization: Bearer $WEB_KEY"
 ```
 
+Si Cloudflare responde `error code: 524`, no es un error de datos: la request excedio el tiempo maximo del proxy. Usar el flujo paginado:
+
+```bash
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/supabase/bootstrap-mvp30-fast" \
+  -H "Authorization: Bearer $WEB_KEY"
+
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/supabase/migrate-sheet" \
+  -H "Authorization: Bearer $WEB_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"sheet":"Partidos","start":0,"limit":100}'
+```
+
+Repetir `migrate-sheet` usando el `next_start` de la respuesta hasta que `done=true`.
+
+Orden recomendado para hojas:
+
+```text
+Partidos
+Equipos
+Jugadores
+Clasificacion
+PlayerMatchStats
+ResumenJugadorPartido
+OddsApuestas
+PoissonOdds
+AnalisisIA
+EvOpportunities
+EvHistorico
+BettingHistory
+ModelCalibration
+SimulacionGrupos
+EloRatings
+PipelineRuns
+DataQualityLog
+SourceFixtures
+MatchMapping
+EstadiosClima
+Noticias
+```
+
+Para hojas grandes usar `limit=100` o `limit=200`. Para `Noticias` y `Jugadores`, preferir `100` si GAS responde lento.
+
 Para operar readiness:
 
 ```javascript

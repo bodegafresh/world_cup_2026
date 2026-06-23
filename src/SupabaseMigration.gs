@@ -453,32 +453,47 @@ function supabaseMigrateSheets_(options) {
 }
 
 function supabaseMigrateOneSheet_(sheetName, apply, batchSize) {
+  return supabaseMigrateOneSheetRange_(sheetName, apply, 0, null, batchSize);
+}
+
+function supabaseMigrateOneSheetRange_(sheetName, apply, start, limit, batchSize) {
   const headers = getHeadersSafe_(sheetName);
   const rows = readSheetRowsAsArrays_(sheetName, headers.length);
   const cfg = SUPABASE_SHEET_TABLES[sheetName];
+  const from = Math.max(0, Number(start || 0));
+  const maxRows = limit === null || limit === undefined || limit === ''
+    ? rows.length - from
+    : Math.max(1, Number(limit || 1));
+  const selectedRows = rows.slice(from, from + maxRows);
   const summary = {
     sheet: sheetName,
     table: cfg ? cfg.table : 'sheet_raw_rows',
     source_rows: rows.length,
+    start: from,
+    limit: maxRows,
+    processed_rows: selectedRows.length,
+    next_start: Math.min(rows.length, from + selectedRows.length),
+    done: from + selectedRows.length >= rows.length,
     migrated_rows: 0,
     skipped_rows: 0,
     errors: 0,
     status: 'DRY_RUN'
   };
 
-  if (!rows.length) {
+  if (!selectedRows.length) {
     summary.status = 'EMPTY';
+    summary.done = true;
     return summary;
   }
 
   if (!apply) {
-    summary.migrated_rows = rows.length;
+    summary.migrated_rows = selectedRows.length;
     summary.status = cfg ? 'READY' : 'READY_RAW';
     return summary;
   }
 
-  for (let start = 0; start < rows.length; start += batchSize) {
-    const chunk = rows.slice(start, start + batchSize);
+  for (let offset = 0; offset < selectedRows.length; offset += batchSize) {
+    const chunk = selectedRows.slice(offset, offset + batchSize);
     try {
       const result = cfg
         ? supabaseMirrorRowsDirect_(sheetName, headers, chunk)
@@ -488,13 +503,36 @@ function supabaseMigrateOneSheet_(sheetName, apply, batchSize) {
     } catch (e) {
       summary.errors++;
       summary.last_error = e.message;
-      Logger.log('Supabase migration error ' + sheetName + ' rows ' + start + '-' + (start + chunk.length) + ': ' + e.message);
+      Logger.log('Supabase migration error ' + sheetName + ' rows ' + (from + offset) + '-' + (from + offset + chunk.length) + ': ' + e.message);
     }
     Utilities.sleep(150);
   }
 
   summary.status = summary.errors ? 'WARN' : 'OK';
   return summary;
+}
+
+function supabaseMigrateSheetChunkApply(sheetName, start, limit) {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+  if (!sheetName) throw new Error('Falta sheet.');
+  const batchSize = Math.min(getSupabaseBatchSize_(), Math.max(1, Number(limit || 100)));
+  return supabaseMigrateOneSheetRange_(sheetName, true, start || 0, limit || 100, batchSize);
+}
+
+function supabaseBootstrapMvp30FastApply() {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+  const catalog = seedCompetitionCatalogToSupabase();
+  const mappings = supabaseMigrateCompetitionMappingsApply();
+  supabaseSetDualWrite(true);
+  supabaseSetPrimaryRead(false);
+  supabaseSetPrimaryWrite(false);
+  return {
+    status: 'OK',
+    catalog: catalog,
+    mappings: mappings,
+    runtime: supabaseStatus(),
+    next_step: 'Run admin/supabase/migrate-sheet chunks for each supported sheet, then validate.'
+  };
 }
 
 function supabaseMirrorRowsDirect_(sheetName, headers, rows) {
