@@ -1,0 +1,21 @@
+src/FinalCanonicalLoaders.gs
+  s_b04792a387deb8::t_36feeb80e097e7 55-56,79-81,83-84,87-94
+src/ApiV1.gs
+  s_b04792a387deb8::t_fd1012b0a1892e 92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "3e1fb21197155b3a847e12197808f3719d35e37e",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
