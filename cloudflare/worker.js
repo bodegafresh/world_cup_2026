@@ -4,6 +4,7 @@
  * Rutas:
  *   POST /          → proxy para Telegram webhook → GAS doPost
  *   GET  /api?tab=X → proxy para dashboard web   → GAS doGet (resuelve CORS)
+ *   ANY  /api/v1/*  → proxy para API estable del proyecto → GAS + Supabase
  *   GET  /*         → 204 No Content
  *
  * Variables de entorno (Cloudflare Dashboard → Settings → Variables):
@@ -21,6 +22,11 @@ export default {
       return corsResponse('', 204);
     }
 
+    // ── /api/v1/*  →  API estable del proyecto ─────────────────────────────
+    if (url.pathname === '/api/v1' || url.pathname.startsWith('/api/v1/')) {
+      return handleProjectApi(request, url, env);
+    }
+
     // ── GET /api  →  proxy dashboard al Web App de GAS ──────────────────────
     if (method === 'GET' && url.pathname === '/api') {
       return handleApi(request, url, env);
@@ -34,6 +40,62 @@ export default {
     return corsResponse('ok', 200);
   }
 };
+
+// ─── Project API v1 ──────────────────────────────────────────────────────────
+
+async function handleProjectApi(request, url, env) {
+  const gasUrl = env.GAS_WEBAPP_URL || env.GAS_URL;
+  if (!gasUrl) return corsResponse(JSON.stringify({ ok: false, error: 'GAS_WEBAPP_URL no configurado' }), 500);
+
+  const auth = request.headers.get('Authorization') || '';
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const key = url.searchParams.get('key') || bearer;
+  if (env.WEB_KEY && key !== env.WEB_KEY) {
+    return corsResponse(JSON.stringify({ ok: false, error: 'Unauthorized' }), 401);
+  }
+
+  const apiPath = url.pathname.replace(/^\/api\/v1\/?/, '') || 'health';
+  const method = request.method.toUpperCase();
+  const forwardParams = new URLSearchParams();
+  forwardParams.set('api', 'v1');
+  forwardParams.set('api_path', apiPath);
+  forwardParams.set('api_method', method);
+  forwardParams.set('key', key);
+  for (const [k, v] of url.searchParams.entries()) {
+    if (k !== 'key') forwardParams.set(k, v);
+  }
+
+  try {
+    if (method === 'GET') {
+      const resp = await fetch(`${gasUrl}?${forwardParams.toString()}`, { redirect: 'follow' });
+      const text = await resp.text();
+      return corsResponse(text, resp.status, 'application/json');
+    }
+
+    const bodyText = await request.text();
+    const envelope = {
+      api: 'v1',
+      api_path: apiPath,
+      api_method: method,
+      query: Object.fromEntries(url.searchParams.entries()),
+      body: bodyText ? safeJsonParse(bodyText) : {}
+    };
+    const resp = await fetch(`${gasUrl}?${forwardParams.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(envelope),
+      redirect: 'follow'
+    });
+    const text = await resp.text();
+    return corsResponse(text, resp.status, 'application/json');
+  } catch (err) {
+    return corsResponse(JSON.stringify({ ok: false, error: err.message }), 502);
+  }
+}
+
+function safeJsonParse(text) {
+  try { return JSON.parse(text); } catch (_) { return { raw: text }; }
+}
 
 // ─── Dashboard API ────────────────────────────────────────────────────────────
 

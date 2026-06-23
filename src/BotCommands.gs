@@ -19,6 +19,18 @@
  */
 
 function doPost(e) {
+  try {
+    const rawBody = (e && e.postData && e.postData.contents) || '';
+    if (rawBody) {
+      const maybeApi = JSON.parse(rawBody || '{}');
+      if (maybeApi && maybeApi.api === 'v1') {
+        return routeApiV1Post_(e, maybeApi);
+      }
+    }
+  } catch (apiErr_) {
+    // Si no es API v1, seguir con el flujo normal de Telegram.
+  }
+
   // Serializar ejecuciones: Apps Script no soporta concurrencia en web apps.
   // Sin lock, si Telegram reenvía antes que terminemos, obtiene 302.
   const lock = LockService.getScriptLock();
@@ -68,6 +80,9 @@ function shouldProcessUpdate_(updateId) {
 
 // Telegram verifica el endpoint con GET antes de aceptar el webhook
 function doGet(e) {
+  if (e && e.parameter && e.parameter.api === 'v1') {
+    return routeApiV1Get_(e);
+  }
   // Si hay parámetro ?tab= → API del dashboard web
   if (e && e.parameter && e.parameter.tab) {
     return routeWebRequest_(e);
