@@ -156,16 +156,19 @@ function finalCanonicalLoadTeamsApply() {
     if (isTournamentSlotName_(displayName)) return null;
     const teamKey = canonicalTeamKey_(displayName);
     if (!teamKey) return null;
-    teams[teamKey] = {
+    teams[teamKey] = finalMergeTeamProfile_(teams[teamKey], {
       team_key: teamKey,
       display_name: displayName,
       normalized_name: normalizeTeamNameStrong_(displayName),
+      group_code: safe_(row && (row.grupo || row.group_code)),
+      api_football_team_id: safe_(row && (row.team_id_api_football || row.equipo_id_api_football || row.api_football_team_id)),
+      football_data_team_id: safe_(row && (row.team_id_football_data || row.football_data_team_id)),
       team_type: options.team_type || finalInferTeamType_(row),
-      country_code: safe_(row && (row.country_code || row.codigo_pais || row.pais_codigo)),
+      country_code: safe_(row && (row.country_code || row.codigo_pais || row.pais_codigo || row.codigo)),
       gender: safe_(row && row.gender),
       payload: {},
       updated_at: nowIso_()
-    };
+    });
     addTeamAlias_(aliases, teamKey, displayName, 'canonical');
     teamAliasVariantsFor_(name).forEach(function(alias) {
       addTeamAlias_(aliases, teamKey, alias, 'known_alias');
@@ -251,6 +254,33 @@ function finalCanonicalLoadTeamsApply() {
     source_team_mapping: sourceRows.length,
     competition_team_mapping: competitionRows.length
   };
+}
+
+function finalMergeTeamProfile_(current, next) {
+  if (!current) return next;
+  const out = Object.assign({}, current);
+  Object.keys(next || {}).forEach(function(key) {
+    const value = next[key];
+    const currentValue = out[key];
+    if (key === 'updated_at') {
+      out[key] = value || currentValue;
+      return;
+    }
+    if (key === 'payload') {
+      out[key] = Object.assign({}, currentValue || {}, value || {});
+      return;
+    }
+    if (finalHasValue_(value) || !finalHasValue_(currentValue)) {
+      out[key] = value;
+    }
+  });
+  return out;
+}
+
+function finalHasValue_(value) {
+  if (value === null || value === undefined) return false;
+  const s = String(value).trim();
+  return s !== '' && s.toUpperCase() !== 'NULL' && s.toUpperCase() !== 'EMPTY';
 }
 
 function addTeamAlias_(target, teamKey, alias, source) {
