@@ -88,6 +88,12 @@ function apiV1Handle_(method, path, query, body) {
   if (method === 'POST' && path === 'admin/final/cleanup-tournament-slots') {
     return { data: finalCanonicalCleanupTournamentSlotsApply() };
   }
+  if (method === 'POST' && path === 'admin/final/cleanup-team-duplicates') {
+    return { data: finalCanonicalCleanupTeamDuplicatesApply() };
+  }
+  if (method === 'GET' && path === 'admin/final/audit-teams') {
+    return { data: finalCanonicalAuditTeamsApply() };
+  }
   if (method === 'POST' && path === 'admin/final/load-teams') {
     return { data: finalCanonicalLoadTeamsApply() };
   }

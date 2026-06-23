@@ -52,6 +52,83 @@ function finalCanonicalCleanupTournamentSlotsApply() {
   };
 }
 
+function finalCanonicalCleanupTeamDuplicatesApply() {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+  const rows = supabaseSelect_('teams', 'select=*&limit=10000') || [];
+  const merges = [];
+
+  rows.forEach(function(row) {
+    const oldKey = String(row.team_key || '').trim();
+    if (!oldKey || isTournamentSlotName_(oldKey) || isTournamentSlotName_(row.display_name)) return;
+    const canonicalKey = canonicalTeamKey_(row.display_name || row.normalized_name || oldKey);
+    if (!canonicalKey || oldKey === canonicalKey) return;
+    merges.push({
+      from_team_key: oldKey,
+      to_team_key: canonicalKey,
+      display_name: canonicalTeamDisplayName_(row.display_name || row.normalized_name || oldKey)
+    });
+  });
+
+  const uniqueMerges = {};
+  merges.forEach(function(m) {
+    uniqueMerges[m.from_team_key + '>' + m.to_team_key] = m;
+  });
+
+  const result = {
+    candidates: Object.values(uniqueMerges),
+    merged: [],
+    skipped: []
+  };
+
+  Object.values(uniqueMerges).forEach(function(m) {
+    try {
+      result.merged.push(finalMergeTeamKey_(m.from_team_key, m.to_team_key, m.display_name));
+    } catch (e_) {
+      result.skipped.push({
+        from_team_key: m.from_team_key,
+        to_team_key: m.to_team_key,
+        error: e_.message
+      });
+    }
+  });
+
+  return result;
+}
+
+function finalCanonicalAuditTeamsApply() {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+  const rows = supabaseSelect_('teams', 'select=team_key,display_name,normalized_name,team_type&limit=10000') || [];
+  const slots = [];
+  const nonCanonical = [];
+  const canonicalCounts = {};
+
+  rows.forEach(function(row) {
+    const oldKey = String(row.team_key || '').trim();
+    const canonicalKey = canonicalTeamKey_(row.display_name || row.normalized_name || oldKey);
+    if (isTournamentSlotName_(row.display_name) || isTournamentSlotName_(oldKey)) slots.push(row);
+    if (oldKey && canonicalKey && oldKey !== canonicalKey) {
+      nonCanonical.push({
+        team_key: oldKey,
+        display_name: row.display_name,
+        canonical_team_key: canonicalKey
+      });
+    }
+    if (canonicalKey) canonicalCounts[canonicalKey] = (canonicalCounts[canonicalKey] || 0) + 1;
+  });
+
+  const duplicatedCanonicalKeys = Object.keys(canonicalCounts)
+    .filter(function(key) { return canonicalCounts[key] > 1; })
+    .map(function(key) { return { canonical_team_key: key, rows: canonicalCounts[key] }; });
+
+  return {
+    teams_rows: rows.length,
+    tournament_slots_rows: slots.length,
+    non_canonical_rows: nonCanonical.length,
+    duplicated_canonical_keys: duplicatedCanonicalKeys,
+    non_canonical_examples: nonCanonical.slice(0, 50)
+  };
+}
+
 function finalCanonicalLoadTeamsApply() {
   if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
   seedCompetitionCatalogToSupabase();
@@ -485,6 +562,77 @@ function finalDeleteTeamsByKeys_(teamKeys) {
     }));
   });
   return result;
+}
+
+function finalMergeTeamKey_(fromKey, toKey, displayName) {
+  if (!fromKey || !toKey || fromKey === toKey) return { from_team_key: fromKey, to_team_key: toKey, noop: true };
+
+  supabaseUpsert_('teams', [{
+    team_key: toKey,
+    display_name: displayName || canonicalTeamDisplayName_(toKey),
+    normalized_name: normalizeTeamNameStrong_(displayName || toKey),
+    team_type: 'NATIONAL_TEAM',
+    payload: {},
+    updated_at: nowIso_()
+  }], 'team_key');
+
+  const result = {
+    from_team_key: fromKey,
+    to_team_key: toKey,
+    matches_home_updated: finalTryPatchByFilter_('matches', 'home_team_key=eq.' + fromKey, { home_team_key: toKey }),
+    matches_away_updated: finalTryPatchByFilter_('matches', 'away_team_key=eq.' + fromKey, { away_team_key: toKey }),
+    source_team_mapping_updated: finalTryPatchByFilter_('source_team_mapping', 'team_key=eq.' + fromKey, { team_key: toKey }),
+    team_memberships_updated: finalTryPatchByFilter_('team_memberships', 'team_key=eq.' + fromKey, { team_key: toKey }),
+    match_events_updated: finalTryPatchByFilter_('match_events', 'team_key=eq.' + fromKey, { team_key: toKey }),
+    competition_team_mapping_merged: finalMergeCompetitionTeamMapping_(fromKey, toKey),
+    competition_rosters_merged: finalMergeTableRowsByTeamKey_('competition_rosters', fromKey, toKey, 'competition_season_id,team_key,player_key'),
+    match_lineups_merged: finalMergeTableRowsByTeamKey_('match_lineups', fromKey, toKey, 'match_id,team_key,player_key,source'),
+    rating_snapshots_deleted: finalTryDeleteByFilter_('rating_snapshots', 'team_key=eq.' + fromKey)
+  };
+
+  finalTryDeleteByFilter_('team_aliases', 'team_key=eq.' + fromKey);
+  supabaseUpsert_('team_aliases', [{
+    alias_key: hash_(['legacy_team_key', normalizeTeamNameStrong_(fromKey)].join('|')),
+    team_key: toKey,
+    alias: fromKey,
+    normalized_alias: normalizeTeamNameStrong_(fromKey),
+    language: '',
+    source: 'legacy_team_key',
+    confidence: 1,
+    payload: {},
+    updated_at: nowIso_()
+  }], 'normalized_alias,source');
+
+  result.team_deleted = finalTryDeleteByFilter_('teams', 'team_key=eq.' + fromKey);
+  return result;
+}
+
+function finalMergeCompetitionTeamMapping_(fromKey, toKey) {
+  const rows = supabaseSelect_('competition_team_mapping', 'select=*&team_key=eq.' + fromKey) || [];
+  const mapped = rows.map(function(row) {
+    row.team_key = toKey;
+    row.updated_at = nowIso_();
+    return row;
+  });
+  finalTryDeleteByFilter_('competition_team_mapping', 'team_key=eq.' + fromKey);
+  if (mapped.length) supabaseUpsert_('competition_team_mapping', mapped, 'competition_season_id,team_key');
+  return mapped.length;
+}
+
+function finalMergeTableRowsByTeamKey_(table, fromKey, toKey, conflictColumns) {
+  try {
+    const rows = supabaseSelect_(table, 'select=*&team_key=eq.' + fromKey) || [];
+    const mapped = rows.map(function(row) {
+      row.team_key = toKey;
+      if ('updated_at' in row) row.updated_at = nowIso_();
+      return row;
+    });
+    finalTryDeleteByFilter_(table, 'team_key=eq.' + fromKey);
+    if (mapped.length) supabaseUpsert_(table, mapped, conflictColumns);
+    return mapped.length;
+  } catch (e_) {
+    return 0;
+  }
 }
 
 function finalTryDeleteByFilter_(table, query) {

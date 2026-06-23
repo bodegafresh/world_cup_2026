@@ -7,6 +7,7 @@
  */
 
 const TEAM_CANONICAL_DISPLAY_ES = {
+  algeria: 'Argelia',
   argentina: 'Argentina',
   australia: 'Australia',
   austria: 'Austria',
@@ -88,6 +89,7 @@ const TEAM_CANONICAL_DISPLAY_ES = {
 };
 
 const TEAM_CANONICAL_ALIAS_GROUPS = {
+  algeria: ['algeria', 'argelia', 'alg', 'dz'],
   argentina: ['argentina', 'arg'],
   australia: ['australia', 'aus'],
   austria: ['austria', 'aut'],
