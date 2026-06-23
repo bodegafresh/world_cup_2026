@@ -51,6 +51,9 @@ function finalCanonicalLoadTeamsApply() {
       updated_at: nowIso_()
     };
     addTeamAlias_(aliases, teamKey, displayName, 'canonical');
+    teamAliasVariantsFor_(name).forEach(function(alias) {
+      addTeamAlias_(aliases, teamKey, alias, 'known_alias');
+    });
     ['nombre', 'equipo', 'team', 'display_name', 'nombre_normalizado'].forEach(function(field) {
       if (row && row[field]) addTeamAlias_(aliases, teamKey, row[field], field);
     });
@@ -91,6 +94,29 @@ function finalCanonicalLoadTeamsApply() {
         updated_at: nowIso_()
       };
     }
+  });
+
+  readAllFromSheet_(CONFIG.SHEETS.PARTIDOS).forEach(function(row) {
+    const competitionSeasonId = getCompetitionSeasonIdFromFixture_(row);
+    [
+      { name: row.local || row.equipo_local || row.home_team, group_code: row.grupo || row.group },
+      { name: row.visitante || row.equipo_visitante || row.away_team, group_code: row.grupo || row.group }
+    ].forEach(function(item) {
+      const teamKey = addTeam(item.name, row, { team_type: 'NATIONAL_TEAM' });
+      if (!teamKey || !competitionSeasonId) return;
+      const key = competitionSeasonId + '|' + teamKey;
+      if (!competitionTeams[key]) {
+        competitionTeams[key] = {
+          competition_season_id: competitionSeasonId,
+          team_key: teamKey,
+          group_code: safe_(item.group_code),
+          status: 'ACTIVE',
+          seed_rating: null,
+          payload: {},
+          updated_at: nowIso_()
+        };
+      }
+    });
   });
 
   const teamRows = Object.values(teams);
@@ -270,12 +296,17 @@ function finalCanonicalLoadMatchesApply() {
   if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
   const matchRows = [];
   const sourceRows = [];
+  const missingTeams = {};
   readAllFromSheet_(CONFIG.SHEETS.PARTIDOS).forEach(function(row) {
     const matchId = ensureMatchIdFromRow_(row);
     if (!matchId) return;
     const competitionSeasonId = getCompetitionSeasonIdFromFixture_(row);
     const homeName = teamNameToSpanish_(row.local || row.equipo_local || row.home_team || '');
     const awayName = teamNameToSpanish_(row.visitante || row.equipo_visitante || row.away_team || '');
+    const homeTeamKey = canonicalTeamKey_(homeName);
+    const awayTeamKey = canonicalTeamKey_(awayName);
+    finalCollectMinimalTeam_(missingTeams, homeTeamKey, homeName, competitionSeasonId, row.grupo || row.group);
+    finalCollectMinimalTeam_(missingTeams, awayTeamKey, awayName, competitionSeasonId, row.grupo || row.group);
     matchRows.push({
       match_id: matchId,
       competition_id: competitionSeasonId,
@@ -288,9 +319,9 @@ function finalCanonicalLoadMatchesApply() {
       stage: safe_(row.fase || row.ronda || ''),
       match_type: getMatchTypeFromFixture_(row),
       group_code: safe_(row.grupo || row.group || ''),
-      home_team_key: canonicalTeamKey_(homeName),
+      home_team_key: homeTeamKey,
       home_team_name: homeName,
-      away_team_key: canonicalTeamKey_(awayName),
+      away_team_key: awayTeamKey,
       away_team_name: awayName,
       venue_name: safe_(row.estadio),
       venue_city: safe_(row.ciudad),
@@ -315,6 +346,10 @@ function finalCanonicalLoadMatchesApply() {
     addMatchSource_(sourceRows, matchId, 'football_data', row.match_id_football_data || row.fixture_id_fd, 1);
     addMatchSource_(sourceRows, matchId, 'espn', row.espn_event_id || row.espn_id, 1);
   });
+  const teamSeed = finalBuildMinimalTeamSeed_(missingTeams);
+  if (teamSeed.teams.length) supabaseUpsert_('teams', teamSeed.teams, 'team_key');
+  if (teamSeed.aliases.length) supabaseUpsert_('team_aliases', teamSeed.aliases, 'normalized_alias,source');
+  if (teamSeed.competitionTeams.length) supabaseUpsert_('competition_team_mapping', teamSeed.competitionTeams, 'competition_season_id,team_key');
   const dedupedMatches = finalDedupeRowsByKey_(matchRows, ['match_id']);
   const dedupedSources = finalDedupeRowsByKey_(sourceRows, ['source', 'source_match_id']);
   if (dedupedMatches.length) supabaseUpsert_('matches', dedupedMatches, 'match_id');
@@ -322,8 +357,54 @@ function finalCanonicalLoadMatchesApply() {
   return {
     matches: dedupedMatches.length,
     match_source_ids: dedupedSources.length,
+    minimal_teams_seeded: teamSeed.teams.length,
     source_rows: matchRows.length,
     duplicate_matches_removed: matchRows.length - dedupedMatches.length
+  };
+}
+
+function finalCollectMinimalTeam_(target, teamKey, displayName, competitionSeasonId, groupCode) {
+  if (!teamKey || !displayName) return;
+  const key = competitionSeasonId + '|' + teamKey;
+  target[key] = {
+    competition_season_id: competitionSeasonId,
+    team_key: teamKey,
+    display_name: displayName,
+    group_code: safe_(groupCode)
+  };
+}
+
+function finalBuildMinimalTeamSeed_(teamsByCompetition) {
+  const teams = {};
+  const aliases = {};
+  const competitionTeams = {};
+  Object.keys(teamsByCompetition || {}).forEach(function(key) {
+    const item = teamsByCompetition[key];
+    teams[item.team_key] = {
+      team_key: item.team_key,
+      display_name: item.display_name,
+      normalized_name: normalizeTeamNameStrong_(item.display_name),
+      team_type: 'NATIONAL_TEAM',
+      country_code: '',
+      gender: '',
+      payload: {},
+      updated_at: nowIso_()
+    };
+    addTeamAlias_(aliases, item.team_key, item.display_name, 'canonical');
+    competitionTeams[key] = {
+      competition_season_id: item.competition_season_id,
+      team_key: item.team_key,
+      group_code: item.group_code,
+      status: 'ACTIVE',
+      seed_rating: null,
+      payload: {},
+      updated_at: nowIso_()
+    };
+  });
+  return {
+    teams: Object.values(teams),
+    aliases: Object.values(aliases),
+    competitionTeams: Object.values(competitionTeams)
   };
 }
 

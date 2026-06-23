@@ -16,51 +16,7 @@ function buildMatchKey_(homeName, awayName, dateUtc) {
 }
 
 function normalizeTeamNameStrong_(name) {
-  let value = String(name || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-
-  value = value
-    .replace(/[^a-z0-9 ]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  const aliases = {
-    'usa': 'unitedstates',
-    'u s a': 'unitedstates',
-    'u s': 'unitedstates',
-    'u.s.a.': 'unitedstates',
-    'united states': 'unitedstates',
-    'united states of america': 'unitedstates',
-
-    'turkiye': 'turkey',
-    'türkiye': 'turkey',
-    'turkey': 'turkey',
-
-    'korea republic': 'southkorea',
-    'republic of korea': 'southkorea',
-    'south korea': 'southkorea',
-
-    'czech republic': 'czechia',
-    'czechia': 'czechia',
-
-    'ivory coast': 'cotedivoire',
-    "cote d'ivoire": 'cotedivoire',
-    'cote d ivoire': 'cotedivoire',
-    'côte d’ivoire': 'cotedivoire',
-
-    'curacao': 'curacao',
-    'curaçao': 'curacao',
-
-    'bosnia and herzegovina': 'bosniaherzegovina',
-    'bosnia herzegovina': 'bosniaherzegovina',
-    'bosnia-herzegovina': 'bosniaherzegovina'
-  };
-
-  if (aliases[value]) return aliases[value];
-
-  return value.replace(/[^a-z0-9]/g, '');
+  return canonicalTeamNameKey_(name);
 }
 
 function matchSourcesByDate_(apiFixturesWrapped, fdMatchesWrapped) {

@@ -349,6 +349,8 @@ function teamFlag_(name) {
  */
 function teamNameToSpanish_(name) {
   if (!name) return '';
+  const canonicalName = canonicalTeamDisplayName_(name);
+  if (canonicalName) return canonicalName;
   const key = String(name).toLowerCase().trim();
   return TEAM_NAMES_ES[key] || name;
 }
@@ -364,6 +366,9 @@ function teamSearchTerms_(query) {
     .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
 
   const terms = new Set([q]);
+  teamAliasVariantsFor_(query).forEach(function(term) {
+    terms.add(String(term || '').toLowerCase());
+  });
 
   // Si hay traducción ES→EN, agregar la versión en inglés
   if (TEAM_NAMES_EN[q]) terms.add(TEAM_NAMES_EN[q]);
