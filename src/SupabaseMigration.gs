@@ -46,7 +46,7 @@ function supabaseMigrateCoreApply() {
 function supabaseMigrateMvp30Apply() {
   if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
   const catalog = seedCompetitionCatalogToSupabase();
-  const core = supabaseMigrateCoreApply();
+  const core = supabaseMigrationApply();
   const mappings = supabaseMigrateCompetitionMappingsApply();
   const validation = supabaseValidateAgainstSheets();
   supabaseSetDualWrite(true);
@@ -355,6 +355,7 @@ function supabaseValidateAgainstSheets() {
   Object.keys(SUPABASE_SHEET_TABLES).forEach(function(sheetName) {
     const cfg = SUPABASE_SHEET_TABLES[sheetName];
     const sheetRows = readAllFromSheet_(sheetName);
+    const expectedRows = supabaseExpectedRowsForSheet_(sheetName, sheetRows);
     let remoteCount = 0;
     let error = '';
     try {
@@ -366,9 +367,10 @@ function supabaseValidateAgainstSheets() {
       sheet: sheetName,
       table: cfg.table,
       sheet_rows: sheetRows.length,
+      expected_unique_rows: expectedRows,
       supabase_rows: remoteCount,
-      delta: remoteCount - sheetRows.length,
-      status: error ? 'ERROR' : (remoteCount >= sheetRows.length ? 'OK' : 'MISSING_ROWS'),
+      delta: remoteCount - expectedRows,
+      status: error ? 'ERROR' : (remoteCount >= expectedRows ? 'OK' : 'MISSING_ROWS'),
       error: error
     });
   });
@@ -381,13 +383,20 @@ function supabaseValidateAgainstSheets() {
         r.sheet,
         'supabase_validate',
         r.status === 'OK' ? 'OK' : 'P1',
-        'sheet=' + r.sheet_rows + ' supabase=' + r.supabase_rows + ' delta=' + r.delta,
+        'sheet=' + r.sheet_rows + ' expected_unique=' + r.expected_unique_rows + ' supabase=' + r.supabase_rows + ' delta=' + r.delta,
         r.error || 'Revisar conteos antes de activar SUPABASE_PRIMARY_READ',
         'NOOP'
       ];
     }));
   } catch (e_) {}
   return report;
+}
+
+function supabaseExpectedRowsForSheet_(sheetName, sheetRows) {
+  const cfg = SUPABASE_SHEET_TABLES[sheetName];
+  if (!cfg) return (sheetRows || []).length;
+  const payload = (sheetRows || []).map(cfg.transform).filter(Boolean);
+  return supabaseDedupePayload_(payload, cfg).length;
 }
 
 function supabaseMigrateSheets_(options) {
@@ -495,8 +504,10 @@ function supabaseMirrorRowsDirect_(sheetName, headers, rows) {
   const objects = rowsToObjects_(headers, rows);
   const payload = objects.map(cfg.transform).filter(Boolean);
   if (!payload.length) return { mirrored: 0 };
-  supabaseUpsert_(cfg.table, payload, cfg.conflict);
-  return { mirrored: payload.length, table: cfg.table };
+  const deduped = supabaseDedupePayload_(payload, cfg);
+  if (!deduped.length) return { mirrored: 0 };
+  supabaseUpsert_(cfg.table, deduped, cfg.conflict);
+  return { mirrored: deduped.length, table: cfg.table };
 }
 
 function supabaseMirrorRawRowsDirect_(sheetName, headers, rows) {

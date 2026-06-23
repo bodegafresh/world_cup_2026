@@ -302,10 +302,30 @@ function supabaseWriteRowsFromSheet_(sheetName, headers, rows) {
   }
   const cfg = SUPABASE_SHEET_TABLES[sheetName];
   const objects = rowsToObjects_(headers, rows);
-  const payload = objects.map(cfg.transform).filter(Boolean);
+  const payload = supabaseDedupePayload_(objects.map(cfg.transform).filter(Boolean), cfg);
   if (!payload.length) return { mirrored: 0 };
   supabaseUpsert_(cfg.table, payload, cfg.conflict);
   return { mirrored: payload.length, table: cfg.table };
+}
+
+function supabaseDedupePayload_(payload, cfg) {
+  if (!payload || !payload.length || !cfg) return payload || [];
+  const keyColumns = cfg.key && cfg.key.length
+    ? cfg.key
+    : String(cfg.conflict || '').split(',').map(function(c) { return c.trim(); }).filter(Boolean);
+  if (!keyColumns.length) return payload;
+
+  const byKey = {};
+  const orderedKeys = [];
+  payload.forEach(function(row) {
+    const key = keyColumns.map(function(col) {
+      return row[col] === null || row[col] === undefined ? '' : String(row[col]);
+    }).join('|');
+    if (!key || key.replace(/\|/g, '') === '') return;
+    if (!byKey[key]) orderedKeys.push(key);
+    byKey[key] = row;
+  });
+  return orderedKeys.map(function(key) { return byKey[key]; });
 }
 
 function supabaseMirrorRawRows_(sheetName, headers, rows) {
@@ -665,8 +685,8 @@ function supabaseMapOdds_(r) {
     bookmaker: safe_(r.fuente || r.bookmaker || 'unknown'),
     market: market,
     selection: selection,
-    decimal_odds: toNumberOrNull_(r.cuota || r.odds),
-    implied_probability: toNumberOrNull_(r.probabilidad_implicita || r.implied_probability),
+    decimal_odds: toNumberOrNull_(r.cuota || r.cuota_real || r.odds),
+    implied_probability: toNumberOrNull_(r.probabilidad_implicita || r.probabilidad_mercado || r.implied_probability),
     model_probability: toNumberOrNull_(r.probabilidad_modelo || r.prob_modelo),
     bookmaker_count: toNumberOrNull_(r.bookmakers_count || r.bookmaker_count),
     market_quality_score: toNumberOrNull_(r.market_quality_score),
