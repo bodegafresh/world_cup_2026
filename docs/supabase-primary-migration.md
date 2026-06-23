@@ -184,6 +184,53 @@ load-bets
 
 No usar `admin/supabase/migrate-sheet` para el proyecto final. Ese endpoint queda solo para compatibilidad legacy o pruebas descartables.
 
+## Limpieza de tablas que no aplican
+
+Despues de aplicar la migracion `004`, cargar datos con `admin/final/*` y validar que el proyecto ya consume tablas finales, eliminar tablas legacy con:
+
+```text
+scripts/sql/drop_legacy_sheet_replica_tables.sql
+```
+
+Ese script elimina:
+
+```text
+model_outputs
+ev_picks
+model_calibration
+elo_ratings
+data_quality_log
+player_match_summary
+group_simulations
+```
+
+Reemplazos finales:
+
+```text
+model_outputs        -> model_runs + model_predictions
+ev_picks             -> betting_decisions + bets + published_ev_opportunities
+model_calibration    -> calibration_runs + calibration_bins + model_metrics
+elo_ratings          -> rating_snapshots
+data_quality_log     -> data_quality_events
+player_match_summary -> player_match_stats + match_events / views published
+group_simulations    -> postergar simulation_runs hasta que haga falta
+```
+
+Si la politica definitiva es no guardar RAW en Supabase, ejecutar ademas:
+
+```text
+scripts/sql/drop_raw_tables_if_no_raw_policy.sql
+```
+
+Ese segundo script elimina por defecto:
+
+```text
+sheet_raw_rows
+source_fixtures
+```
+
+`weather_snapshots` y `news_items` quedan fuera del drop por defecto porque pueden transformarse en features utiles. El script trae un bloque opcional comentado para eliminarlas si decides que no se usaran.
+
 `supabaseMigrateMvp30Apply()` fue el puente inicial hoja -> tabla. Para la arquitectura final, usarlo solo como compatibilidad temporal o entorno descartable.
 
 El flujo final correcto es:
