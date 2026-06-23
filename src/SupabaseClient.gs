@@ -281,12 +281,31 @@ function supabaseCount_(table, filterQuery) {
 
 function supabaseUpsert_(table, rows, conflictColumns) {
   if (!rows || !rows.length) return { count: 0 };
+  const payload = supabaseDedupeRowsByConflict_(rows, conflictColumns);
+  if (!payload.length) return { count: 0 };
   const query = conflictColumns ? 'on_conflict=' + encodeURIComponent(conflictColumns) : '';
-  supabaseRequest_('post', table, rows, {
+  supabaseRequest_('post', table, payload, {
     query: query,
     prefer: 'resolution=merge-duplicates,return=minimal'
   });
-  return { count: rows.length };
+  return { count: payload.length, source_count: rows.length, duplicates_removed: rows.length - payload.length };
+}
+
+function supabaseDedupeRowsByConflict_(rows, conflictColumns) {
+  if (!rows || !rows.length || !conflictColumns) return rows || [];
+  const keyColumns = String(conflictColumns || '').split(',').map(function(c) { return c.trim(); }).filter(Boolean);
+  if (!keyColumns.length) return rows;
+  const byKey = {};
+  const orderedKeys = [];
+  rows.forEach(function(row) {
+    const key = keyColumns.map(function(col) {
+      return row[col] === null || row[col] === undefined ? '' : String(row[col]);
+    }).join('|');
+    if (!key || key.replace(/\|/g, '') === '') return;
+    if (!byKey[key]) orderedKeys.push(key);
+    byKey[key] = row;
+  });
+  return orderedKeys.map(function(key) { return byKey[key]; });
 }
 
 function supabaseMirrorRows_(sheetName, headers, rows) {
