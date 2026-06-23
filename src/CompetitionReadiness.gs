@@ -63,16 +63,40 @@ function getCompetitionSeasonIdFromFixture_(fixtureOrRow) {
 
 function getMatchTypeFromFixture_(fixtureOrRow) {
   const row = fixtureOrRow || {};
-  const round = String((row.league && row.league.round) || row.ronda || row.round || row.stage || '').toLowerCase();
-  const league = row.league || getActiveLeague_();
+  const round = String((row.league && row.league.round) || row.fase || row.ronda || row.round || row.stage || '').toLowerCase();
+  const competitionSeasonId = getCompetitionSeasonIdFromFixture_(row);
+  const league = row.league || getLeagueByCompetitionSeasonId_(competitionSeasonId) || getActiveLeague_();
+  if (isTournamentSlotName_(row.local || row.equipo_local || row.home_team) ||
+      isTournamentSlotName_(row.visitante || row.equipo_visitante || row.away_team)) return 'KNOCKOUT';
   if (round.indexOf('group') !== -1 || round.indexOf('grupo') !== -1) return 'GROUP_STAGE';
   if (round.indexOf('final') !== -1 || round.indexOf('semi') !== -1 || round.indexOf('quarter') !== -1 || round.indexOf('16') !== -1 || round.indexOf('knockout') !== -1) return 'KNOCKOUT';
   if (round.indexOf('qualif') !== -1 || round.indexOf('clasific') !== -1) return 'QUALIFIER';
+  const inferredByCalendar = inferMatchTypeFromCompetitionCalendar_(league, normalizeFecha_(row.fecha || row.date || row.fecha_chile));
+  if (inferredByCalendar) return inferredByCalendar;
   if (String(league.type || '').toLowerCase() === 'league') return 'LEAGUE_REGULAR';
   if (String(league.competition_id || '').indexOf('LIBERTADORES') !== -1 || String(league.region || '').toLowerCase().indexOf('south') !== -1 && String(league.type || '').toLowerCase() === 'cup') return 'CONTINENTAL_CLUB';
   if (String(league.type || '').toLowerCase() === 'cup' && String(league.country || '').toLowerCase() === 'world') return 'INTERNATIONAL_CUP';
   if (String(league.type || '').toLowerCase() === 'cup') return 'DOMESTIC_CUP';
   return 'LEAGUE_REGULAR';
+}
+
+function getLeagueByCompetitionSeasonId_(competitionSeasonId) {
+  const id = String(competitionSeasonId || '');
+  return Object.keys(CONFIG.LEAGUES.CATALOG).map(function(k) {
+    return CONFIG.LEAGUES.CATALOG[k];
+  }).find(function(l) {
+    return getCompetitionSeasonIdFromLeague_(l) === id;
+  }) || null;
+}
+
+function inferMatchTypeFromCompetitionCalendar_(league, date) {
+  if (!league || !date) return '';
+  const rules = league.stage_rules || {};
+  if (String(league.format || '').toUpperCase() === 'GROUP_THEN_KNOCKOUT') {
+    if (rules.group_stage_end && date <= rules.group_stage_end) return 'GROUP_STAGE';
+    if (rules.knockout_start && date >= rules.knockout_start) return 'KNOCKOUT';
+  }
+  return '';
 }
 
 function getCompetitionCatalogRows_() {

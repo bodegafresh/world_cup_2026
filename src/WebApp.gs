@@ -1441,15 +1441,7 @@ function getWebTeams_() {
 }
 
 function isKnockoutPlaceholderTeam_(name) {
-  const s = String(name || '').toLowerCase();
-  return s.includes('winner') ||
-    s.includes('loser') ||
-    s.includes('2nd place') ||
-    s.includes('third place') ||
-    s.includes('round of') ||
-    s.includes('quarterfinal') ||
-    s.includes('semifinal') ||
-    /^group [a-l]/i.test(String(name || ''));
+  return isTournamentSlotName_(name);
 }
 
 function getWebKnockout_() {
@@ -1507,16 +1499,7 @@ function inferKnockoutPhase_(row, idx) {
 }
 
 function knockoutSlotLabel_(raw) {
-  let s = String(raw || '');
-  s = s.replace(/^Group ([A-L]) Winner$/i, 'Grupo $1 · 1°');
-  s = s.replace(/^Group ([A-L]) 2nd Place$/i, 'Grupo $1 · 2°');
-  s = s.replace(/^Third Place Group ([A-L/]+)$/i, 'Mejor 3° · Grupos $1');
-  s = s.replace(/^Round of 32 ([0-9]+) Winner$/i, 'Ganador 16avos $1');
-  s = s.replace(/^Round of 16 ([0-9]+) Winner$/i, 'Ganador octavos $1');
-  s = s.replace(/^Quarterfinal ([0-9]+) Winner$/i, 'Ganador cuartos $1');
-  s = s.replace(/^Semifinal ([0-9]+) Winner$/i, 'Ganador semifinal $1');
-  s = s.replace(/^Semifinal ([0-9]+) Loser$/i, 'Perdedor semifinal $1');
-  return teamNameToSpanish_(s);
+  return tournamentSlotLabel_(raw);
 }
 
 // ─── Tab: players ────────────────────────────────────────────────────────────

@@ -85,6 +85,9 @@ function apiV1Handle_(method, path, query, body) {
   if (method === 'POST' && path === 'admin/final/load-all-mvp') {
     return { data: finalCanonicalLoadAllMvpApply() };
   }
+  if (method === 'POST' && path === 'admin/final/cleanup-tournament-slots') {
+    return { data: finalCanonicalCleanupTournamentSlotsApply() };
+  }
   if (method === 'POST' && path === 'admin/final/load-teams') {
     return { data: finalCanonicalLoadTeamsApply() };
   }

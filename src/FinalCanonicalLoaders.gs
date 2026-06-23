@@ -26,6 +26,32 @@ function finalCanonicalLoadAllMvpApply() {
   };
 }
 
+function finalCanonicalCleanupTournamentSlotsApply() {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+  const rows = supabaseSelect_('teams', 'select=team_key,display_name,normalized_name&limit=10000');
+  const slotKeys = (rows || [])
+    .filter(function(row) {
+      return isTournamentSlotName_(row.display_name) ||
+        isTournamentSlotName_(row.normalized_name) ||
+        isTournamentSlotName_(row.team_key);
+    })
+    .map(function(row) { return String(row.team_key || '').trim(); })
+    .filter(Boolean);
+
+  const uniqueKeys = Array.from(new Set(slotKeys));
+  if (!uniqueKeys.length) {
+    return { tournament_slots_found: 0, cleaned: false };
+  }
+
+  const deleted = finalDeleteTeamsByKeys_(uniqueKeys);
+  return {
+    tournament_slots_found: uniqueKeys.length,
+    slot_team_keys: uniqueKeys,
+    cleaned: true,
+    deleted: deleted
+  };
+}
+
 function finalCanonicalLoadTeamsApply() {
   if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
   seedCompetitionCatalogToSupabase();
@@ -37,7 +63,9 @@ function finalCanonicalLoadTeamsApply() {
 
   function addTeam(name, row, options) {
     options = options || {};
+    if (isTournamentSlotName_(name)) return null;
     const displayName = teamNameToSpanish_(name || '');
+    if (isTournamentSlotName_(displayName)) return null;
     const teamKey = canonicalTeamKey_(displayName);
     if (!teamKey) return null;
     teams[teamKey] = {
@@ -301,12 +329,16 @@ function finalCanonicalLoadMatchesApply() {
     const matchId = ensureMatchIdFromRow_(row);
     if (!matchId) return;
     const competitionSeasonId = getCompetitionSeasonIdFromFixture_(row);
-    const homeName = teamNameToSpanish_(row.local || row.equipo_local || row.home_team || '');
-    const awayName = teamNameToSpanish_(row.visitante || row.equipo_visitante || row.away_team || '');
-    const homeTeamKey = canonicalTeamKey_(homeName);
-    const awayTeamKey = canonicalTeamKey_(awayName);
-    finalCollectMinimalTeam_(missingTeams, homeTeamKey, homeName, competitionSeasonId, row.grupo || row.group);
-    finalCollectMinimalTeam_(missingTeams, awayTeamKey, awayName, competitionSeasonId, row.grupo || row.group);
+    const homeRaw = row.local || row.equipo_local || row.home_team || '';
+    const awayRaw = row.visitante || row.equipo_visitante || row.away_team || '';
+    const homeIsSlot = isTournamentSlotName_(homeRaw);
+    const awayIsSlot = isTournamentSlotName_(awayRaw);
+    const homeName = homeIsSlot ? tournamentSlotLabel_(homeRaw) : teamNameToSpanish_(homeRaw);
+    const awayName = awayIsSlot ? tournamentSlotLabel_(awayRaw) : teamNameToSpanish_(awayRaw);
+    const homeTeamKey = homeIsSlot ? null : canonicalTeamKey_(homeName);
+    const awayTeamKey = awayIsSlot ? null : canonicalTeamKey_(awayName);
+    if (!homeIsSlot) finalCollectMinimalTeam_(missingTeams, homeTeamKey, homeName, competitionSeasonId, row.grupo || row.group);
+    if (!awayIsSlot) finalCollectMinimalTeam_(missingTeams, awayTeamKey, awayName, competitionSeasonId, row.grupo || row.group);
     matchRows.push({
       match_id: matchId,
       competition_id: competitionSeasonId,
@@ -406,6 +438,85 @@ function finalBuildMinimalTeamSeed_(teamsByCompetition) {
     aliases: Object.values(aliases),
     competitionTeams: Object.values(competitionTeams)
   };
+}
+
+function finalDeleteTeamsByKeys_(teamKeys) {
+  const result = {
+    matches_home_cleared: 0,
+    matches_away_cleared: 0,
+    team_aliases_deleted: 0,
+    source_team_mapping_deleted: 0,
+    competition_team_mapping_deleted: 0,
+    teams_deleted: 0
+  };
+  finalChunk_(teamKeys, 50).forEach(function(keys) {
+    const filter = 'team_key=in.(' + keys.join(',') + ')';
+    const homeFilter = 'home_team_key=in.(' + keys.join(',') + ')';
+    const awayFilter = 'away_team_key=in.(' + keys.join(',') + ')';
+
+    result.matches_home_cleared += finalCountResponse_(supabaseRequest_('patch', 'matches', { home_team_key: null }, {
+      query: homeFilter,
+      prefer: 'return=representation'
+    }));
+    result.matches_away_cleared += finalCountResponse_(supabaseRequest_('patch', 'matches', { away_team_key: null }, {
+      query: awayFilter,
+      prefer: 'return=representation'
+    }));
+    result.team_aliases_deleted += finalCountResponse_(supabaseRequest_('delete', 'team_aliases', null, {
+      query: filter,
+      prefer: 'return=representation'
+    }));
+    result.rating_snapshots_deleted = (result.rating_snapshots_deleted || 0) + finalTryDeleteByFilter_('rating_snapshots', filter);
+    result.team_memberships_deleted = (result.team_memberships_deleted || 0) + finalTryDeleteByFilter_('team_memberships', filter);
+    result.competition_rosters_deleted = (result.competition_rosters_deleted || 0) + finalTryDeleteByFilter_('competition_rosters', filter);
+    result.match_lineups_deleted = (result.match_lineups_deleted || 0) + finalTryDeleteByFilter_('match_lineups', filter);
+    result.match_events_cleared = (result.match_events_cleared || 0) + finalTryPatchByFilter_('match_events', filter, { team_key: null });
+    result.source_team_mapping_deleted += finalCountResponse_(supabaseRequest_('delete', 'source_team_mapping', null, {
+      query: filter,
+      prefer: 'return=representation'
+    }));
+    result.competition_team_mapping_deleted += finalCountResponse_(supabaseRequest_('delete', 'competition_team_mapping', null, {
+      query: filter,
+      prefer: 'return=representation'
+    }));
+    result.teams_deleted += finalCountResponse_(supabaseRequest_('delete', 'teams', null, {
+      query: filter,
+      prefer: 'return=representation'
+    }));
+  });
+  return result;
+}
+
+function finalTryDeleteByFilter_(table, query) {
+  try {
+    return finalCountResponse_(supabaseRequest_('delete', table, null, {
+      query: query,
+      prefer: 'return=representation'
+    }));
+  } catch (e_) {
+    return 0;
+  }
+}
+
+function finalTryPatchByFilter_(table, query, payload) {
+  try {
+    return finalCountResponse_(supabaseRequest_('patch', table, payload, {
+      query: query,
+      prefer: 'return=representation'
+    }));
+  } catch (e_) {
+    return 0;
+  }
+}
+
+function finalCountResponse_(response) {
+  return Array.isArray(response) ? response.length : 0;
+}
+
+function finalChunk_(items, size) {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
 }
 
 function addMatchSource_(target, matchId, source, sourceId, confidence) {
