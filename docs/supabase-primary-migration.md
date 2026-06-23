@@ -76,7 +76,19 @@ supabase/migrations/001_initial_schema.sql
 supabase/migrations/002_multi_competition_readiness.sql
 ```
 
-4. Confirmar que existen estas tablas principales:
+4. Ejecutar luego:
+
+```text
+supabase/migrations/003_architecture_phase1_events.sql
+```
+
+5. Ejecutar luego:
+
+```text
+supabase/migrations/004_final_canonical_contract.sql
+```
+
+6. Confirmar que existen estas tablas principales:
 
 - `teams`
 - `players`
@@ -109,6 +121,16 @@ supabase/migrations/002_multi_competition_readiness.sql
 - `market_closing_odds`
 - `model_metrics`
 - `data_quality_events`
+- `domain_events`
+- `player_aliases`
+- `source_player_mapping`
+- `team_memberships`
+- `competition_rosters`
+- `match_lineups`
+- `match_events`
+- `venues`
+- `referees`
+- `match_officials`
 
 ## Runbook actual: MVP 30 dias
 
@@ -121,7 +143,59 @@ supabaseMigrateMvp30Apply()
 supabaseMvp30Status()
 ```
 
-`supabaseMigrateMvp30Apply()` hace todo el arranque del MVP:
+## Runbook final recomendado
+
+Este es el camino correcto para el proyecto final. Sheets se usa solo como input temporal; no se replica hoja = tabla y no se guardan payloads raw en tablas finales.
+
+```bash
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/final/bootstrap" \
+  -H "Authorization: Bearer $WEB_KEY"
+
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/final/load-teams" \
+  -H "Authorization: Bearer $WEB_KEY"
+
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/final/load-players" \
+  -H "Authorization: Bearer $WEB_KEY"
+
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/final/load-matches" \
+  -H "Authorization: Bearer $WEB_KEY"
+
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/final/load-odds" \
+  -H "Authorization: Bearer $WEB_KEY"
+
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/final/load-predictions" \
+  -H "Authorization: Bearer $WEB_KEY"
+
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/final/load-bets" \
+  -H "Authorization: Bearer $WEB_KEY"
+```
+
+Orden obligatorio:
+
+```text
+bootstrap
+load-teams
+load-players
+load-matches
+load-odds
+load-predictions
+load-bets
+```
+
+No usar `admin/supabase/migrate-sheet` para el proyecto final. Ese endpoint queda solo para compatibilidad legacy o pruebas descartables.
+
+`supabaseMigrateMvp30Apply()` fue el puente inicial hoja -> tabla. Para la arquitectura final, usarlo solo como compatibilidad temporal o entorno descartable.
+
+El flujo final correcto es:
+
+- importar todas las hojas a `sheet_raw_rows`,
+- normalizar desde RAW/STAGING,
+- poblar tablas canonicas/analytics finales,
+- exponer views `published_*`.
+
+No usar hoja = tabla como fuente final.
+
+`supabaseMigrateMvp30Apply()` hace el arranque legacy:
 
 - seed de catalogo multi-competencia,
 - seed de status/readiness,
@@ -198,27 +272,32 @@ curl -sS -X POST "$POOL_API_URL/api/v1/admin/supabase/rollback-sheets" \
   -H "Authorization: Bearer $WEB_KEY"
 ```
 
-Si Cloudflare responde `error code: 524`, no es un error de datos: la request excedio el tiempo maximo del proxy. Usar el flujo paginado:
+Si Cloudflare responde `error code: 524`, no es un error de datos: la request excedio el tiempo maximo del proxy.
+
+Para la arquitectura final, usar el flujo paginado RAW:
 
 ```bash
 curl -sS -X POST "$POOL_API_URL/api/v1/admin/supabase/bootstrap-mvp30-fast" \
   -H "Authorization: Bearer $WEB_KEY"
 
-curl -sS -X POST "$POOL_API_URL/api/v1/admin/supabase/migrate-sheet" \
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/supabase/import-sheet-raw" \
   -H "Authorization: Bearer $WEB_KEY" \
   -H "Content-Type: application/json" \
   -d '{"sheet":"Partidos","start":0,"limit":100}'
 ```
 
-Repetir `migrate-sheet` usando el `next_start` de la respuesta hasta que `done=true`.
+Repetir `import-sheet-raw` usando el `next_start` de la respuesta hasta que `done=true`.
 
-Orden recomendado para hojas:
+Orden recomendado de import RAW:
 
 ```text
-Partidos
 Equipos
 Jugadores
 Clasificacion
+Planteles
+SourceFixtures
+MatchMapping
+Partidos
 PlayerMatchStats
 ResumenJugadorPartido
 OddsApuestas
@@ -232,11 +311,13 @@ SimulacionGrupos
 EloRatings
 PipelineRuns
 DataQualityLog
-SourceFixtures
-MatchMapping
 EstadiosClima
 Noticias
 ```
+
+Nota: `Equipos` puede tener menos filas que los equipos participantes si funciona como master incompleto. Para Mundial 2026, la participacion real se resuelve desde RAW cruzando `Equipos`, `Clasificacion`, `Partidos` y fuentes externas, y luego se escribe `competition_team_mapping`.
+
+No usar `migrate-sheet` para poblar tablas finales salvo caso legacy controlado. El endpoint correcto para el corte nuevo es `import-sheet-raw`.
 
 Para hojas grandes usar `limit=100` o `limit=200`. Para `Noticias` y `Jugadores`, preferir `100` si GAS responde lento.
 
@@ -409,29 +490,37 @@ tambien se espejan a Supabase.
 
 Esto permite que los crons actuales sigan funcionando mientras se prueba Supabase.
 
-## Hojas soportadas en migracion limpia
+## Regla final de carga desde Sheets
 
-- `Partidos` -> `matches`
-- `Equipos` -> `teams`
-- `Jugadores` -> `players`
-- `Clasificacion` -> `standings`
-- `PlayerMatchStats` -> `player_match_stats`
-- `ResumenJugadorPartido` -> `player_match_summary`
-- `OddsApuestas` -> `odds_snapshots`
-- `PoissonOdds` -> `model_outputs`
-- `AnalisisIA` -> `model_outputs`
-- `EvOpportunities` -> `ev_picks`
-- `EvHistorico` -> `ev_picks`
-- `BettingHistory` -> `bets`
-- `ModelCalibration` -> `model_calibration`
-- `SimulacionGrupos` -> `group_simulations`
-- `EloRatings` -> `elo_ratings`
-- `PipelineRuns` -> `pipeline_runs`
-- `DataQualityLog` -> `data_quality_log`
-- `SourceFixtures` -> `source_fixtures`
-- `MatchMapping` -> `match_source_ids`
-- `EstadiosClima` -> `weather_snapshots`
-- `Noticias` -> `news_items`
+Sheets no es contrato de datos. Sheets es solamente input historico.
+
+Destino inicial:
+
+```text
+todas las hojas -> sheet_raw_rows
+```
+
+Desde ahi, los resolvers poblan:
+
+- `competitions`, `competition_seasons`
+- `teams`, `team_aliases`, `source_team_mapping`, `competition_team_mapping`
+- `players`, `player_aliases`, `source_player_mapping`, `team_memberships`, `competition_rosters`
+- `matches`, `match_source_ids`
+- `odds_snapshots`, `market_closing_odds`
+- `model_runs`, `model_predictions`
+- `calibration_runs`, `calibration_bins`
+- `betting_decisions`, `bets`
+
+No poblar como destino final:
+
+- `model_outputs`
+- `ev_picks`
+- `model_calibration`
+- `elo_ratings`
+- `data_quality_log`
+- `player_match_summary`
+
+Esas tablas quedan solo como compatibilidad temporal o se reemplazan por views.
 
 ## Validaciones antes de activar Supabase primario
 
@@ -461,7 +550,7 @@ No se pierde informacion: Sheets sigue siendo escrito primero en esta fase.
 - Mover consultas pesadas del frontend a vistas SQL.
 - Agregar RLS de solo lectura para frontend publico.
 - Crear Edge Function o endpoint Supabase para la web y dejar GAS solo para jobs.
-- Separar `EvOpportunities` de `EvHistorico` definitivamente en modelo `ev_picks`.
+- Separar `EvOpportunities` de `EvHistorico` definitivamente en `betting_decisions`/`bets`, no en `ev_picks`.
 - Agregar tabla `api_quota_usage`.
 - Agregar tabla `model_run_metrics`.
 - Agregar `closing_odds` y CLV.

@@ -519,6 +519,29 @@ function supabaseMigrateSheetChunkApply(sheetName, start, limit) {
   return supabaseMigrateOneSheetRange_(sheetName, true, start || 0, limit || 100, batchSize);
 }
 
+function supabaseImportSheetRawChunkApply(sheetName, start, limit) {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+  if (!sheetName) throw new Error('Falta sheet.');
+  const headers = getHeadersSafe_(sheetName);
+  const rows = readSheetRowsAsArrays_(sheetName, headers.length);
+  const from = Math.max(0, Number(start || 0));
+  const maxRows = Math.max(1, Number(limit || 100));
+  const selectedRows = rows.slice(from, from + maxRows);
+  const result = supabaseMirrorRawRowsDirect_(sheetName, headers, selectedRows);
+  return {
+    sheet: sheetName,
+    table: 'sheet_raw_rows',
+    source_rows: rows.length,
+    start: from,
+    limit: maxRows,
+    processed_rows: selectedRows.length,
+    next_start: Math.min(rows.length, from + selectedRows.length),
+    done: from + selectedRows.length >= rows.length,
+    imported_rows: result.mirrored || 0,
+    status: selectedRows.length ? 'OK' : 'EMPTY'
+  };
+}
+
 function supabaseBootstrapMvp30FastApply() {
   if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
   const catalog = seedCompetitionCatalogToSupabase();

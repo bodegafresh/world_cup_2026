@@ -60,6 +60,9 @@ function apiV1Handle_(method, path, query, body) {
   if (method === 'POST' && path === 'admin/supabase/migrate-sheet') {
     return { data: supabaseMigrateSheetChunkApply(body.sheet || query.sheet, body.start || query.start || 0, body.limit || query.limit || 100) };
   }
+  if (method === 'POST' && path === 'admin/supabase/import-sheet-raw') {
+    return { data: supabaseImportSheetRawChunkApply(body.sheet || query.sheet, body.start || query.start || 0, body.limit || query.limit || 100) };
+  }
   if (method === 'GET' && path === 'admin/supabase/validate') {
     return { data: supabaseValidateAgainstSheets() };
   }
@@ -74,6 +77,31 @@ function apiV1Handle_(method, path, query, body) {
   }
   if (method === 'POST' && path === 'admin/supabase/prepare-platform90') {
     return { data: supabasePreparePlatform90Apply() };
+  }
+
+  if (method === 'POST' && path === 'admin/final/bootstrap') {
+    return { data: finalCanonicalBootstrapApply() };
+  }
+  if (method === 'POST' && path === 'admin/final/load-all-mvp') {
+    return { data: finalCanonicalLoadAllMvpApply() };
+  }
+  if (method === 'POST' && path === 'admin/final/load-teams') {
+    return { data: finalCanonicalLoadTeamsApply() };
+  }
+  if (method === 'POST' && path === 'admin/final/load-players') {
+    return { data: finalCanonicalLoadPlayersApply() };
+  }
+  if (method === 'POST' && path === 'admin/final/load-matches') {
+    return { data: finalCanonicalLoadMatchesApply() };
+  }
+  if (method === 'POST' && path === 'admin/final/load-odds') {
+    return { data: finalCanonicalLoadOddsApply() };
+  }
+  if (method === 'POST' && path === 'admin/final/load-predictions') {
+    return { data: finalCanonicalLoadPoissonPredictionsApply() };
+  }
+  if (method === 'POST' && path === 'admin/final/load-bets') {
+    return { data: finalCanonicalLoadBettingHistoryApply() };
   }
 
   if (method === 'GET' && path === 'competitions/status') {
