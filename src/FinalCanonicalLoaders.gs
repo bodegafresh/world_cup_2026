@@ -52,7 +52,8 @@ function finalCanonicalCleanupTournamentSlotsApply() {
   };
 }
 
-function finalCanonicalCleanupTeamDuplicatesApply() {
+function finalCanonicalCleanupTeamDuplicatesApply(options) {
+  options = options || {};
   if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
   const rows = supabaseSelect_('teams', 'select=*&limit=10000') || [];
   const merges = [];
@@ -75,12 +76,22 @@ function finalCanonicalCleanupTeamDuplicatesApply() {
   });
 
   const result = {
-    candidates: Object.values(uniqueMerges),
+    total_candidates: Object.values(uniqueMerges).length,
+    batch_limit: Math.max(1, Math.min(10, Number(options.limit || 3))),
+    candidates: [],
     merged: [],
-    skipped: []
+    skipped: [],
+    has_more: false
   };
 
-  Object.values(uniqueMerges).forEach(function(m) {
+  const batch = Object.values(uniqueMerges)
+    .sort(function(a, b) { return a.from_team_key.localeCompare(b.from_team_key); })
+    .slice(0, result.batch_limit);
+
+  result.candidates = batch;
+  result.has_more = Object.values(uniqueMerges).length > batch.length;
+
+  batch.forEach(function(m) {
     try {
       result.merged.push(finalMergeTeamKey_(m.from_team_key, m.to_team_key, m.display_name));
     } catch (e_) {

@@ -89,7 +89,7 @@ function apiV1Handle_(method, path, query, body) {
     return { data: finalCanonicalCleanupTournamentSlotsApply() };
   }
   if (method === 'POST' && path === 'admin/final/cleanup-team-duplicates') {
-    return { data: finalCanonicalCleanupTeamDuplicatesApply() };
+    return { data: finalCanonicalCleanupTeamDuplicatesApply({ limit: body.limit || query.limit }) };
   }
   if (method === 'GET' && path === 'admin/final/audit-teams') {
     return { data: finalCanonicalAuditTeamsApply() };
