@@ -1,0 +1,53 @@
+src/core/Teams.gs
+  s_b04792a387deb8::t_13ea0512b72352 1-22
+src/ApiV1.gs
+  s_b04792a387deb8::t_8393fe15bc5c89 81-84,97,148-165,190,200-202,208-209,219-225,229
+  s_b04792a387deb8::t_5f8c22843edbf8 54-65
+  s_b04792a387deb8::t_c80a83ef948318 191-199,203,210-211
+  s_b04792a387deb8::t_62826075843d24 226
+docs/supabase-primary-migration.md
+  s_b04792a387deb8::t_d9d550dca3e43f 36,50,59,133,140,145-198
+src/core/Dates.gs
+  s_b04792a387deb8::t_13ea0512b72352 1-26
+src/Config.gs
+  s_b04792a387deb8::t_b340899a1be1d3 111
+src/SupabaseClient.gs
+  s_b04792a387deb8::t_0a6ab482ff8fbe 252-281
+  s_b04792a387deb8::t_a341f5792a4bac 12,180-184,199-203,209,295-302
+src/features/FeatureSnapshots.gs
+  s_b04792a387deb8::t_13ea0512b72352 1-88
+supabase/migrations/003_architecture_phase1_events.sql
+  s_b04792a387deb8::t_cad71d1f35a136 1-20
+src/SupabaseMigration.gs
+  s_b04792a387deb8::t_fca5521c3d070f 54
+  s_b04792a387deb8::t_2cb0a79a19d8ae 358,361,369-371,557,561-606,609
+src/core/MatchKeys.gs
+  s_b04792a387deb8::t_13ea0512b72352 1-23
+src/EvModel.gs
+  s_b04792a387deb8::t_afe9b0daa668d7 842-843,847-849
+  s_b04792a387deb8::t_681c147c23e44d 827-828,833-834,836-840
+  s_b04792a387deb8::t_ebda345af2acab 340-344,387,398
+src/observability/DomainEvents.gs
+  s_b04792a387deb8::t_13ea0512b72352 1-45
+src/risk/RiskEngine.gs
+  s_b04792a387deb8::t_13ea0512b72352 1-72,74-82
+  s_b04792a387deb8::t_2d6d69b2f57ada 73
+src/SheetsRepository.gs
+  s_b04792a387deb8::t_df19e82a0fff64 28-32,48-55,71-74,90-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "e48e0c5620f8bc8701bf84b0f726fd43dd4dcd4d",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
