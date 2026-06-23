@@ -315,9 +315,16 @@ function finalCanonicalLoadMatchesApply() {
     addMatchSource_(sourceRows, matchId, 'football_data', row.match_id_football_data || row.fixture_id_fd, 1);
     addMatchSource_(sourceRows, matchId, 'espn', row.espn_event_id || row.espn_id, 1);
   });
-  if (matchRows.length) supabaseUpsert_('matches', matchRows, 'match_id');
-  if (sourceRows.length) supabaseUpsert_('match_source_ids', sourceRows, 'source,source_match_id');
-  return { matches: matchRows.length, match_source_ids: sourceRows.length };
+  const dedupedMatches = finalDedupeRowsByKey_(matchRows, ['match_id']);
+  const dedupedSources = finalDedupeRowsByKey_(sourceRows, ['source', 'source_match_id']);
+  if (dedupedMatches.length) supabaseUpsert_('matches', dedupedMatches, 'match_id');
+  if (dedupedSources.length) supabaseUpsert_('match_source_ids', dedupedSources, 'source,source_match_id');
+  return {
+    matches: dedupedMatches.length,
+    match_source_ids: dedupedSources.length,
+    source_rows: matchRows.length,
+    duplicate_matches_removed: matchRows.length - dedupedMatches.length
+  };
 }
 
 function addMatchSource_(target, matchId, source, sourceId, confidence) {
@@ -360,8 +367,9 @@ function finalCanonicalLoadOddsApply() {
       payload: {}
     });
   });
-  if (rows.length) supabaseUpsert_('odds_snapshots', rows, 'match_id,bookmaker,market,selection,captured_at');
-  return { odds_snapshots: rows.length };
+  const deduped = finalDedupeRowsByKey_(rows, ['match_id', 'bookmaker', 'market', 'selection', 'captured_at']);
+  if (deduped.length) supabaseUpsert_('odds_snapshots', deduped, 'match_id,bookmaker,market,selection,captured_at');
+  return { odds_snapshots: deduped.length, source_rows: rows.length, duplicates_removed: rows.length - deduped.length };
 }
 
 function finalCanonicalLoadPoissonPredictionsApply() {
@@ -396,8 +404,14 @@ function finalCanonicalLoadPoissonPredictionsApply() {
       });
     });
   });
-  if (predictions.length) supabaseUpsert_('model_predictions', predictions, 'model_run_id,match_id,market,selection,as_of');
-  return { model_run_id: run.model_run_id, model_predictions: predictions.length };
+  const deduped = finalDedupeRowsByKey_(predictions, ['model_run_id', 'match_id', 'market', 'selection', 'as_of']);
+  if (deduped.length) supabaseUpsert_('model_predictions', deduped, 'model_run_id,match_id,market,selection,as_of');
+  return {
+    model_run_id: run.model_run_id,
+    model_predictions: deduped.length,
+    source_rows: predictions.length,
+    duplicates_removed: predictions.length - deduped.length
+  };
 }
 
 function finalCreateModelRun_(modelName, modelVersion, market) {
@@ -452,4 +466,18 @@ function finalCanonicalLoadBettingHistoryApply() {
 function toDateOrNull_(value) {
   const iso = toIsoOrNull_(value);
   return iso ? iso.substring(0, 10) : null;
+}
+
+function finalDedupeRowsByKey_(rows, keyColumns) {
+  const byKey = {};
+  const ordered = [];
+  (rows || []).forEach(function(row) {
+    const key = (keyColumns || []).map(function(col) {
+      return row[col] === null || row[col] === undefined ? '' : String(row[col]);
+    }).join('|');
+    if (!key || key.replace(/\|/g, '') === '') return;
+    if (!byKey[key]) ordered.push(key);
+    byKey[key] = row;
+  });
+  return ordered.map(function(key) { return byKey[key]; });
 }
