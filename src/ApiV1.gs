@@ -97,6 +97,9 @@ function apiV1Handle_(method, path, query, body) {
   if (method === 'POST' && path === 'admin/final/load-teams') {
     return { data: finalCanonicalLoadTeamsApply() };
   }
+  if (method === 'POST' && path === 'admin/final/load-tournament-structure') {
+    return { data: finalCanonicalLoadTournamentStructureApply() };
+  }
   if (method === 'POST' && path === 'admin/final/load-players') {
     return { data: finalCanonicalLoadPlayersApply() };
   }

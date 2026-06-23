@@ -20,6 +20,7 @@ function finalCanonicalLoadAllMvpApply() {
     teams: finalCanonicalLoadTeamsApply(),
     players: finalCanonicalLoadPlayersApply(),
     matches: finalCanonicalLoadMatchesApply(),
+    tournament_structure: finalCanonicalLoadTournamentStructureApply(),
     odds: finalCanonicalLoadOddsApply(),
     predictions: finalCanonicalLoadPoissonPredictionsApply(),
     betting: finalCanonicalLoadBettingHistoryApply()
@@ -148,6 +149,8 @@ function finalCanonicalLoadTeamsApply() {
   const aliases = {};
   const sourceMappings = {};
   const competitionTeams = {};
+  const externalRefs = {};
+  const mediaAssets = {};
 
   function addTeam(name, row, options) {
     options = options || {};
@@ -160,13 +163,14 @@ function finalCanonicalLoadTeamsApply() {
       team_key: teamKey,
       display_name: displayName,
       normalized_name: normalizeTeamNameStrong_(displayName),
-      group_code: safe_(row && (row.grupo || row.group_code)),
-      api_football_team_id: safe_(row && (row.team_id_api_football || row.equipo_id_api_football || row.api_football_team_id)),
-      football_data_team_id: safe_(row && (row.team_id_football_data || row.football_data_team_id)),
+      group_code: null,
+      api_football_team_id: null,
+      football_data_team_id: null,
       team_type: options.team_type || finalInferTeamType_(row),
-      country_code: safe_(row && (row.country_code || row.codigo_pais || row.pais_codigo || row.codigo)),
+      country_code: finalTeamCountryCode_(teamKey, row),
       gender: safe_(row && row.gender),
-      payload: {},
+      metadata: finalTeamMetadata_(teamKey, row),
+      payload: finalTeamMetadata_(teamKey, row),
       updated_at: nowIso_()
     });
     addTeamAlias_(aliases, teamKey, displayName, 'canonical');
@@ -176,8 +180,11 @@ function finalCanonicalLoadTeamsApply() {
     ['nombre', 'equipo', 'team', 'display_name', 'nombre_normalizado'].forEach(function(field) {
       if (row && row[field]) addTeamAlias_(aliases, teamKey, row[field], field);
     });
-    addTeamSource_(sourceMappings, teamKey, 'api_football', row && (row.team_id_api_football || row.equipo_id || row.team_id), displayName);
+    addTeamSource_(sourceMappings, teamKey, 'api_football', row && (row.team_id_api_football || row.api_football_team_id), displayName);
     addTeamSource_(sourceMappings, teamKey, 'football_data', row && row.team_id_football_data, displayName);
+    addEntityExternalRef_(externalRefs, 'TEAM', teamKey, 'api_football', 'team', row && (row.team_id_api_football || row.api_football_team_id), displayName, '');
+    addEntityExternalRef_(externalRefs, 'TEAM', teamKey, 'football_data', 'team', row && row.team_id_football_data, displayName, '');
+    addTeamMediaAssets_(mediaAssets, teamKey, row);
     return teamKey;
   }
 
@@ -242,17 +249,106 @@ function finalCanonicalLoadTeamsApply() {
   const aliasRows = Object.values(aliases);
   const sourceRows = Object.values(sourceMappings);
   const competitionRows = Object.values(competitionTeams);
+  const externalRefRows = Object.values(externalRefs);
+  const mediaRows = Object.values(mediaAssets);
 
   if (teamRows.length) supabaseUpsert_('teams', teamRows, 'team_key');
   if (aliasRows.length) supabaseUpsert_('team_aliases', aliasRows, 'normalized_alias,source');
   if (sourceRows.length) supabaseUpsert_('source_team_mapping', sourceRows, 'source,source_team_id');
+  if (externalRefRows.length) finalTryUpsert_('entity_external_refs', externalRefRows, 'entity_type,source,source_id');
+  if (mediaRows.length) finalTryUpsert_('entity_media_assets', mediaRows, 'entity_type,entity_id,media_type,source');
   if (competitionRows.length) supabaseUpsert_('competition_team_mapping', competitionRows, 'competition_season_id,team_key');
+  finalClearLegacyTeamGroupCode_();
 
   return {
     teams: teamRows.length,
     team_aliases: aliasRows.length,
     source_team_mapping: sourceRows.length,
+    entity_external_refs: externalRefRows.length,
+    entity_media_assets: mediaRows.length,
     competition_team_mapping: competitionRows.length
+  };
+}
+
+function finalCanonicalLoadTournamentStructureApply() {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+  seedCompetitionCatalogToSupabase();
+
+  const competitionSeasonId = getActiveCompetitionSeasonId_();
+  const stages = finalBuildTournamentStages_(competitionSeasonId);
+  const stagesByCode = {};
+  stages.forEach(function(stage) { stagesByCode[stage.stage_code] = stage; });
+
+  const groups = {};
+  const participants = {};
+  const groupMemberships = {};
+  const rules = finalBuildWc2026QualificationRules_(competitionSeasonId, stagesByCode);
+
+  readAllFromSheet_(CONFIG.SHEETS.CLASIFICACION).forEach(function(row) {
+    const teamKey = canonicalTeamKey_(row.equipo || row.team || '');
+    const groupCode = finalNormalizeGroupCode_(row.grupo || row.group_code);
+    if (!teamKey) return;
+
+    participants[competitionSeasonId + '|' + teamKey] = {
+      competition_season_id: competitionSeasonId,
+      team_key: teamKey,
+      participant_type: 'NATIONAL_TEAM',
+      participant_status: 'ACTIVE',
+      seed_rating: null,
+      source: 'sheet_clasificacion',
+      payload: {},
+      updated_at: nowIso_()
+    };
+
+    if (groupCode) {
+      const groupId = finalGroupId_(competitionSeasonId, stagesByCode.GROUP_STAGE.stage_code, groupCode);
+      groups[groupId] = {
+        group_id: groupId,
+        competition_season_id: competitionSeasonId,
+        stage_id: stagesByCode.GROUP_STAGE.stage_id,
+        group_code: groupCode,
+        group_name: 'Grupo ' + groupCode,
+        group_order: finalGroupOrder_(groupCode),
+        payload: {},
+        updated_at: nowIso_()
+      };
+      groupMemberships[groupId + '|' + teamKey] = {
+        group_id: groupId,
+        team_key: teamKey,
+        competition_season_id: competitionSeasonId,
+        membership_status: 'ACTIVE',
+        seed_position: toNumberOrNull_(row.posicion),
+        payload: {},
+        updated_at: nowIso_()
+      };
+    }
+  });
+
+  const slotBuild = finalBuildSlotsFromMatches_(competitionSeasonId, stagesByCode, groups);
+
+  if (stages.length) supabaseUpsert_('competition_stages', stages, 'competition_season_id,stage_code');
+  const groupRows = Object.values(groups);
+  if (groupRows.length) supabaseUpsert_('competition_groups', groupRows, 'competition_season_id,stage_id,group_code');
+  const participantRows = Object.values(participants);
+  if (participantRows.length) supabaseUpsert_('competition_participants', participantRows, 'competition_season_id,team_key');
+  const membershipRows = Object.values(groupMemberships);
+  if (membershipRows.length) supabaseUpsert_('competition_group_memberships', membershipRows, 'group_id,team_key');
+  if (rules.length) supabaseUpsert_('qualification_rules', rules, 'competition_season_id,rule_code');
+  if (slotBuild.slots.length) supabaseUpsert_('tournament_slots', slotBuild.slots, 'competition_season_id,slot_code');
+  if (slotBuild.matchSlots.length) supabaseUpsert_('match_team_slots', slotBuild.matchSlots, 'match_id,side');
+
+  finalClearLegacyTeamGroupCode_();
+
+  return {
+    competition_season_id: competitionSeasonId,
+    stages: stages.length,
+    groups: groupRows.length,
+    participants: participantRows.length,
+    group_memberships: membershipRows.length,
+    qualification_rules: rules.length,
+    tournament_slots: slotBuild.slots.length,
+    match_team_slots: slotBuild.matchSlots.length,
+    note: 'Canonical tournament structure loaded. teams.group_code is deprecated and cleared.'
   };
 }
 
@@ -281,6 +377,348 @@ function finalHasValue_(value) {
   if (value === null || value === undefined) return false;
   const s = String(value).trim();
   return s !== '' && s.toUpperCase() !== 'NULL' && s.toUpperCase() !== 'EMPTY';
+}
+
+function finalTeamMetadata_(teamKey, row) {
+  row = row || {};
+  const countryCode = finalTeamCountryCode_(teamKey, row);
+  const metadata = {
+    entity_domain: 'football_team',
+    team_key: teamKey,
+    country_code: countryCode,
+    country_name: safe_(row.pais || row.country || row.country_name),
+    federation_code: safe_(row.codigo || row.federation_code),
+    source_quality: {
+      confidence_score: toNumberOrNull_(row.confidence_score),
+      sources_used: safe_(row.sources_used),
+      last_updated: safe_(row.last_updated || row.updated_at)
+    }
+  };
+  Object.keys(metadata).forEach(function(key) {
+    if (metadata[key] === '' || metadata[key] === null || metadata[key] === undefined) delete metadata[key];
+  });
+  return metadata;
+}
+
+function finalTeamCountryCode_(teamKey, row) {
+  row = row || {};
+  const explicit = safe_(row.country_code || row.codigo_pais || row.pais_codigo || row.iso2 || row.iso_code);
+  if (explicit) return explicit.toUpperCase();
+  return (TEAM_COUNTRY_ISO2[teamKey] || '').toUpperCase();
+}
+
+const TEAM_COUNTRY_ISO2 = {
+  algeria: 'DZ',
+  argentina: 'AR',
+  australia: 'AU',
+  austria: 'AT',
+  belgium: 'BE',
+  bosniaherzegovina: 'BA',
+  brazil: 'BR',
+  cameroon: 'CM',
+  canada: 'CA',
+  capeverde: 'CV',
+  chile: 'CL',
+  china: 'CN',
+  colombia: 'CO',
+  congo: 'CG',
+  congodr: 'CD',
+  costarica: 'CR',
+  cotedivoire: 'CI',
+  croatia: 'HR',
+  curacao: 'CW',
+  czechia: 'CZ',
+  denmark: 'DK',
+  ecuador: 'EC',
+  egypt: 'EG',
+  elsalvador: 'SV',
+  england: 'GB-ENG',
+  finland: 'FI',
+  france: 'FR',
+  georgia: 'GE',
+  germany: 'DE',
+  ghana: 'GH',
+  greece: 'GR',
+  haiti: 'HT',
+  honduras: 'HN',
+  hungary: 'HU',
+  iceland: 'IS',
+  indonesia: 'ID',
+  iran: 'IR',
+  iraq: 'IQ',
+  italy: 'IT',
+  jamaica: 'JM',
+  japan: 'JP',
+  jordan: 'JO',
+  mexico: 'MX',
+  morocco: 'MA',
+  netherlands: 'NL',
+  newzealand: 'NZ',
+  nigeria: 'NG',
+  northkorea: 'KP',
+  norway: 'NO',
+  panama: 'PA',
+  paraguay: 'PY',
+  peru: 'PE',
+  poland: 'PL',
+  portugal: 'PT',
+  qatar: 'QA',
+  romania: 'RO',
+  russia: 'RU',
+  saudiarabia: 'SA',
+  scotland: 'GB-SCT',
+  senegal: 'SN',
+  serbia: 'RS',
+  slovakia: 'SK',
+  slovenia: 'SI',
+  southafrica: 'ZA',
+  southkorea: 'KR',
+  spain: 'ES',
+  sweden: 'SE',
+  switzerland: 'CH',
+  thailand: 'TH',
+  tunisia: 'TN',
+  turkey: 'TR',
+  ukraine: 'UA',
+  unitedarabemirates: 'AE',
+  unitedstates: 'US',
+  uruguay: 'UY',
+  uzbekistan: 'UZ',
+  venezuela: 'VE',
+  wales: 'GB-WLS'
+};
+
+function addTeamMediaAssets_(target, teamKey, row) {
+  row = row || {};
+  const countryCode = finalTeamCountryCode_(teamKey, row);
+  const flagUrl = finalFlagUrlForCountryCode_(countryCode);
+  addEntityMediaAsset_(target, 'TEAM', teamKey, 'FLAG', 'flagcdn', flagUrl, true, {
+    country_code: countryCode
+  });
+
+  const logoUrl = safe_(row.logo || row.logo_url || row.crest_url || row.team_logo);
+  if (logoUrl) {
+    addEntityMediaAsset_(target, 'TEAM', teamKey, 'LOGO', safe_(row.fuente || 'sheet_seed'), logoUrl, false, {});
+  }
+
+  const apiFootballId = safe_(row.team_id_api_football || row.api_football_team_id);
+  if (apiFootballId) {
+    addEntityMediaAsset_(target, 'TEAM', teamKey, 'LOGO', 'api_football', 'https://media.api-sports.io/football/teams/' + apiFootballId + '.png', false, {
+      source_id: apiFootballId
+    });
+  }
+}
+
+function finalFlagUrlForCountryCode_(countryCode) {
+  const code = String(countryCode || '').toLowerCase();
+  if (!code || code.indexOf('gb-') === 0) return '';
+  return 'https://flagcdn.com/w320/' + code + '.png';
+}
+
+function finalBuildTournamentStages_(competitionSeasonId) {
+  return [
+    finalStageRow_(competitionSeasonId, 'GROUP_STAGE', 'Fase de grupos', 1, 'GROUP_STAGE', '2026-06-11', '2026-06-27', {
+      groups: 12,
+      teams_per_group: 4
+    }),
+    finalStageRow_(competitionSeasonId, 'ROUND_OF_32', 'Dieciseisavos de final', 2, 'KNOCKOUT', '2026-06-28', '2026-07-03', {}),
+    finalStageRow_(competitionSeasonId, 'ROUND_OF_16', 'Octavos de final', 3, 'KNOCKOUT', '2026-07-04', '2026-07-07', {}),
+    finalStageRow_(competitionSeasonId, 'QUARTERFINAL', 'Cuartos de final', 4, 'KNOCKOUT', '2026-07-09', '2026-07-11', {}),
+    finalStageRow_(competitionSeasonId, 'SEMIFINAL', 'Semifinales', 5, 'KNOCKOUT', '2026-07-14', '2026-07-15', {}),
+    finalStageRow_(competitionSeasonId, 'THIRD_PLACE', 'Tercer puesto', 6, 'THIRD_PLACE', '2026-07-18', '2026-07-18', {}),
+    finalStageRow_(competitionSeasonId, 'FINAL', 'Final', 7, 'FINAL', '2026-07-19', '2026-07-19', {})
+  ];
+}
+
+function finalStageRow_(competitionSeasonId, code, name, order, type, startsOn, endsOn, rules) {
+  return {
+    stage_id: finalStageId_(competitionSeasonId, code),
+    competition_season_id: competitionSeasonId,
+    stage_code: code,
+    stage_name: name,
+    stage_order: order,
+    stage_type: type,
+    starts_on: startsOn,
+    ends_on: endsOn,
+    rules: rules || {},
+    payload: {},
+    updated_at: nowIso_()
+  };
+}
+
+function finalBuildWc2026QualificationRules_(competitionSeasonId, stagesByCode) {
+  return [
+    finalQualificationRule_(competitionSeasonId, 'GROUP_TOP_2_TO_R32', 'Top 2 de cada grupo a dieciseisavos', stagesByCode.GROUP_STAGE, stagesByCode.ROUND_OF_32, 'GROUP', 1, 2, 24),
+    finalQualificationRule_(competitionSeasonId, 'BEST_8_THIRD_TO_R32', 'Mejores 8 terceros a dieciseisavos', stagesByCode.GROUP_STAGE, stagesByCode.ROUND_OF_32, 'CROSS_GROUP', 3, 3, 8),
+    finalQualificationRule_(competitionSeasonId, 'R32_WINNERS_TO_R16', 'Ganadores de dieciseisavos a octavos', stagesByCode.ROUND_OF_32, stagesByCode.ROUND_OF_16, 'BRACKET_MATCH', 1, 1, 16),
+    finalQualificationRule_(competitionSeasonId, 'R16_WINNERS_TO_QF', 'Ganadores de octavos a cuartos', stagesByCode.ROUND_OF_16, stagesByCode.QUARTERFINAL, 'BRACKET_MATCH', 1, 1, 8),
+    finalQualificationRule_(competitionSeasonId, 'QF_WINNERS_TO_SF', 'Ganadores de cuartos a semifinales', stagesByCode.QUARTERFINAL, stagesByCode.SEMIFINAL, 'BRACKET_MATCH', 1, 1, 4),
+    finalQualificationRule_(competitionSeasonId, 'SF_WINNERS_TO_FINAL', 'Ganadores de semifinales a final', stagesByCode.SEMIFINAL, stagesByCode.FINAL, 'BRACKET_MATCH', 1, 1, 2),
+    finalQualificationRule_(competitionSeasonId, 'SF_LOSERS_TO_THIRD_PLACE', 'Perdedores de semifinales a tercer puesto', stagesByCode.SEMIFINAL, stagesByCode.THIRD_PLACE, 'BRACKET_MATCH', 2, 2, 2)
+  ];
+}
+
+function finalQualificationRule_(competitionSeasonId, code, name, fromStage, toStage, scope, rankFrom, rankTo, slotsAwarded) {
+  return {
+    qualification_rule_id: hash_([competitionSeasonId, code].join('|')),
+    competition_season_id: competitionSeasonId,
+    from_stage_id: fromStage && fromStage.stage_id,
+    to_stage_id: toStage && toStage.stage_id,
+    rule_code: code,
+    rule_name: name,
+    ranking_scope: scope,
+    rank_from: rankFrom,
+    rank_to: rankTo,
+    slots_awarded: slotsAwarded,
+    tie_breakers: [],
+    payload: {},
+    updated_at: nowIso_()
+  };
+}
+
+function finalBuildSlotsFromMatches_(competitionSeasonId, stagesByCode, groupsById) {
+  const slots = {};
+  const matchSlots = [];
+
+  readAllFromSheet_(CONFIG.SHEETS.PARTIDOS).forEach(function(row) {
+    const matchId = ensureMatchIdFromRow_(row);
+    if (!matchId) return;
+    const stage = finalStageForFixture_(row, stagesByCode);
+    ['HOME', 'AWAY'].forEach(function(side) {
+      const raw = side === 'HOME'
+        ? (row.local || row.equipo_local || row.home_team || '')
+        : (row.visitante || row.equipo_visitante || row.away_team || '');
+      const isSlot = isTournamentSlotName_(raw);
+      const teamKey = isSlot ? null : canonicalTeamKey_(raw);
+      const slot = isSlot ? finalTournamentSlotFromRaw_(competitionSeasonId, raw, stage, stagesByCode, groupsById) : null;
+      if (slot) slots[slot.slot_id] = slot;
+      matchSlots.push({
+        match_id: matchId,
+        side: side,
+        competition_season_id: competitionSeasonId,
+        stage_id: stage && stage.stage_id,
+        slot_id: slot && slot.slot_id,
+        team_key: teamKey,
+        raw_label: safe_(raw),
+        resolved_at: teamKey ? nowIso_() : null,
+        payload: {},
+        updated_at: nowIso_()
+      });
+    });
+  });
+
+  return {
+    slots: Object.values(slots),
+    matchSlots: matchSlots
+  };
+}
+
+function finalTournamentSlotFromRaw_(competitionSeasonId, raw, currentStage, stagesByCode, groupsById) {
+  const label = tournamentSlotLabel_(raw);
+  const text = normalizeTournamentSlotText_(raw);
+  const slotCode = text.replace(/[^a-z0-9]+/g, '_');
+  const slotType = finalSlotTypeFromText_(text);
+  const sourceStage = finalSourceStageForSlot_(text, stagesByCode);
+  const groupCode = finalGroupCodeFromSlotText_(text);
+  const sourceGroupId = slotType === 'BEST_THIRD'
+    ? null
+    : (groupCode ? finalGroupId_(competitionSeasonId, stagesByCode.GROUP_STAGE.stage_code, groupCode) : null);
+  const rank = finalSourceRankFromSlotText_(text);
+  return {
+    slot_id: finalSlotId_(competitionSeasonId, slotCode),
+    competition_season_id: competitionSeasonId,
+    stage_id: currentStage.stage_id,
+    slot_code: slotCode,
+    slot_label: label,
+    slot_type: slotType,
+    source_stage_id: sourceStage && sourceStage.stage_id,
+    source_group_id: sourceGroupId && groupsById[sourceGroupId] ? sourceGroupId : null,
+    source_match_id: null,
+    source_rank: rank,
+    resolved_team_key: null,
+    status: 'UNRESOLVED',
+    payload: { raw_label: raw },
+    updated_at: nowIso_()
+  };
+}
+
+function finalStageForFixture_(row, stagesByCode) {
+  const date = normalizeFecha_(row.fecha || row.date || row.fecha_chile);
+  const local = row.local || row.equipo_local || row.home_team || '';
+  const away = row.visitante || row.equipo_visitante || row.away_team || '';
+  const text = [row.fase, row.ronda, row.stage, local, away].join(' ').toLowerCase();
+  if (text.indexOf('semifinal') !== -1 && text.indexOf('loser') !== -1) return stagesByCode.THIRD_PLACE;
+  if (text.indexOf('semifinal') !== -1 && text.indexOf('winner') !== -1) return stagesByCode.FINAL;
+  if (text.indexOf('quarterfinal') !== -1) return stagesByCode.SEMIFINAL;
+  if (text.indexOf('round of 16') !== -1) return stagesByCode.QUARTERFINAL;
+  if (text.indexOf('round of 32') !== -1) return stagesByCode.ROUND_OF_16;
+  if (isTournamentSlotName_(local) || isTournamentSlotName_(away)) return stagesByCode.ROUND_OF_32;
+  if (date && date >= '2026-06-28' && date <= '2026-07-03') return stagesByCode.ROUND_OF_32;
+  return stagesByCode.GROUP_STAGE;
+}
+
+function finalSlotTypeFromText_(text) {
+  if (text.indexOf('third place group') === 0 || text.indexOf('best third') === 0) return 'BEST_THIRD';
+  if (text.indexOf('winner') !== -1 && text.indexOf('round of') !== -1) return 'MATCH_WINNER';
+  if (text.indexOf('loser') !== -1) return 'MATCH_LOSER';
+  if (text.indexOf('group') === 0) return 'GROUP_RANK';
+  return 'UNKNOWN';
+}
+
+function finalSourceStageForSlot_(text, stagesByCode) {
+  if (text.indexOf('round of 32') !== -1) return stagesByCode.ROUND_OF_32;
+  if (text.indexOf('round of 16') !== -1) return stagesByCode.ROUND_OF_16;
+  if (text.indexOf('quarterfinal') !== -1) return stagesByCode.QUARTERFINAL;
+  if (text.indexOf('semifinal') !== -1) return stagesByCode.SEMIFINAL;
+  if (text.indexOf('group') !== -1) return stagesByCode.GROUP_STAGE;
+  return null;
+}
+
+function finalGroupCodeFromSlotText_(text) {
+  const m = String(text || '').match(/group ([a-z0-9]+)/);
+  return m ? String(m[1]).toUpperCase() : '';
+}
+
+function finalSourceRankFromSlotText_(text) {
+  if (text.indexOf('winner') !== -1) return 1;
+  if (text.indexOf('2nd place') !== -1 || text.indexOf('second place') !== -1 || text.indexOf('runner up') !== -1) return 2;
+  if (text.indexOf('third place') !== -1 || text.indexOf('best third') !== -1) return 3;
+  return null;
+}
+
+function finalNormalizeGroupCode_(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const m = raw.match(/(?:grupo|group)?\s*([A-Z0-9]+)$/i);
+  return m ? String(m[1]).toUpperCase() : raw.toUpperCase();
+}
+
+function finalGroupOrder_(groupCode) {
+  const code = String(groupCode || '').toUpperCase();
+  if (/^[A-Z]$/.test(code)) return code.charCodeAt(0) - 64;
+  const n = Number(code);
+  return isNaN(n) ? null : n;
+}
+
+function finalStageId_(competitionSeasonId, stageCode) {
+  return [competitionSeasonId, stageCode].join('__').toLowerCase();
+}
+
+function finalGroupId_(competitionSeasonId, stageCode, groupCode) {
+  return [competitionSeasonId, stageCode, groupCode].join('__').toLowerCase();
+}
+
+function finalSlotId_(competitionSeasonId, slotCode) {
+  return [competitionSeasonId, slotCode].join('__').toLowerCase();
+}
+
+function finalClearLegacyTeamGroupCode_() {
+  try {
+    supabaseRequest_('patch', 'teams', { group_code: null }, {
+      query: 'group_code=not.is.null',
+      prefer: 'return=minimal'
+    });
+  } catch (e_) {}
 }
 
 function addTeamAlias_(target, teamKey, alias, source) {
@@ -314,6 +752,50 @@ function addTeamSource_(target, teamKey, source, sourceId, sourceName) {
     payload: {},
     updated_at: nowIso_()
   };
+}
+
+function addEntityExternalRef_(target, entityType, entityId, source, sourceEntityType, sourceId, sourceName, sourceUrl) {
+  const id = String(sourceId || '').trim();
+  if (!entityType || !entityId || !source || !id) return;
+  const key = [entityType, source, id].join('|');
+  target[key] = {
+    entity_type: entityType,
+    entity_id: entityId,
+    source: source,
+    source_entity_type: sourceEntityType || '',
+    source_id: id,
+    source_name: safe_(sourceName),
+    source_url: safe_(sourceUrl),
+    confidence: 1,
+    is_primary: false,
+    metadata: {},
+    updated_at: nowIso_()
+  };
+}
+
+function addEntityMediaAsset_(target, entityType, entityId, mediaType, source, url, isPrimary, metadata) {
+  const mediaUrl = String(url || '').trim();
+  if (!entityType || !entityId || !mediaType || !source || !mediaUrl) return;
+  const key = [entityType, entityId, mediaType, source].join('|');
+  target[key] = {
+    entity_type: entityType,
+    entity_id: entityId,
+    media_type: mediaType,
+    source: source,
+    url: mediaUrl,
+    is_primary: isPrimary === true,
+    metadata: metadata || {},
+    updated_at: nowIso_()
+  };
+}
+
+function finalTryUpsert_(table, rows, conflictColumns) {
+  try {
+    if (rows && rows.length) supabaseUpsert_(table, rows, conflictColumns);
+    return rows ? rows.length : 0;
+  } catch (e_) {
+    return 0;
+  }
 }
 
 function finalInferTeamType_(row) {
