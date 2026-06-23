@@ -33,6 +33,7 @@ SUPABASE_SERVICE_ROLE_KEY=...
 SUPABASE_ANON_KEY=...                 opcional
 SUPABASE_DUAL_WRITE=false             inicio seguro
 SUPABASE_PRIMARY_READ=false           inicio seguro
+SUPABASE_PRIMARY_WRITE=false          inicio seguro
 SUPABASE_MIGRATION_BATCH_SIZE=200     opcional
 ```
 
@@ -46,6 +47,7 @@ SUPABASE_SERVICE_ROLE_KEY=<service-role-secret>
 SUPABASE_ANON_KEY=<anon-public-key>              opcional, solo si algun frontend futuro lo necesita
 SUPABASE_DUAL_WRITE=false                        antes de migrar historico
 SUPABASE_PRIMARY_READ=false                      mantener false hasta validar conteos
+SUPABASE_PRIMARY_WRITE=false                     mantener false hasta el cutover
 SUPABASE_MIGRATION_BATCH_SIZE=200                100 si ves timeouts; 500 si la migracion va estable
 ```
 
@@ -54,6 +56,7 @@ Despues de `supabaseMigrateMvp30Apply()`, el propio script deja:
 ```text
 SUPABASE_DUAL_WRITE=true
 SUPABASE_PRIMARY_READ=false
+SUPABASE_PRIMARY_WRITE=false
 ```
 
 No activar `SUPABASE_PRIMARY_READ=true` hasta revisar `supabaseValidateAgainstSheets()` y probar dashboard/bot con dual-write.
@@ -127,14 +130,72 @@ supabaseMvp30Status()
 - validacion contra Sheets,
 - activacion de dual-write,
 - mantiene primary-read apagado.
+- mantiene primary-write apagado.
 
 El resultado esperado es:
 
 ```text
 SUPABASE_DUAL_WRITE=true
 SUPABASE_PRIMARY_READ=false
+SUPABASE_PRIMARY_WRITE=false
 WC2026=PAPER_TRADING salvo que se promueva manualmente luego de readiness
 Nuevas ligas=OBSERVATION
+```
+
+## Cutover: Supabase como fuente unica
+
+Despues de migrar y validar conteos, ejecutar:
+
+```javascript
+supabaseCutoverToPrimaryApply()
+```
+
+Esto deja el runtime asi:
+
+```text
+SUPABASE_PRIMARY_READ=true
+SUPABASE_PRIMARY_WRITE=true
+SUPABASE_DUAL_WRITE=false
+```
+
+Desde ese momento:
+
+- `readAll_()` lee desde Supabase para hojas soportadas.
+- `appendRows_()`, `appendRow_()` y `upsertRowsByKey_()` escriben directo en Supabase.
+- Hojas no soportadas quedan bloqueadas como escritura primaria para evitar crear una segunda fuente de verdad accidental.
+- `updateRow_()` por indice queda bloqueado porque no es seguro en Supabase; debe refactorizarse a upsert por clave canonica.
+
+Rollback operativo:
+
+```javascript
+supabaseRollbackToSheetsApply()
+```
+
+Ese rollback deja:
+
+```text
+SUPABASE_PRIMARY_READ=false
+SUPABASE_PRIMARY_WRITE=false
+SUPABASE_DUAL_WRITE=false
+```
+
+## Cutover por API v1
+
+```bash
+curl -sS "$POOL_API_URL/api/v1/health" \
+  -H "Authorization: Bearer $WEB_KEY"
+
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/supabase/bootstrap-mvp30" \
+  -H "Authorization: Bearer $WEB_KEY"
+
+curl -sS "$POOL_API_URL/api/v1/admin/supabase/validate" \
+  -H "Authorization: Bearer $WEB_KEY"
+
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/supabase/cutover-primary" \
+  -H "Authorization: Bearer $WEB_KEY"
+
+curl -sS -X POST "$POOL_API_URL/api/v1/admin/supabase/rollback-sheets" \
+  -H "Authorization: Bearer $WEB_KEY"
 ```
 
 Para operar readiness:

@@ -51,6 +51,18 @@ function apiV1Handle_(method, path, query, body) {
   if (method === 'POST' && path === 'admin/supabase/bootstrap-mvp30') {
     return { data: supabaseMigrateMvp30Apply() };
   }
+  if (method === 'POST' && path === 'admin/supabase/migrate-core') {
+    return { data: supabaseMigrateCoreApply() };
+  }
+  if (method === 'GET' && path === 'admin/supabase/validate') {
+    return { data: supabaseValidateAgainstSheets() };
+  }
+  if (method === 'POST' && path === 'admin/supabase/cutover-primary') {
+    return { data: supabaseCutoverToPrimaryApply() };
+  }
+  if (method === 'POST' && path === 'admin/supabase/rollback-sheets') {
+    return { data: supabaseRollbackToSheetsApply() };
+  }
   if (method === 'POST' && path === 'admin/supabase/prepare-expansion60') {
     return { data: supabasePrepareExpansion60Apply() };
   }
@@ -66,6 +78,10 @@ function apiV1Handle_(method, path, query, body) {
     return { data: evaluateCompetitionReadiness_(parts[1]) };
   }
 
+  if (method === 'GET' && parts.length === 3 && parts[0] === 'competitions' && parts[2] === 'health') {
+    return { data: apiV1CompetitionHealth_(parts[1]) };
+  }
+
   if ((method === 'PATCH' || method === 'POST') && parts.length === 4 && parts[0] === 'competitions' && parts[2] === 'readiness') {
     return { data: setCompetitionReadinessCheck(parts[1], parts[3], body.status, body.score, body.details || {}) };
   }
@@ -78,6 +94,7 @@ function apiV1Handle_(method, path, query, body) {
   if (method === 'POST' && path === 'odds/snapshots') return { data: apiV1Upsert_('odds_snapshots', body, 'match_id,bookmaker,market,selection,captured_at') };
   if (method === 'POST' && path === 'model-runs') return { data: apiV1Insert_('model_runs', body) };
   if (method === 'POST' && path === 'predictions') return { data: apiV1Insert_('model_predictions', body) };
+  if (method === 'POST' && path === 'features/snapshots') return { data: apiV1CreateFeatureSnapshot_(body) };
   if (method === 'POST' && path === 'betting-decisions/evaluate') return { data: apiV1EvaluateBettingDecision_(body) };
 
   if (method === 'GET' && path === 'betting-decisions') {
@@ -128,6 +145,24 @@ function apiV1SetCompetitionStatus_(competitionSeasonId, body) {
   throw new Error('Estado de competencia inválido: ' + body.status);
 }
 
+function apiV1CompetitionHealth_(competitionSeasonId) {
+  const readiness = evaluateCompetitionReadiness_(competitionSeasonId);
+  const status = getCompetitionStatus_(competitionSeasonId);
+  let market = [];
+  let metrics = [];
+  if (isSupabaseConfigured_()) {
+    try { market = supabaseSelect_('competition_market_profiles', 'select=*&competition_season_id=eq.' + encodeURIComponent(competitionSeasonId)); } catch (e_) {}
+    try { metrics = supabaseSelect_('model_metrics', 'select=*&competition_season_id=eq.' + encodeURIComponent(competitionSeasonId) + '&order=calculated_at.desc&limit=10'); } catch (e_) {}
+  }
+  return {
+    competition_season_id: competitionSeasonId,
+    status: status,
+    readiness: readiness,
+    market_profiles: market,
+    recent_model_metrics: metrics
+  };
+}
+
 function apiV1Rows_(body) {
   if (Array.isArray(body)) return body;
   return [body || {}];
@@ -152,13 +187,28 @@ function apiV1Upsert_(table, body, conflictColumns) {
   return { table: table, rows: rows.length };
 }
 
+function apiV1CreateFeatureSnapshot_(body) {
+  if (body.features) {
+    return featureSnapshotSave_({
+      competition_season_id: body.competition_season_id || getActiveCompetitionSeasonId_(),
+      match_id: body.match_id,
+      feature_set_version: body.feature_set_version || FEATURE_SET_VERSION_DEFAULT,
+      as_of: body.as_of || nowIso_(),
+      features: body.features || {}
+    });
+  }
+  if (body.match_id || body.match_key || body.fixture_id) {
+    return featureSnapshotCreateForMatch_(body.match_id || body.match_key || body.fixture_id, body.options || body);
+  }
+  throw new Error('features/snapshots requiere match_id/match_key/fixture_id o features explicitas.');
+}
+
 function apiV1EvaluateBettingDecision_(body) {
   const competitionSeasonId = body.competition_season_id || getActiveCompetitionSeasonId_();
-  const gate = buildCompetitionBettingGate_(competitionSeasonId);
-  const probability = Number(body.model_probability || body.calibrated_probability || 0);
-  const odds = Number(body.decimal_odds || body.odds || 0);
-  const metrics = bettingMetrics_(probability, odds);
-  const decision = gate.allowed ? 'BETTABLE' : gate.decision;
+  const risk = riskEvaluateOpportunity_(body, {
+    match_id: body.match_id,
+    competition_season_id: competitionSeasonId
+  }, { competition_season_id: competitionSeasonId });
   const payload = {
     competition_season_id: competitionSeasonId,
     prediction_id: body.prediction_id || null,
@@ -166,17 +216,17 @@ function apiV1EvaluateBettingDecision_(body) {
     match_id: body.match_id,
     market: body.market,
     selection: body.selection,
-    model_probability: probability,
-    decimal_odds: odds,
-    edge: metrics.edge_pp,
-    ev: metrics.ev_pct,
-    kelly_fraction: gate.allowed ? Math.max(0, Math.min(metrics.kelly_25_pct, KELLY_MAX_FRACTION)) : 0,
-    decision: decision,
-    block_reason: gate.allowed ? '' : gate.block_reason,
+    model_probability: Number(body.model_probability || body.calibrated_probability || 0),
+    decimal_odds: Number(body.decimal_odds || body.odds || 0),
+    edge: risk.metrics.edge_pp,
+    ev: risk.metrics.ev_pct,
+    kelly_fraction: risk.kelly_fraction,
+    decision: risk.allowed ? 'BETTABLE' : risk.decision,
+    block_reason: risk.block_reason,
+    risk_engine_version: risk.risk_engine_version,
     payload: {
       request: body,
-      gate: gate,
-      metrics: metrics
+      risk: risk
     }
   };
   supabaseRequest_('post', 'betting_decisions', [payload], { prefer: 'return=representation' });

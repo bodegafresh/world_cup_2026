@@ -51,6 +51,7 @@ function supabaseMigrateMvp30Apply() {
   const validation = supabaseValidateAgainstSheets();
   supabaseSetDualWrite(true);
   supabaseSetPrimaryRead(false);
+  supabaseSetPrimaryWrite(false);
   return {
     status: core.totalErrors ? 'WARN' : 'OK',
     catalog: catalog,
@@ -354,10 +355,10 @@ function supabaseValidateAgainstSheets() {
   Object.keys(SUPABASE_SHEET_TABLES).forEach(function(sheetName) {
     const cfg = SUPABASE_SHEET_TABLES[sheetName];
     const sheetRows = readAllFromSheet_(sheetName);
-    let remoteRows = [];
+    let remoteCount = 0;
     let error = '';
     try {
-      remoteRows = supabaseSelect_(cfg.table, 'select=*');
+      remoteCount = supabaseCount_(cfg.table);
     } catch (e) {
       error = e.message;
     }
@@ -365,9 +366,9 @@ function supabaseValidateAgainstSheets() {
       sheet: sheetName,
       table: cfg.table,
       sheet_rows: sheetRows.length,
-      supabase_rows: remoteRows.length,
-      delta: remoteRows.length - sheetRows.length,
-      status: error ? 'ERROR' : (remoteRows.length >= sheetRows.length ? 'OK' : 'MISSING_ROWS'),
+      supabase_rows: remoteCount,
+      delta: remoteCount - sheetRows.length,
+      status: error ? 'ERROR' : (remoteCount >= sheetRows.length ? 'OK' : 'MISSING_ROWS'),
       error: error
     });
   });
@@ -553,11 +554,59 @@ function supabaseEnableAfterValidation() {
   }
   supabaseSetDualWrite(true);
   supabaseSetPrimaryRead(true);
+  supabaseSetPrimaryWrite(false);
   return supabaseStatus();
+}
+
+function supabaseCutoverToPrimaryApply() {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado.');
+
+  const validation = supabaseValidateAgainstSheets();
+  const blockers = validation.filter(function(r) { return r.status !== 'OK'; });
+  if (blockers.length) {
+    throw new Error('No se activa Supabase como fuente unica: hay validaciones pendientes. Blockers=' + blockers.map(function(r) {
+      return r.sheet + ':' + r.status + '(sheet=' + r.sheet_rows + ',supabase=' + r.supabase_rows + ')';
+    }).join(', '));
+  }
+
+  supabaseSetPrimaryRead(true);
+  supabaseSetPrimaryWrite(true);
+  supabaseSetDualWrite(false);
+
+  try {
+    appendRows_(CONFIG.SHEETS.NORMALIZATION_AUDIT, [[
+      nowChile_(),
+      'SUPABASE_PRIMARY',
+      'cutover',
+      'OK',
+      'Supabase activado como fuente unica operacional',
+      'Sheets queda solo para reportes/export legacy. Escrituras centrales van directo a Supabase.',
+      'APPLIED'
+    ]]);
+  } catch (e_) {}
+
+  return {
+    status: 'OK',
+    runtime: supabaseStatus(),
+    validation: validation,
+    note: 'Supabase es fuente unica para readAll_, appendRows_, appendRow_ y upsertRowsByKey_ en hojas soportadas.'
+  };
+}
+
+function supabaseRollbackToSheetsApply() {
+  supabaseSetPrimaryWrite(false);
+  supabaseSetPrimaryRead(false);
+  supabaseSetDualWrite(false);
+  return {
+    status: 'OK',
+    runtime: supabaseStatus(),
+    note: 'Rollback operativo: lecturas/escrituras centrales vuelven a Google Sheets.'
+  };
 }
 
 function supabaseDisableRuntime() {
   supabaseSetPrimaryRead(false);
+  supabaseSetPrimaryWrite(false);
   supabaseSetDualWrite(false);
   return supabaseStatus();
 }

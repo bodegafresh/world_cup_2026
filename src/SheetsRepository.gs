@@ -25,6 +25,11 @@ function getOrCreateSheet_(name, headers) {
 function appendRows_(sheetName, rows) {
   if (!rows || rows.length === 0) return;
 
+  if (isSupabasePrimaryWriteEnabled_()) {
+    const headers = getHeadersSafe_(sheetName);
+    return supabaseWriteRowsFromSheet_(sheetName, headers, rows);
+  }
+
   const sheet = getSheet_(sheetName);
   const startRow = sheet.getLastRow() + 1;
   const startCol = 1;
@@ -40,6 +45,14 @@ function appendRows_(sheetName, rows) {
 }
 
 function appendRow_(sheetName, rowData) {
+  if (isSupabasePrimaryWriteEnabled_()) {
+    const headers = getHeadersSafe_(sheetName);
+    const row = Array.isArray(rowData)
+      ? rowData
+      : headers.map(h => safe_(rowData[h]));
+    return supabaseWriteRowsFromSheet_(sheetName, headers, [row]);
+  }
+
   const sheet = getSheet_(sheetName);
   const headers = getHeaders_(sheetName);
   const row = Array.isArray(rowData)
@@ -55,6 +68,10 @@ function appendRow_(sheetName, rowData) {
 }
 
 function updateRow_(sheetName, zeroBasedDataIndex, rowData) {
+  if (isSupabasePrimaryWriteEnabled_()) {
+    throw new Error('updateRow_ por indice esta bloqueado con SUPABASE_PRIMARY_WRITE=true. Refactorizar a upsert por clave canonica: ' + sheetName);
+  }
+
   const sheet = getSheet_(sheetName);
   const headers = getHeaders_(sheetName);
   const rowNumber = zeroBasedDataIndex + 2;
@@ -69,6 +86,12 @@ function updateRow_(sheetName, zeroBasedDataIndex, rowData) {
 function upsertRowsByKey_(sheetName, headers, rows, keyColumns, options) {
   options = options || {};
   if (!rows || !rows.length) return { inserted: 0, updated: 0 };
+
+  if (isSupabasePrimaryWriteEnabled_()) {
+    const writeRows = rows.map(row => Array.isArray(row) ? row : headers.map(h => safe_(row[h])));
+    const result = supabaseWriteRowsFromSheet_(sheetName, headers, writeRows);
+    return { inserted: result.mirrored || 0, updated: 0, primary_write: 'supabase' };
+  }
 
   const sheet = getOrCreateSheet_(sheetName, headers);
   let values = sheet.getDataRange().getValues();

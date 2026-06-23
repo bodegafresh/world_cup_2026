@@ -9,6 +9,7 @@
  * Feature flags:
  *   - SUPABASE_DUAL_WRITE=true     -> espeja escrituras de Sheets a Supabase.
  *   - SUPABASE_PRIMARY_READ=true   -> readAll_ lee desde Supabase para hojas soportadas.
+ *   - SUPABASE_PRIMARY_WRITE=true  -> helpers centrales escriben directo en Supabase.
  */
 
 const SUPABASE_SHEET_TABLES = {
@@ -176,6 +177,11 @@ function isSupabasePrimaryReadEnabled_() {
     String(PropertiesService.getScriptProperties().getProperty(CONFIG.SUPABASE.PRIMARY_READ_PROP) || '').toLowerCase() === 'true';
 }
 
+function isSupabasePrimaryWriteEnabled_() {
+  return isSupabaseConfigured_() &&
+    String(PropertiesService.getScriptProperties().getProperty(CONFIG.SUPABASE.PRIMARY_WRITE_PROP) || '').toLowerCase() === 'true';
+}
+
 function isSupabaseSheetSupported_(sheetName) {
   return Boolean(SUPABASE_SHEET_TABLES[sheetName]);
 }
@@ -190,11 +196,17 @@ function supabaseSetPrimaryRead(enabled) {
   Logger.log('SUPABASE_PRIMARY_READ=' + (enabled ? 'true' : 'false'));
 }
 
+function supabaseSetPrimaryWrite(enabled) {
+  PropertiesService.getScriptProperties().setProperty(CONFIG.SUPABASE.PRIMARY_WRITE_PROP, enabled ? 'true' : 'false');
+  Logger.log('SUPABASE_PRIMARY_WRITE=' + (enabled ? 'true' : 'false'));
+}
+
 function supabaseStatus() {
   const status = {
     configured: isSupabaseConfigured_(),
     dual_write: isSupabaseDualWriteEnabled_(),
     primary_read: isSupabasePrimaryReadEnabled_(),
+    primary_write: isSupabasePrimaryWriteEnabled_(),
     supported_sheets: Object.keys(SUPABASE_SHEET_TABLES)
   };
   Logger.log(JSON.stringify(status, null, 2));
@@ -237,6 +249,36 @@ function supabaseSelect_(table, query) {
   return supabaseRequest_('get', table, null, { query: query || 'select=*' }) || [];
 }
 
+function supabaseCount_(table, filterQuery) {
+  if (!isSupabaseConfigured_()) throw new Error('Supabase no configurado. Faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.');
+
+  const base = getSupabaseUrl_() + CONFIG.SUPABASE.REST_PATH;
+  const qs = filterQuery ? filterQuery + '&select=*' : 'select=*';
+  const url = base + '/' + table + '?' + qs;
+  const headers = {
+    apikey: getSupabaseServiceRoleKey_(),
+    Authorization: 'Bearer ' + getSupabaseServiceRoleKey_(),
+    Prefer: 'count=exact',
+    Range: '0-0'
+  };
+  const response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: headers,
+    muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  const text = response.getContentText() || '';
+  if (code < 200 || code >= 300) {
+    throw new Error('Supabase HTTP ' + code + ' count /' + table + ': ' + text.substring(0, 500));
+  }
+  const responseHeaders = response.getAllHeaders ? response.getAllHeaders() : response.getHeaders();
+  const contentRange = responseHeaders['Content-Range'] || responseHeaders['content-range'] || '';
+  const match = String(contentRange).match(/\/(\d+)$/);
+  if (match) return Number(match[1]);
+  const rows = text ? JSON.parse(text) : [];
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
 function supabaseUpsert_(table, rows, conflictColumns) {
   if (!rows || !rows.length) return { count: 0 };
   const query = conflictColumns ? 'on_conflict=' + encodeURIComponent(conflictColumns) : '';
@@ -250,6 +292,14 @@ function supabaseUpsert_(table, rows, conflictColumns) {
 function supabaseMirrorRows_(sheetName, headers, rows) {
   if (!isSupabaseDualWriteEnabled_() || !rows || !rows.length) return { mirrored: 0 };
   if (!isSupabaseSheetSupported_(sheetName)) return supabaseMirrorRawRows_(sheetName, headers, rows);
+  return supabaseWriteRowsFromSheet_(sheetName, headers, rows);
+}
+
+function supabaseWriteRowsFromSheet_(sheetName, headers, rows) {
+  if (!rows || !rows.length) return { mirrored: 0 };
+  if (!isSupabaseSheetSupported_(sheetName)) {
+    throw new Error('Hoja no soportada como fuente primaria Supabase: ' + sheetName);
+  }
   const cfg = SUPABASE_SHEET_TABLES[sheetName];
   const objects = rowsToObjects_(headers, rows);
   const payload = objects.map(cfg.transform).filter(Boolean);
