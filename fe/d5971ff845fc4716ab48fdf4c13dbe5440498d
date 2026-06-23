@@ -1,0 +1,36 @@
+supabase/migrations/006_entity_metadata_refs_media.sql
+  s_b04792a387deb8::t_0c55e554731962 1-142
+src/FinalCanonicalLoaders.gs
+  s_b04792a387deb8::t_f05f2c83b1c94c 261
+  s_b04792a387deb8::t_d4381650f36c24 183,185,504
+  s_b04792a387deb8::t_643b4e64aec065 623-625
+  s_b04792a387deb8::t_fbed926dd5d577 352-353,722,757-800
+  s_b04792a387deb8::t_940c176b15fdda 382-503,505-517
+  s_b04792a387deb8::t_b342c5c39a21c3 152-153,167-168,170,172-173,186-187,252-253,258-259,267-268
+  s_b04792a387deb8::t_2ec957e2a71832 166,273-351
+  s_b04792a387deb8::t_5ccd07f3b521f4 23
+  s_b04792a387deb8::t_7ebf37138c44fc 518-622,626-721
+supabase/migrations/005_tournament_structure_model.sql
+  s_b04792a387deb8::t_1ad6e35996be27 1-198
+docs/tournament-structure-model.md
+  s_b04792a387deb8::t_cab494a59f6d36 1-77
+  s_b04792a387deb8::t_ddc462dfbacafd 78-122
+src/ApiV1.gs
+  s_b04792a387deb8::t_8d22f3358b2e68 100-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.10",
+  "base_commit_sha": "fed5971ff845fc4716ab48fdf4c13dbe5440498d",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
