@@ -1,0 +1,32 @@
+src/core/TournamentSlots.gs
+  s_b04792a387deb8::t_9bea9ecbc56c54 1-59
+src/Config.gs
+  s_b04792a387deb8::t_8f36465bc79f66 61
+src/FinalCanonicalLoaders.gs
+  s_b04792a387deb8::t_4909db2ed6897c 29-54,443-468,474-487,510-519
+  s_b04792a387deb8::t_d3d1cfb5a324b2 66,68,332-341
+  s_b04792a387deb8::t_5f9678facdc874 469-473,488-509
+src/WebApp.gs
+  s_b04792a387deb8::t_7adbe888caa783 1444,1502
+src/CompetitionReadiness.gs
+  s_b04792a387deb8::t_d204b42367a4f7 66,69-70
+  s_b04792a387deb8::t_7dfac8e1e5d348 67-68,74-75,83-99
+src/ApiV1.gs
+  s_b04792a387deb8::t_4ee11d805adee8 88-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "3aa1d45459957437ed4b55b0f911c077aa88aa01",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
