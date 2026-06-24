@@ -1,5 +1,5 @@
 -- CLEAN SCHEMA - Quantitative multi-competition football platform
--- New project only. No Google Sheets compatibility, no legacy columns.
+-- New project only. No legacy columns.
 -- All timestamps are timestamptz and must be written as UTC.
 
 begin;

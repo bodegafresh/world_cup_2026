@@ -138,7 +138,6 @@ drop table if exists domain_events cascade;
 drop table if exists source_team_mapping cascade;
 drop table if exists competition_team_mapping cascade;
 drop table if exists source_player_mapping cascade;
-drop table if exists sheet_raw_rows cascade;
 drop table if exists news_items cascade;
 drop table if exists weather_snapshots cascade;
 drop table if exists data_quality_log cascade;

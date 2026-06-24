@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Esta capa nueva ingesta datos desde APIs, guarda RAW, normaliza a entidades canonicas y publica lecturas derivadas sin replicar Google Sheets.
+Esta capa ingesta datos desde APIs, normaliza a entidades canonicas y publica lecturas derivadas en Supabase.
 
 No modifica `supabase/new_project/001_clean_schema.sql`.
 
@@ -153,4 +153,3 @@ Despues de fixtures/resultados:
 4. Calibration runs.
 5. EV paper-only.
 6. Decision engine con readiness por competencia.
-

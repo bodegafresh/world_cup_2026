@@ -84,4 +84,4 @@ where check_name = 'NATIONAL_TEAMS_WITHOUT_ISO_COUNTRY';
 
 ## Updates
 
-Use SQL migrations/seeds or Python jobs only. Do not patch country catalog data through Google Apps Script.
+Use SQL migrations/seeds or Python jobs only.

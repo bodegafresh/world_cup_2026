@@ -102,7 +102,6 @@ drop table if exists competition_status cascade;
 drop table if exists competition_seasons cascade;
 drop table if exists competitions cascade;
 
-drop table if exists sheet_raw_rows cascade;
 drop table if exists news_items cascade;
 drop table if exists weather_snapshots cascade;
 drop table if exists data_quality_log cascade;

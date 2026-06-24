@@ -51,50 +51,6 @@ function apiV1Handle_(method, path, query, body) {
     return { data: apiV1SupabaseHealthcheck_(body || query || {}) };
   }
 
-  if (method === 'POST' && path === 'admin/supabase/prepare-expansion60') {
-    return { data: supabasePrepareExpansion60Apply() };
-  }
-  if (method === 'POST' && path === 'admin/supabase/prepare-platform90') {
-    return { data: supabasePreparePlatform90Apply() };
-  }
-
-  if (method === 'POST' && path === 'admin/final/bootstrap') {
-    return { data: finalCanonicalBootstrapApply() };
-  }
-  if (method === 'POST' && path === 'admin/final/load-all-mvp') {
-    return { data: finalCanonicalLoadAllMvpApply() };
-  }
-  if (method === 'POST' && path === 'admin/final/cleanup-tournament-slots') {
-    return { data: finalCanonicalCleanupTournamentSlotsApply() };
-  }
-  if (method === 'POST' && path === 'admin/final/cleanup-team-duplicates') {
-    return { data: finalCanonicalCleanupTeamDuplicatesApply({ limit: body.limit || query.limit }) };
-  }
-  if (method === 'GET' && path === 'admin/final/audit-teams') {
-    return { data: finalCanonicalAuditTeamsApply() };
-  }
-  if (method === 'POST' && path === 'admin/final/load-teams') {
-    return { data: finalCanonicalLoadTeamsApply() };
-  }
-  if (method === 'POST' && path === 'admin/final/load-tournament-structure') {
-    return { data: finalCanonicalLoadTournamentStructureApply() };
-  }
-  if (method === 'POST' && path === 'admin/final/load-players') {
-    return { data: finalCanonicalLoadPlayersApply() };
-  }
-  if (method === 'POST' && path === 'admin/final/load-matches') {
-    return { data: finalCanonicalLoadMatchesApply() };
-  }
-  if (method === 'POST' && path === 'admin/final/load-odds') {
-    return { data: finalCanonicalLoadOddsApply() };
-  }
-  if (method === 'POST' && path === 'admin/final/load-predictions') {
-    return { data: finalCanonicalLoadPoissonPredictionsApply() };
-  }
-  if (method === 'POST' && path === 'admin/final/load-bets') {
-    return { data: finalCanonicalLoadBettingHistoryApply() };
-  }
-
   if (method === 'GET' && path === 'competitions/status') {
     return { data: apiV1CompetitionStatuses_() };
   }
@@ -142,8 +98,6 @@ function apiV1Health_() {
   const out = {
     service: 'pool-team-2026',
     supabase: isSupabaseConfigured_() ? 'configured' : 'not_configured',
-    dual_write: isSupabaseDualWriteEnabled_(),
-    primary_read: isSupabasePrimaryReadEnabled_(),
     active_competition_season_id: getActiveCompetitionSeasonId_(),
     ts: nowIso_()
   };
@@ -172,9 +126,7 @@ function apiV1CompetitionStatuses_() {
       return supabaseSelect_('competition_status', 'select=*&order=competition_season_id.asc');
     } catch (e_) {}
   }
-  return getCompetitionCatalogRows_().map(function(r) {
-    return getCompetitionStatus_(r.competition_season_id);
-  });
+  return [];
 }
 
 function apiV1SetCompetitionStatus_(competitionSeasonId, body) {
@@ -190,17 +142,14 @@ function apiV1SetCompetitionStatus_(competitionSeasonId, body) {
 function apiV1CompetitionHealth_(competitionSeasonId) {
   const readiness = evaluateCompetitionReadiness_(competitionSeasonId);
   const status = getCompetitionStatus_(competitionSeasonId);
-  let market = [];
   let metrics = [];
   if (isSupabaseConfigured_()) {
-    try { market = supabaseSelect_('competition_market_profiles', 'select=*&competition_season_id=eq.' + encodeURIComponent(competitionSeasonId)); } catch (e_) {}
     try { metrics = supabaseSelect_('model_metrics', 'select=*&competition_season_id=eq.' + encodeURIComponent(competitionSeasonId) + '&order=calculated_at.desc&limit=10'); } catch (e_) {}
   }
   return {
     competition_season_id: competitionSeasonId,
     status: status,
     readiness: readiness,
-    market_profiles: market,
     recent_model_metrics: metrics
   };
 }

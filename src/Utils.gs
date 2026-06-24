@@ -51,9 +51,8 @@ function buildEventId_(fixtureId, event) {
 }
 
 /**
- * Normaliza un valor fecha leído de Google Sheets a 'yyyy-MM-dd'.
- * getValues() devuelve un Date object cuando la celda tiene formato fecha;
- * también acepta strings ISO ya bien formateados.
+ * Normaliza un valor fecha externo a 'yyyy-MM-dd'.
+ * Acepta Date objects y strings ISO ya bien formateados.
  */
 function normalizeFecha_(val) {
   if (!val) return '';
@@ -65,8 +64,8 @@ function normalizeFecha_(val) {
 }
 
 /**
- * Normaliza un valor hora leído de Google Sheets a 'HH:mm'.
- * GAS devuelve Date objects con fecha 1899-12-30 cuando la celda tiene solo hora.
+ * Normaliza un valor hora externo a 'HH:mm'.
+ * Acepta Date objects y strings en formato HH:mm o ISO.
  */
 function normalizeHora_(val) {
   if (!val) return '';

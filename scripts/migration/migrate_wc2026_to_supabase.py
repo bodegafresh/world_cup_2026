@@ -2,17 +2,15 @@
 """
 Migrate WC2026 source data into the clean Supabase schema.
 
-This script is intentionally independent from Google Apps Script. It reads an
-Excel workbook by default, or a Google Sheet when optional Google dependencies
-are installed, and writes only canonical/useful data into Supabase.
+This script reads an Excel workbook export and writes only canonical/useful
+data into Supabase.
 
 Required environment:
   SUPABASE_URL
   SUPABASE_SERVICE_ROLE_KEY  (preferred) or SUPABASE_KEY
 
-Supported inputs:
+Supported input:
   --xlsx /path/to/workbook.xlsx
-  --google-spreadsheet-id <id> --google-credentials-json /path/key.json
 
 Before running against an empty database:
   1. Run supabase/new_project/001_clean_schema.sql
@@ -25,7 +23,6 @@ import argparse
 import json
 import os
 import re
-import sys
 import time
 import uuid
 import unicodedata
@@ -34,12 +31,11 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time, timezone
-from pathlib import Path
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 
-SOURCE_NAME = "GOOGLE_SHEET_EXPORT"
+SOURCE_NAME = "WORKBOOK_EXPORT"
 DEFAULT_SEASON_SLUG = "wc2026"
 DEFAULT_COMPETITION_SLUG = "fifa-world-cup"
 DEFAULT_SOURCE_TZ = "America/Santiago"
@@ -518,33 +514,6 @@ def load_xlsx(path: str) -> dict[str, list[dict[str, Any]]]:
     return data
 
 
-def load_google_sheet(spreadsheet_id: str, credentials_json: str) -> dict[str, list[dict[str, Any]]]:
-    try:
-        import gspread
-        from google.oauth2.service_account import Credentials
-    except ImportError as exc:
-        raise SystemExit("Google Sheet input requires optional packages: gspread google-auth") from exc
-
-    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-    credentials = Credentials.from_service_account_file(credentials_json, scopes=scopes)
-    client = gspread.authorize(credentials)
-    spreadsheet = client.open_by_key(spreadsheet_id)
-    data: dict[str, list[dict[str, Any]]] = {}
-    for worksheet in spreadsheet.worksheets():
-        values = worksheet.get_all_values()
-        if not values:
-            data[worksheet.title] = []
-            continue
-        headers = [normalize_header(value) for value in values[0]]
-        records = []
-        for raw in values[1:]:
-            record = {header: raw[index] if index < len(raw) else None for index, header in enumerate(headers) if header}
-            if any(value not in (None, "") for value in record.values()):
-                records.append(record)
-        data[worksheet.title] = records
-    return data
-
-
 def normalize_header(value: Any) -> str:
     return normalize_text(value).replace(" ", "_")
 
@@ -983,11 +952,8 @@ def infer_slot_type(value: Any) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Migrate WC2026 workbook/Google Sheet to clean Supabase schema.")
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--xlsx", help="Path to exported workbook.")
-    source.add_argument("--google-spreadsheet-id", help="Google Sheet ID.")
-    parser.add_argument("--google-credentials-json", help="Service account JSON for Google Sheets input.")
+    parser = argparse.ArgumentParser(description="Migrate WC2026 workbook export to clean Supabase schema.")
+    parser.add_argument("--xlsx", required=True, help="Path to workbook export.")
     parser.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
     parser.add_argument("--supabase-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY"))
     parser.add_argument("--season-slug", default=DEFAULT_SEASON_SLUG)
@@ -1002,9 +968,7 @@ def main() -> None:
     args = parse_args()
     if not args.supabase_url or not args.supabase_key:
         raise SystemExit("Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_KEY.")
-    if args.google_spreadsheet_id and not args.google_credentials_json:
-        raise SystemExit("--google-credentials-json is required with --google-spreadsheet-id.")
-    data = load_xlsx(args.xlsx) if args.xlsx else load_google_sheet(args.google_spreadsheet_id, args.google_credentials_json)
+    data = load_xlsx(args.xlsx)
     sb = Supabase(args.supabase_url, args.supabase_key, args.dry_run, args.sleep_seconds)
     migrate(data, sb, args)
 

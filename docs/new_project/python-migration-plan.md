@@ -1,10 +1,10 @@
 # Python Migration Plan
 
-Objetivo: migrar datos historicos del workbook/Google Sheet a Supabase limpio sin Google Apps Script, sin guardar raw rows y sin replicar hoja=tabla.
+Objetivo: migrar datos historicos desde un workbook exportado a Supabase limpio, sin guardar raw rows y sin replicar la estructura accidental del archivo fuente.
 
 ## Decision
 
-Google Apps Script no debe ejecutar la migracion inicial. La cuota diaria de `UrlFetchApp` ya es un bloqueo operativo. La migracion pasa a Python directo contra Supabase REST.
+La migracion inicial se ejecuta con Python directo contra Supabase REST.
 
 ## Script
 
@@ -42,7 +42,7 @@ export SUPABASE_URL="https://<project-ref>.supabase.co"
 export SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
 ```
 
-Usar service role para migracion inicial. No commitear `.env` ni JSON de credenciales.
+Usar service role para migracion inicial. No commitear `.env`.
 
 ## Clean Run
 
@@ -80,24 +80,6 @@ Si el Python del sistema no tiene `openpyxl`:
 python3 -m pip install openpyxl
 ```
 
-## Google Sheet Direct
-
-Opcional. Requiere:
-
-```bash
-python3 -m pip install gspread google-auth
-```
-
-Run:
-
-```bash
-python3 scripts/migration/migrate_wc2026_to_supabase.py \
-  --google-spreadsheet-id "<spreadsheet-id>" \
-  --google-credentials-json "/secure/path/google-service-account.credentials.json"
-```
-
-El service account debe tener permiso de lectura sobre el Google Sheet.
-
 ## Expected Counts With Current Workbook
 
 Dry run validado con `Mundial2026 - Modelo de Datos y Estadísticas (18).xlsx`:
@@ -125,24 +107,7 @@ Expected:
 - no `NATIONAL_TEAMS_WITHOUT_ISO_COUNTRY`
 - no duplicate team identity
 
-## Legacy Removal Plan
-
-Do not use these for initial migration anymore:
-
-- `src/InitialBootstrapLoad.gs`
-- `src/SupabaseMigration.gs`
-- `docs/new_project/initial-bootstrap-load.md`
-- GAS endpoints that migrate/import Sheets
-
-Modules still coupled to Google Sheets runtime and should be retired only after replacing the app runtime/API paths:
-
-- `src/SheetManager.gs`
-- `src/SheetsRepository.gs`
-- `src/DriveStorage.gs`
-- any production use of `SpreadsheetApp`, `DriveApp`, `appendRow_`, `readAll_`, `updateRow_`, `upsertRowsByKey_`
-
-Target final state:
+## Target State
 
 - Supabase is the only source of truth.
 - Python/worker jobs ingest APIs and write Supabase.
-- Google Sheets exists only as optional export/report, never as application storage.

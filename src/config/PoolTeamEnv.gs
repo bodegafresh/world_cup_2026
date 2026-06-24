@@ -2,8 +2,21 @@
  * PoolTeamEnv.gs
  *
  * Configuracion operacional limpia para jobs nuevos.
- * No depende de Google Sheets como fuente de verdad.
  */
+
+const CONFIG = {
+  API_FOOTBALL: {
+    BASE_URL: 'https://v3.football.api-sports.io',
+    WORLD_CUP_LEAGUE_ID: 1,
+    SEASON: 2026
+  },
+  FOOTBALL_DATA: {
+    BASE_URL: 'https://api.football-data.org/v4',
+    WORLD_CUP_CODE: 'WC',
+    SEASON: 2026
+  },
+  TIMEZONE: 'America/Santiago'
+};
 
 const PT_WC2026 = {
   competitionSlug: 'fifa-world-cup',
@@ -48,4 +61,3 @@ function ptWorldCupDateRange_() {
 function ptTodayUtcDate_() {
   return Utilities.formatDate(new Date(), 'UTC', 'yyyy-MM-dd');
 }
-
