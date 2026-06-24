@@ -310,6 +310,22 @@ function resetBootstrapProgressFromStep(stepName) {
   return out;
 }
 
+function resetBootstrapProgressFromTeams() {
+  return resetBootstrapProgressFromStep('teams');
+}
+
+function resetBootstrapProgressFromPlayers() {
+  return resetBootstrapProgressFromStep('players');
+}
+
+function resetBootstrapProgressFromMatches() {
+  return resetBootstrapProgressFromStep('matches');
+}
+
+function resetBootstrapProgressFromOddsPredictionsEv() {
+  return resetBootstrapProgressFromStep('odds_predictions_ev');
+}
+
 function getBootstrapProgress() {
   const out = { progress: getBootstrapProgress_(), context: getBootstrapContext_(), counts: validateBootstrapCounts() };
   Logger.log(JSON.stringify(out));
