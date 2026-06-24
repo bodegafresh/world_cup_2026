@@ -1,0 +1,22 @@
+src/InitialBootstrapLoad.gs
+  s_b04792a387deb8::t_73d51812045244 586-617,737-738,755-756,780-782
+  s_b04792a387deb8::t_dde4786ed421cd 222,545-563
+  s_b04792a387deb8::t_c802dcc20586e2 210,245
+  s_b04792a387deb8::t_7c270ff16affc9 935-936
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "3bf52bc58b5039181c0eb525dd3f3ae61b16bfef",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
