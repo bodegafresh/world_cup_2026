@@ -51,30 +51,6 @@ function apiV1Handle_(method, path, query, body) {
     return { data: apiV1SupabaseHealthcheck_(body || query || {}) };
   }
 
-  if (method === 'POST' && path === 'admin/supabase/bootstrap-mvp30') {
-    return { data: supabaseMigrateMvp30Apply() };
-  }
-  if (method === 'POST' && path === 'admin/supabase/bootstrap-mvp30-fast') {
-    return { data: supabaseBootstrapMvp30FastApply() };
-  }
-  if (method === 'POST' && path === 'admin/supabase/migrate-core') {
-    return { data: supabaseMigrateCoreApply() };
-  }
-  if (method === 'POST' && path === 'admin/supabase/migrate-sheet') {
-    return { data: supabaseMigrateSheetChunkApply(body.sheet || query.sheet, body.start || query.start || 0, body.limit || query.limit || 100) };
-  }
-  if (method === 'POST' && path === 'admin/supabase/import-sheet-raw') {
-    return { data: supabaseImportSheetRawChunkApply(body.sheet || query.sheet, body.start || query.start || 0, body.limit || query.limit || 100) };
-  }
-  if (method === 'GET' && path === 'admin/supabase/validate') {
-    return { data: supabaseValidateAgainstSheets() };
-  }
-  if (method === 'POST' && path === 'admin/supabase/cutover-primary') {
-    return { data: supabaseCutoverToPrimaryApply() };
-  }
-  if (method === 'POST' && path === 'admin/supabase/rollback-sheets') {
-    return { data: supabaseRollbackToSheetsApply() };
-  }
   if (method === 'POST' && path === 'admin/supabase/prepare-expansion60') {
     return { data: supabasePrepareExpansion60Apply() };
   }

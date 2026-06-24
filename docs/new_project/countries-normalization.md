@@ -10,8 +10,7 @@ Run on a clean database:
 1. `supabase/new_project/000_drop_all.sql`
 2. `supabase/new_project/001_clean_schema.sql`
 3. `supabase/new_project/003_seed_countries_wc2026.sql`
-4. `resetBootstrapProgress()`
-5. `bootstrapInitialLoadRunnerUntilPause()`
+4. `scripts/migration/migrate_wc2026_to_supabase.py`
 
 If using `002_truncate_all_data.sql`, run the country seed again before loading teams.
 
@@ -83,14 +82,6 @@ from published_data_quality_health
 where check_name = 'NATIONAL_TEAMS_WITHOUT_ISO_COUNTRY';
 ```
 
-## Optional GAS Upsert Pattern
+## Updates
 
-Use SQL seed as the preferred path. If a small country patch must be sent from GAS, use the existing transactional client:
-
-```js
-function upsertCountries_(countries) {
-  return supabaseTransactionalUpsert_('countries', countries, ['code_alpha2']);
-}
-```
-
-Country objects must match the `countries` table and must use uppercase ISO codes.
+Use SQL migrations/seeds or Python jobs only. Do not patch country catalog data through Google Apps Script.

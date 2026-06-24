@@ -1,4 +1,9 @@
 .clasp.json
 node_modules/
+__pycache__/
+*.pyc
 .env
 .DS_Store
+*.credentials.json
+service-account*.json
+google-service-account*.json
