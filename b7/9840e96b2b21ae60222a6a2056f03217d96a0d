@@ -1,0 +1,47 @@
+src/core/PoolTeamCore.gs
+  s_b04792a387deb8::t_603297032585b1 1-107
+src/published/PublishedReadService.gs
+  s_b04792a387deb8::t_ffeb802efd2d23 1-3,7-26,36,43-47
+  s_b04792a387deb8::t_88c6bc7c83ccc9 4-6,27-35,37-42
+src/config/PoolTeamEnv.gs
+  s_b04792a387deb8::t_603297032585b1 1-51
+src/domain/WorldCupDomainRepositories.gs
+  s_b04792a387deb8::t_0430b2bf16ece1 1-69,71-284
+  s_b04792a387deb8::t_859f29096e391c 70
+docs/new_project/operational-jobs.md
+  s_b04792a387deb8::t_23e75a3a36f3a2 1-156
+src/InitialBootstrapLoad.gs
+  s_b04792a387deb8::t_fc1a5281b803a0 360-361,365-378,401-406
+  s_b04792a387deb8::t_4902aa43e402d5 312-313,354-355
+  s_b04792a387deb8::t_8c60ac5daf0923 19-20,63-65,67,73-74,80-81,83-84,944-946
+  s_b04792a387deb8::t_e8567d5cb8f25e 450,453,461,463-466,477-479,481
+  s_b04792a387deb8::t_15918095bd0281 989-1023
+src/repositories/PoolTeamRepositories.gs
+  s_b04792a387deb8::t_a70a11973ebe82 37,42-64
+  s_b04792a387deb8::t_603297032585b1 1-36,38-41,65-182
+src/jobs/WorldCupOperationalJobs.gs
+  s_b04792a387deb8::t_ffeb802efd2d23 1-202,204-225
+  s_b04792a387deb8::t_44e22550e0c48d 203
+src/tests/WorldCupSmokeTests.gs
+  s_b04792a387deb8::t_ffeb802efd2d23 1-19
+src/ingestion/PoolTeamApiClients.gs
+  s_b04792a387deb8::t_0430b2bf16ece1 1-67
+src/normalization/WorldCupNormalizers.gs
+  s_b04792a387deb8::t_0430b2bf16ece1 1-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "b79840e96b2b21ae60222a6a2056f03217d96a0d",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
