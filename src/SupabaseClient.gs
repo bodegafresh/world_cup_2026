@@ -235,14 +235,100 @@ function supabaseRequest_(method, tableOrPath, payload, options) {
   };
   if (payload !== undefined && payload !== null) params.payload = JSON.stringify(payload);
 
-  const response = UrlFetchApp.fetch(url, params);
-  const code = response.getResponseCode();
-  const text = response.getContentText() || '';
-  if (code < 200 || code >= 300) {
-    throw new Error('Supabase HTTP ' + code + ' ' + method + ' ' + path + ': ' + text.substring(0, 500));
+  const retry = supabaseRetryOptions_(options);
+  let response = null;
+  let lastText = '';
+  let lastCode = 0;
+  for (let attempt = 0; attempt <= retry.retries; attempt++) {
+    try {
+      response = UrlFetchApp.fetch(url, params);
+      lastCode = response.getResponseCode();
+      lastText = response.getContentText() || '';
+      if (lastCode >= 200 && lastCode < 300) break;
+      if (!supabaseIsRetryableStatus_(lastCode) || attempt === retry.retries) {
+        throw new Error('Supabase HTTP ' + lastCode + ' ' + method + ' ' + path + ': ' + lastText.substring(0, 500));
+      }
+    } catch (e_) {
+      if (attempt === retry.retries) throw e_;
+      if (!supabaseIsRetryableError_(e_)) throw e_;
+    }
+    Utilities.sleep(supabaseBackoffMs_(attempt, retry));
   }
+  const text = lastText;
   if (!text) return null;
   try { return JSON.parse(text); } catch (e_) { return text; }
+}
+
+function supabaseRetryOptions_(options) {
+  return {
+    retries: Math.max(0, Math.min(5, Number(options.retries === undefined ? 2 : options.retries))),
+    base_ms: Math.max(100, Math.min(5000, Number(options.base_ms || 400))),
+    max_ms: Math.max(250, Math.min(15000, Number(options.max_ms || 5000)))
+  };
+}
+
+function supabaseBackoffMs_(attempt, retry) {
+  const jitter = Math.floor(Math.random() * 150);
+  return Math.min(retry.max_ms, retry.base_ms * Math.pow(2, attempt)) + jitter;
+}
+
+function supabaseIsRetryableStatus_(code) {
+  return [408, 425, 429, 500, 502, 503, 504].indexOf(Number(code)) !== -1;
+}
+
+function supabaseIsRetryableError_(err) {
+  const msg = String(err && err.message || err || '').toLowerCase();
+  return msg.indexOf('timed out') !== -1 ||
+    msg.indexOf('timeout') !== -1 ||
+    msg.indexOf('socket') !== -1 ||
+    msg.indexOf('dns') !== -1 ||
+    msg.indexOf('address unavailable') !== -1 ||
+    msg.indexOf('service invoked too many') !== -1 ||
+    msg.indexOf('response code: 429') !== -1 ||
+    msg.indexOf('response code: 500') !== -1 ||
+    msg.indexOf('response code: 502') !== -1 ||
+    msg.indexOf('response code: 503') !== -1 ||
+    msg.indexOf('response code: 504') !== -1;
+}
+
+function supabaseRpc_(functionName, payload, options) {
+  return supabaseRequest_('post', '/rpc/' + functionName, payload || {}, options || {});
+}
+
+function supabaseTransaction_(operations, options) {
+  if (!operations || !operations.length) return { ok: true, operations: 0, results: [] };
+  return supabaseRpc_('app_transaction_batch', {
+    p_operations: operations
+  }, Object.assign({ retries: 0 }, options || {}));
+}
+
+function supabaseTransactionalUpsert_(table, rows, conflictColumns) {
+  if (!rows || !rows.length) return { ok: true, operations: 0 };
+  return supabaseTransaction_([{
+    action: 'upsert',
+    table: table,
+    rows: supabaseDedupeRowsByConflict_(rows, Array.isArray(conflictColumns) ? conflictColumns.join(',') : conflictColumns),
+    conflict_columns: Array.isArray(conflictColumns) ? conflictColumns : String(conflictColumns || '').split(',').map(function(c) { return c.trim(); }).filter(Boolean)
+  }]);
+}
+
+function supabaseHealthcheck_(details) {
+  const started = new Date().getTime();
+  const result = supabaseRpc_('app_supabase_healthcheck', {
+    p_service_name: 'pool-team-2026',
+    p_details: details || {}
+  }, { retries: 3, base_ms: 500, max_ms: 6000 });
+  return Object.assign({
+    client_latency_ms: new Date().getTime() - started
+  }, result || {});
+}
+
+function cronSupabaseHealthcheck() {
+  return supabaseHealthcheck_({
+    source: 'gas_cron',
+    active_competition_season_id: getActiveCompetitionSeasonId_(),
+    ts: nowIso_()
+  });
 }
 
 function supabaseSelect_(table, query) {

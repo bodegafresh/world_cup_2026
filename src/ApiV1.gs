@@ -47,6 +47,9 @@ function apiV1Handle_(method, path, query, body) {
   const parts = path ? path.split('/').filter(Boolean) : ['health'];
 
   if (method === 'GET' && path === 'health') return apiV1Health_();
+  if ((method === 'GET' || method === 'POST') && path === 'health/supabase') {
+    return { data: apiV1SupabaseHealthcheck_(body || query || {}) };
+  }
 
   if (method === 'POST' && path === 'admin/supabase/bootstrap-mvp30') {
     return { data: supabaseMigrateMvp30Apply() };
@@ -160,7 +163,7 @@ function apiV1Handle_(method, path, query, body) {
 }
 
 function apiV1Health_() {
-  return {
+  const out = {
     service: 'pool-team-2026',
     supabase: isSupabaseConfigured_() ? 'configured' : 'not_configured',
     dual_write: isSupabaseDualWriteEnabled_(),
@@ -168,6 +171,23 @@ function apiV1Health_() {
     active_competition_season_id: getActiveCompetitionSeasonId_(),
     ts: nowIso_()
   };
+  return out;
+}
+
+function apiV1SupabaseHealthcheck_(body) {
+  if (!isSupabaseConfigured_()) {
+    return {
+      ok: false,
+      status: 'NOT_CONFIGURED',
+      message: 'Supabase no configurado. Faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.',
+      ts: nowIso_()
+    };
+  }
+  return supabaseHealthcheck_(Object.assign({
+    source: 'api_v1',
+    active_competition_season_id: getActiveCompetitionSeasonId_(),
+    ts: nowIso_()
+  }, body || {}));
 }
 
 function apiV1CompetitionStatuses_() {
