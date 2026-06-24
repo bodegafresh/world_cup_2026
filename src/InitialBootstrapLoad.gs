@@ -16,7 +16,8 @@ const BOOTSTRAP_CONFIG = {
   supabaseAnonOrServiceKey: '',
   spreadsheetId: '',
   dryRun: false,
-  maxRuntimeMs: 280000
+  maxRuntimeMs: 180000,
+  safetyMarginMs: 45000
 };
 
 const BOOTSTRAP_PROGRESS_PROP = 'BOOTSTRAP_INITIAL_LOAD_PROGRESS_V1';
@@ -59,25 +60,28 @@ function bootstrapInitialLoadRunner() {
 function bootstrapInitialLoadRunnerUntilPause() {
   return withBootstrapLock_(function() {
     const started = new Date().getTime();
-    const maxMs = getBootstrapConfig_().maxRuntimeMs;
+    const cfg = getBootstrapConfig_();
+    const maxMs = cfg.maxRuntimeMs;
+    const safetyMarginMs = cfg.safetyMarginMs;
     const results = [];
-    while (new Date().getTime() - started < maxMs - 20000) {
+    while (bootstrapHasTime_(started, maxMs, safetyMarginMs)) {
       const progress = getBootstrapProgress_();
       const next = BOOTSTRAP_STEPS.find(function(step) {
         return !(progress.steps[step.name] && progress.steps[step.name].done);
       });
       if (!next) {
-        const done = { ok: true, done: true, results: results, progress: progress, counts: validateBootstrapCounts() };
-        Logger.log(JSON.stringify(done));
+        const done = { ok: true, done: true, results: results, progress: compactBootstrapProgress_(progress), counts: validateBootstrapCounts({ compact: true }) };
+        bootstrapLogCompact_('bootstrap_done', done);
         return done;
       }
       const out = next.fn();
       const item = { step: next.name, result: out };
       results.push(item);
-      Logger.log(JSON.stringify(item));
+      bootstrapLogCompact_('bootstrap_step', item);
+      if (out && out.paused) break;
     }
-    const paused = { ok: true, done: false, paused: true, results: results, progress: getBootstrapProgress_(), counts: validateBootstrapCounts() };
-    Logger.log(JSON.stringify(paused));
+    const paused = { ok: true, done: false, paused: true, reason: 'time_budget', results: results, progress: compactBootstrapProgress_(getBootstrapProgress_()) };
+    bootstrapLogCompact_('bootstrap_paused', paused);
     return paused;
   });
 }
@@ -305,8 +309,8 @@ function resetBootstrapProgressFromStep(stepName) {
     delete progress.steps[BOOTSTRAP_STEPS[i].name];
   }
   saveBootstrapProgress_(progress);
-  const out = { ok: true, reset_from_step: stepName, progress: progress };
-  Logger.log(JSON.stringify(out));
+  const out = { ok: true, reset_from_step: stepName, progress: compactBootstrapProgress_(progress) };
+  bootstrapLogCompact_('bootstrap_reset', out);
   return out;
 }
 
@@ -347,18 +351,31 @@ function markBootstrapRawDone() {
     updated_at: nowIso_()
   });
   saveBootstrapProgress_(progress);
-  const out = { ok: true, raw_done: true, progress: progress };
-  Logger.log(JSON.stringify(out));
+  const out = { ok: true, raw_done: true, progress: compactBootstrapProgress_(progress) };
+  bootstrapLogCompact_('bootstrap_raw_done', out);
   return out;
 }
 
 function getBootstrapProgress() {
-  const out = { progress: getBootstrapProgress_(), context: getBootstrapContext_(), counts: validateBootstrapCounts() };
-  Logger.log(JSON.stringify(out));
+  const out = { progress: compactBootstrapProgress_(getBootstrapProgress_()), context: getBootstrapContext_(), counts: validateBootstrapCounts({ compact: true }) };
+  bootstrapLogCompact_('bootstrap_progress', out);
   return out;
 }
 
-function validateBootstrapCounts() {
+function getBootstrapProgressFull() {
+  const out = { progress: getBootstrapProgress_(), context: getBootstrapContext_(), counts: validateBootstrapCounts({ compact: false }) };
+  bootstrapLogCompact_('bootstrap_progress_full', {
+    progress: compactBootstrapProgress_(out.progress),
+    context: out.context,
+    checks: out.counts.checks.length,
+    warning: 'Full object returned to caller; log is compact to avoid GAS truncation.'
+  });
+  return out;
+}
+
+function validateBootstrapCounts(options) {
+  options = options || {};
+  const compact = options.compact !== false;
   const checks = [];
   function count(table, query) {
     try { return supabaseCount_(table, query || ''); } catch (e) { return null; }
@@ -381,7 +398,12 @@ function validateBootstrapCounts() {
     checks.push({ check: 'published_data_quality_health', severity: 'ERROR', message: e.message });
   }
   health.forEach(function(h) {
-    checks.push({ check: h.check_name, severity: h.severity, value: Number(h.issue_count || 0), sample: h.sample });
+    checks.push({
+      check: h.check_name,
+      severity: h.severity,
+      value: Number(h.issue_count || 0),
+      sample: compact ? bootstrapCompactSample_(h.sample) : h.sample
+    });
   });
   return {
     checks: checks,
@@ -425,9 +447,10 @@ function processMultiSheetPromoter_(stepName, sheetOrder, mapper) {
 function processSheetBatch_(stepName, sheetName, mapper, writer, options) {
   options = options || {};
   const started = new Date().getTime();
+  const cfg = getBootstrapConfig_();
   const cursor = getBootstrapCursor_(stepName);
   const nextRow = Number(cursor.nextRow || 2);
-  const rows = readSheetRows_(sheetName, nextRow, getBootstrapConfig_().batchSize);
+  const rows = readSheetRows_(sheetName, nextRow, cfg.batchSize);
   if (!rows.rows.length) {
     setBootstrapCursor_(stepName, { sheet: sheetName, nextRow: nextRow, done: true });
     return { step: stepName, sheet: sheetName, processed: 0, nextRow: nextRow, done: true };
@@ -435,8 +458,12 @@ function processSheetBatch_(stepName, sheetName, mapper, writer, options) {
 
   let payload = [];
   let processed = 0;
+  let paused = false;
   rows.rows.forEach(function(rowObj, i) {
-    if (new Date().getTime() - started > getBootstrapConfig_().maxRuntimeMs - 20000) return;
+    if (!bootstrapHasTime_(started, cfg.maxRuntimeMs, cfg.safetyMarginMs)) {
+      paused = true;
+      return;
+    }
     const mapped = mapper(rowObj, nextRow + i);
     if (Array.isArray(mapped)) payload = payload.concat(mapped);
     else if (mapped) payload.push(mapped);
@@ -447,11 +474,11 @@ function processSheetBatch_(stepName, sheetName, mapper, writer, options) {
   if (!options.mapperWrites && payload.length) writeResult = writer(payload);
 
   const newNext = nextRow + processed;
-  const done = processed < rows.rows.length || rows.endReached ? (newNext > rows.lastRow) : false;
-  setBootstrapCursor_(stepName, { sheet: sheetName, nextRow: newNext, done: done });
-  const result = { step: stepName, sheet: sheetName, processed: processed, payload: payload.length, nextRow: newNext, lastRow: rows.lastRow, done: done, write_result: writeResult };
+  const done = !paused && (processed < rows.rows.length || rows.endReached ? (newNext > rows.lastRow) : false);
+  setBootstrapCursor_(stepName, { sheet: sheetName, nextRow: newNext, done: done, paused: paused || undefined });
+  const result = { step: stepName, sheet: sheetName, processed: processed, payload: payload.length, nextRow: newNext, lastRow: rows.lastRow, done: done, paused: paused, write_result: writeResult };
   insertPipelineRun_('bootstrap_' + stepName + '_' + sheetName, 'OK', processed, result);
-  Logger.log(JSON.stringify(result));
+  bootstrapLogCompact_('bootstrap_batch', result);
   return result;
 }
 
@@ -914,7 +941,9 @@ function getBootstrapConfig_() {
     supabaseAnonOrServiceKey: props.getProperty('SUPABASE_SERVICE_ROLE_KEY') || props.getProperty('SUPABASE_ANON_KEY') || BOOTSTRAP_CONFIG.supabaseAnonOrServiceKey,
     spreadsheetId: configuredSpreadsheetId,
     batchSize: Number(props.getProperty('BOOTSTRAP_BATCH_SIZE') || BOOTSTRAP_CONFIG.batchSize),
-    dryRun: String(props.getProperty('BOOTSTRAP_DRY_RUN') || BOOTSTRAP_CONFIG.dryRun).toLowerCase() === 'true'
+    dryRun: String(props.getProperty('BOOTSTRAP_DRY_RUN') || BOOTSTRAP_CONFIG.dryRun).toLowerCase() === 'true',
+    maxRuntimeMs: Number(props.getProperty('BOOTSTRAP_MAX_RUNTIME_MS') || BOOTSTRAP_CONFIG.maxRuntimeMs),
+    safetyMarginMs: Number(props.getProperty('BOOTSTRAP_SAFETY_MARGIN_MS') || BOOTSTRAP_CONFIG.safetyMarginMs)
   });
 }
 
@@ -955,6 +984,41 @@ function withBootstrapStep_(stepName, fn) {
 function getBootstrapProgress_() {
   const raw = PropertiesService.getScriptProperties().getProperty(BOOTSTRAP_PROGRESS_PROP);
   return raw ? JSON.parse(raw) : { started_at: nowIso_(), steps: {} };
+}
+
+function bootstrapHasTime_(startedAtMs, maxRuntimeMs, safetyMarginMs) {
+  return new Date().getTime() - startedAtMs < Number(maxRuntimeMs || 180000) - Number(safetyMarginMs || 45000);
+}
+
+function bootstrapLogCompact_(label, value) {
+  const text = JSON.stringify(value || {});
+  const max = 5000;
+  Logger.log(label + ' ' + (text.length > max ? text.substring(0, max) + '...<truncated>' : text));
+}
+
+function compactBootstrapProgress_(progress) {
+  progress = progress || { steps: {} };
+  const steps = {};
+  Object.keys(progress.steps || {}).forEach(function(name) {
+    const s = progress.steps[name] || {};
+    steps[name] = {
+      sheet: s.sheet || null,
+      nextRow: s.nextRow || null,
+      lastRow: s.lastRow || null,
+      done: Boolean(s.done),
+      paused: Boolean(s.paused),
+      processed: s.processed || null,
+      payload: s.payload || null,
+      updated_at: s.updated_at || null
+    };
+  });
+  return { started_at: progress.started_at, steps: steps };
+}
+
+function bootstrapCompactSample_(sample) {
+  if (!sample) return [];
+  if (!Array.isArray(sample)) return sample;
+  return sample.slice(0, 10);
 }
 
 function saveBootstrapProgress_(progress) {
