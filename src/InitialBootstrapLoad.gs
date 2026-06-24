@@ -207,7 +207,7 @@ function bootstrapInitialLoad_step2_competitions() {
 function bootstrapInitialLoad_step3_teams() {
   return withBootstrapStep_('teams', function() {
     const ctx = requireBootstrapContext_();
-    const sheetOrder = ['Equipos', 'Clasificacion', 'Partidos', 'SourceFixtures', 'Planteles'];
+    const sheetOrder = ['Equipos', 'Clasificacion', 'Partidos', 'SourceFixtures'];
     return processMultiSheetPromoter_('teams', sheetOrder, function(sheetName, row) {
       return extractTeamCandidates_(sheetName, row).map(function(candidate) {
         return promoteTeamCandidate_(ctx, candidate);
@@ -219,7 +219,7 @@ function bootstrapInitialLoad_step3_teams() {
 function bootstrapInitialLoad_step4_players() {
   return withBootstrapStep_('players', function() {
     const ctx = requireBootstrapContext_();
-    const sheetOrder = ['Jugadores', 'Planteles', 'Alineaciones', 'PlayerMatchStats', 'EventosLive', 'ResumenJugadorPartido'];
+    const sheetOrder = ['Planteles'];
     return processMultiSheetPromoter_('players', sheetOrder, function(sheetName, row) {
       return extractPlayerCandidates_(sheetName, row).map(function(candidate) {
         return promotePlayerCandidate_(ctx, candidate);
@@ -242,9 +242,8 @@ function bootstrapInitialLoad_step5_matches() {
 function bootstrapInitialLoad_step6_rosters_lineups() {
   return withBootstrapStep_('rosters_lineups', function() {
     const ctx = requireBootstrapContext_();
-    const sheetOrder = ['Planteles', 'Alineaciones'];
+    const sheetOrder = ['Alineaciones'];
     return processMultiSheetPromoter_('rosters_lineups', sheetOrder, function(sheetName, row) {
-      if (sheetName === 'Planteles') return promoteRosterRow_(ctx, row);
       return promoteLineupRow_(ctx, row);
     });
   });
@@ -543,8 +542,25 @@ function getOrCreatePlayer_(playerName, externalRefs) {
   if (!name) return null;
   const refs = externalRefs || [];
   const primary = refs.find(function(r) { return r && r.source_entity_id; });
-  const slug = primary ? makeSlug_('player-' + primary.source + '-' + primary.source_entity_id) : makeSlug_(name);
-  let player = supabaseSelectOne_('players', 'select=*&slug=eq.' + encodeURIComponent(slug));
+  let player = null;
+  if (primary) {
+    const ref = supabaseSelectOne_('entity_external_refs',
+      'select=*&entity_type=eq.PLAYER&source=eq.' + encodeURIComponent(String(primary.source || 'GOOGLE_SHEET').toUpperCase()) +
+      '&source_entity_id=eq.' + encodeURIComponent(String(primary.source_entity_id)));
+    if (ref) player = supabaseSelectOne_('players', 'select=*&player_id=eq.' + ref.entity_id);
+  }
+  if (!player) {
+    const alias = supabaseSelectOne_('player_aliases',
+      'select=*&normalized_alias=eq.' + encodeURIComponent(normalizeName_(name)) + '&source=eq.GOOGLE_SHEET');
+    if (alias) player = supabaseSelectOne_('players', 'select=*&player_id=eq.' + alias.player_id);
+  }
+  const baseSlug = makeSlug_(name);
+  let slug = baseSlug;
+  if (!player) player = supabaseSelectOne_('players', 'select=*&slug=eq.' + encodeURIComponent(slug));
+  if (!player && primary) {
+    const existingSlug = supabaseSelectOne_('players', 'select=*&slug=eq.' + encodeURIComponent(baseSlug));
+    if (existingSlug) slug = makeSlug_('player-' + primary.source + '-' + primary.source_entity_id);
+  }
   if (!player) {
     player = upsertOneReturn_('players', {
       slug: slug,
@@ -565,6 +581,38 @@ function getOrCreatePlayer_(playerName, externalRefs) {
     upsertExternalRef_('PLAYER', player.player_id, ref.source, 'player', ref.source_entity_id, ref.source_entity_name || name, ref.payload || {});
   });
   return player;
+}
+
+function findExistingTeam_(teamName, externalRefs) {
+  const refs = externalRefs || [];
+  const primary = refs.find(function(r) { return r && r.source_entity_id; });
+  if (primary) {
+    const ref = supabaseSelectOne_('entity_external_refs',
+      'select=*&entity_type=eq.TEAM&source=eq.' + encodeURIComponent(String(primary.source || 'GOOGLE_SHEET').toUpperCase()) +
+      '&source_entity_id=eq.' + encodeURIComponent(String(primary.source_entity_id)));
+    if (ref) return supabaseSelectOne_('teams', 'select=*&team_id=eq.' + ref.entity_id);
+  }
+  const name = String(teamName || '').trim();
+  if (!name) return null;
+  return supabaseSelectOne_('teams', 'select=*&slug=eq.' + encodeURIComponent(makeSlug_(canonicalTeamDisplayName_(name)))) ||
+    supabaseSelectOne_('teams', 'select=*&normalized_name=eq.' + encodeURIComponent(normalizeName_(name)));
+}
+
+function findExistingPlayer_(playerName, externalRefs) {
+  const refs = externalRefs || [];
+  const primary = refs.find(function(r) { return r && r.source_entity_id; });
+  if (primary) {
+    const ref = supabaseSelectOne_('entity_external_refs',
+      'select=*&entity_type=eq.PLAYER&source=eq.' + encodeURIComponent(String(primary.source || 'GOOGLE_SHEET').toUpperCase()) +
+      '&source_entity_id=eq.' + encodeURIComponent(String(primary.source_entity_id)));
+    if (ref) return supabaseSelectOne_('players', 'select=*&player_id=eq.' + ref.entity_id);
+  }
+  const name = String(playerName || '').trim();
+  if (!name) return null;
+  const alias = supabaseSelectOne_('player_aliases',
+    'select=*&normalized_alias=eq.' + encodeURIComponent(normalizeName_(name)) + '&source=eq.GOOGLE_SHEET');
+  if (alias) return supabaseSelectOne_('players', 'select=*&player_id=eq.' + alias.player_id);
+  return supabaseSelectOne_('players', 'select=*&slug=eq.' + encodeURIComponent(makeSlug_(name)));
 }
 
 function getOrCreateMatch_(row) {
@@ -686,8 +734,8 @@ function promoteRosterRow_(ctx, row) {
 
 function promoteLineupRow_(ctx, row) {
   const match = getOrCreateMatch_(row);
-  const team = getOrCreateTeam_(row.equipo, [{ source: 'API_FOOTBALL', source_entity_id: row.equipo_id }]);
-  const player = getOrCreatePlayer_(row.jugador, [{ source: 'API_FOOTBALL', source_entity_id: row.jugador_id }]);
+  const team = findExistingTeam_(row.equipo, [{ source: 'API_FOOTBALL', source_entity_id: row.equipo_id }]);
+  const player = findExistingPlayer_(row.jugador, [{ source: 'API_FOOTBALL', source_entity_id: row.jugador_id }]);
   if (!match || !team || !player) return null;
   return supabaseBootstrapUpsert_('match_lineups', [{
     match_id: match.match_id,
@@ -704,8 +752,8 @@ function promoteLineupRow_(ctx, row) {
 
 function promotePlayerStatsRow_(ctx, row) {
   const match = getOrCreateMatch_(row);
-  const team = getOrCreateTeam_(firstNonEmpty_(row.team_name, row.equipo), [{ source: 'API_FOOTBALL', source_entity_id: firstNonEmpty_(row.team_id, row.equipo_id) }]);
-  const player = getOrCreatePlayer_(firstNonEmpty_(row.player_name, row.jugador), [{ source: 'API_FOOTBALL', source_entity_id: firstNonEmpty_(row.player_id, row.jugador_id) }]);
+  const team = findExistingTeam_(firstNonEmpty_(row.team_name, row.equipo), [{ source: 'API_FOOTBALL', source_entity_id: firstNonEmpty_(row.team_id, row.equipo_id) }]);
+  const player = findExistingPlayer_(firstNonEmpty_(row.player_name, row.jugador), [{ source: 'API_FOOTBALL', source_entity_id: firstNonEmpty_(row.player_id, row.jugador_id) }]);
   if (!match || !team || !player) return null;
   const stats = [];
   Object.keys(row).forEach(function(k) {
@@ -729,9 +777,9 @@ function promotePlayerStatsRow_(ctx, row) {
 function promoteEventRow_(ctx, row) {
   const match = getOrCreateMatch_(row);
   if (!match) return null;
-  const team = row.equipo ? getOrCreateTeam_(row.equipo, [{ source: 'API_FOOTBALL', source_entity_id: row.equipo_id }]) : null;
-  const player = row.jugador ? getOrCreatePlayer_(row.jugador, [{ source: 'API_FOOTBALL', source_entity_id: row.jugador_id }]) : null;
-  const assist = row.assist ? getOrCreatePlayer_(row.assist, [{ source: 'API_FOOTBALL', source_entity_id: row.assist_id }]) : null;
+  const team = row.equipo ? findExistingTeam_(row.equipo, [{ source: 'API_FOOTBALL', source_entity_id: row.equipo_id }]) : null;
+  const player = row.jugador ? findExistingPlayer_(row.jugador, [{ source: 'API_FOOTBALL', source_entity_id: row.jugador_id }]) : null;
+  const assist = row.assist ? findExistingPlayer_(row.assist, [{ source: 'API_FOOTBALL', source_entity_id: row.assist_id }]) : null;
   return supabaseBootstrapUpsert_('match_events', [{
     match_id: match.match_id,
     team_id: team && team.team_id,
@@ -884,7 +932,8 @@ function promoteCalibrationRow_(ctx, row) {
 }
 
 function promoteRatingRow_(ctx, row) {
-  const team = getOrCreateTeam_(row.equipo, []);
+  const team = findExistingTeam_(row.equipo, []);
+  if (!team) return null;
   return supabaseBootstrapUpsert_('rating_snapshots', [{
     competition_season_id: ctx.competition_season_id,
     team_id: team.team_id,
