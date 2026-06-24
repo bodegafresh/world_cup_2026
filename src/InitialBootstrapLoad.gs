@@ -525,25 +525,36 @@ function getOrCreateTeam_(teamName, externalRefs) {
   if (!name) return null;
   const displayName = bootstrapTeamDisplayName_(name);
   const slug = makeSlug_(displayName);
-  let team = supabaseSelectOne_('teams', 'select=*&slug=eq.' + encodeURIComponent(slug));
+  let team = findExistingTeam_(name, externalRefs);
+  if (!team && displayName !== name) team = findExistingTeam_(displayName, []);
+  if (!team) team = supabaseSelectOne_('teams', 'select=*&slug=eq.' + encodeURIComponent(slug));
   if (!team) {
     team = upsertOneReturn_('teams', {
       slug: slug,
       team_type: 'NATIONAL_TEAM',
       display_name: displayName,
-      normalized_name: normalizeName_(name),
+      normalized_name: normalizeName_(displayName),
       country_code: null,
       gender: 'MEN',
-      metadata: { source: 'initial_bootstrap' }
+      metadata: {
+        source: 'initial_bootstrap',
+        canonical_key: bootstrapTeamKey_(name),
+        original_name: name
+      }
     }, 'slug');
   }
-  supabaseBootstrapUpsert_('team_aliases', [{
-    team_id: team.team_id,
-    alias: name,
-    normalized_alias: normalizeName_(name),
-    source: 'GOOGLE_SHEET',
-    confidence: 1
-  }], 'normalized_alias,source');
+  const aliases = bootstrapTeamAliasVariants_(name);
+  if (aliases.length) {
+    supabaseBootstrapUpsert_('team_aliases', aliases.map(function(alias) {
+      return {
+        team_id: team.team_id,
+        alias: alias,
+        normalized_alias: normalizeName_(alias),
+        source: 'GOOGLE_SHEET',
+        confidence: 1
+      };
+    }), 'normalized_alias,source');
+  }
   (externalRefs || []).filter(function(r) { return r && r.source_entity_id; }).forEach(function(ref) {
     upsertExternalRef_('TEAM', team.team_id, ref.source, 'team', ref.source_entity_id, ref.source_entity_name || name, ref.payload || {});
   });
@@ -607,7 +618,15 @@ function findExistingTeam_(teamName, externalRefs) {
   }
   const name = String(teamName || '').trim();
   if (!name) return null;
-  return supabaseSelectOne_('teams', 'select=*&slug=eq.' + encodeURIComponent(makeSlug_(bootstrapTeamDisplayName_(name)))) ||
+  const displayName = bootstrapTeamDisplayName_(name);
+  const normalizedAliases = bootstrapTeamAliasVariants_(name).map(function(alias) { return normalizeName_(alias); });
+  for (let i = 0; i < normalizedAliases.length; i++) {
+    const alias = supabaseSelectOne_('team_aliases',
+      'select=*&normalized_alias=eq.' + encodeURIComponent(normalizedAliases[i]));
+    if (alias) return supabaseSelectOne_('teams', 'select=*&team_id=eq.' + alias.team_id);
+  }
+  return supabaseSelectOne_('teams', 'select=*&slug=eq.' + encodeURIComponent(makeSlug_(displayName))) ||
+    supabaseSelectOne_('teams', 'select=*&normalized_name=eq.' + encodeURIComponent(normalizeName_(displayName))) ||
     supabaseSelectOne_('teams', 'select=*&normalized_name=eq.' + encodeURIComponent(normalizeName_(name)));
 }
 
@@ -969,6 +988,7 @@ function extractTeamCandidates_(sheetName, row) {
   const out = [];
   function add(name, groupCode, refs) {
     if (!name) return;
+    if (typeof isTournamentSlotName_ === 'function' && isTournamentSlotName_(name)) return;
     out.push({ name: name, groupCode: groupCode, externalRefs: refs || [], sourceSheet: sheetName });
   }
   if (sheetName === 'Equipos') add(firstNonEmpty_(row.nombre, row.equipo, row.team, row.display_name), firstNonEmpty_(row.grupo, row.group_code), buildGenericExternalRefs_(row, 'team'));
@@ -1262,7 +1282,10 @@ function parseSheetDateToUtc_(row, fields) {
 function bootstrapTeamDisplayName_(name) {
   const raw = String(name || '').trim();
   if (!raw) return '';
-  const key = normalizeName_(raw).replace(/\s+/g, '');
+  const key = bootstrapTeamKey_(raw);
+  if (typeof TEAM_CANONICAL_DISPLAY_ES !== 'undefined' && TEAM_CANONICAL_DISPLAY_ES[key]) {
+    return TEAM_CANONICAL_DISPLAY_ES[key];
+  }
   const names = {
     argentina: 'Argentina',
     australia: 'Australia',
@@ -1346,6 +1369,25 @@ function bootstrapTeamDisplayName_(name) {
     escocia: 'Escocia'
   };
   return names[key] || raw;
+}
+
+function bootstrapTeamKey_(name) {
+  if (typeof canonicalTeamNameKey_ === 'function') return canonicalTeamNameKey_(name);
+  return normalizeName_(name).replace(/\s+/g, '');
+}
+
+function bootstrapTeamAliasVariants_(name) {
+  const variants = {};
+  function add(alias) {
+    const text = String(alias || '').trim();
+    if (text) variants[text] = true;
+  }
+  add(name);
+  add(bootstrapTeamDisplayName_(name));
+  if (typeof teamAliasVariantsFor_ === 'function') {
+    teamAliasVariantsFor_(name).forEach(add);
+  }
+  return Object.keys(variants);
 }
 
 function makeMatchSlug_(row) {
