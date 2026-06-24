@@ -808,10 +808,11 @@ function extractPlayerCandidates_(sheetName, row) {
 
 function getBootstrapConfig_() {
   const props = PropertiesService.getScriptProperties();
+  const configuredSpreadsheetId = props.getProperty('BOOTSTRAP_SPREADSHEET_ID') || BOOTSTRAP_CONFIG.spreadsheetId || '';
   return Object.assign({}, BOOTSTRAP_CONFIG, {
     supabaseUrl: props.getProperty('SUPABASE_URL') || BOOTSTRAP_CONFIG.supabaseUrl,
     supabaseAnonOrServiceKey: props.getProperty('SUPABASE_SERVICE_ROLE_KEY') || props.getProperty('SUPABASE_ANON_KEY') || BOOTSTRAP_CONFIG.supabaseAnonOrServiceKey,
-    spreadsheetId: props.getProperty('BOOTSTRAP_SPREADSHEET_ID') || BOOTSTRAP_CONFIG.spreadsheetId || SpreadsheetApp.getActive().getId(),
+    spreadsheetId: configuredSpreadsheetId,
     batchSize: Number(props.getProperty('BOOTSTRAP_BATCH_SIZE') || BOOTSTRAP_CONFIG.batchSize),
     dryRun: String(props.getProperty('BOOTSTRAP_DRY_RUN') || BOOTSTRAP_CONFIG.dryRun).toLowerCase() === 'true'
   });
@@ -819,7 +820,10 @@ function getBootstrapConfig_() {
 
 function getBootstrapSpreadsheet_() {
   const id = getBootstrapConfig_().spreadsheetId;
-  return id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActive();
+  if (id) return SpreadsheetApp.openById(id);
+  const active = SpreadsheetApp.getActiveSpreadsheet ? SpreadsheetApp.getActiveSpreadsheet() : SpreadsheetApp.getActive();
+  if (active) return active;
+  throw new Error('Falta BOOTSTRAP_SPREADSHEET_ID. Configura el ID del Google Sheet en Script Properties para ejecutar este ETL desde un proyecto standalone.');
 }
 
 function withBootstrapLock_(fn) {
@@ -831,8 +835,16 @@ function withBootstrapLock_(fn) {
 function withBootstrapStep_(stepName, fn) {
   try { return fn(getBootstrapCursor_(stepName)); }
   catch (e) {
-    logDataQualityEvent_({ layer: 'STAGING', severity: 'ERROR', check_type: 'BOOTSTRAP_STEP_ERROR', message: stepName + ': ' + e.message, payload: { stack: e.stack } });
-    insertPipelineRun_('bootstrap_' + stepName, 'ERROR', 0, { error: e.message });
+    try {
+      logDataQualityEvent_({ layer: 'STAGING', severity: 'ERROR', check_type: 'BOOTSTRAP_STEP_ERROR', message: stepName + ': ' + e.message, payload: { stack: e.stack } });
+    } catch (logErr) {
+      Logger.log('No se pudo registrar data_quality_event: ' + (logErr && logErr.message ? logErr.message : logErr));
+    }
+    try {
+      insertPipelineRun_('bootstrap_' + stepName, 'ERROR', 0, { error: e.message });
+    } catch (runErr) {
+      Logger.log('No se pudo registrar pipeline_run: ' + (runErr && runErr.message ? runErr.message : runErr));
+    }
     throw e;
   }
 }
