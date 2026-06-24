@@ -56,6 +56,32 @@ function bootstrapInitialLoadRunner() {
   });
 }
 
+function bootstrapInitialLoadRunnerUntilPause() {
+  return withBootstrapLock_(function() {
+    const started = new Date().getTime();
+    const maxMs = getBootstrapConfig_().maxRuntimeMs;
+    const results = [];
+    while (new Date().getTime() - started < maxMs - 20000) {
+      const progress = getBootstrapProgress_();
+      const next = BOOTSTRAP_STEPS.find(function(step) {
+        return !(progress.steps[step.name] && progress.steps[step.name].done);
+      });
+      if (!next) {
+        const done = { ok: true, done: true, results: results, progress: progress, counts: validateBootstrapCounts() };
+        Logger.log(JSON.stringify(done));
+        return done;
+      }
+      const out = next.fn();
+      const item = { step: next.name, result: out };
+      results.push(item);
+      Logger.log(JSON.stringify(item));
+    }
+    const paused = { ok: true, done: false, paused: true, results: results, progress: getBootstrapProgress_(), counts: validateBootstrapCounts() };
+    Logger.log(JSON.stringify(paused));
+    return paused;
+  });
+}
+
 function bootstrapInitialLoad_step1_raw() {
   return withBootstrapStep_('raw', function(ctx) {
     const sheets = BOOTSTRAP_RAW_SHEETS;
@@ -271,8 +297,23 @@ function resetBootstrapProgress() {
   return { ok: true, reset: true };
 }
 
+function resetBootstrapProgressFromStep(stepName) {
+  const progress = getBootstrapProgress_();
+  const idx = BOOTSTRAP_STEPS.findIndex(function(step) { return step.name === stepName; });
+  if (idx < 0) throw new Error('Step no reconocido: ' + stepName);
+  for (let i = idx; i < BOOTSTRAP_STEPS.length; i++) {
+    delete progress.steps[BOOTSTRAP_STEPS[i].name];
+  }
+  saveBootstrapProgress_(progress);
+  const out = { ok: true, reset_from_step: stepName, progress: progress };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
 function getBootstrapProgress() {
-  return getBootstrapProgress_();
+  const out = { progress: getBootstrapProgress_(), context: getBootstrapContext_(), counts: validateBootstrapCounts() };
+  Logger.log(JSON.stringify(out));
+  return out;
 }
 
 function validateBootstrapCounts() {
@@ -358,8 +399,10 @@ function processSheetBatch_(stepName, sheetName, mapper, writer, options) {
   const newNext = nextRow + processed;
   const done = processed < rows.rows.length || rows.endReached ? (newNext > rows.lastRow) : false;
   setBootstrapCursor_(stepName, { sheet: sheetName, nextRow: newNext, done: done });
-  insertPipelineRun_('bootstrap_' + stepName + '_' + sheetName, 'OK', processed, { payload: payload.length, write_result: writeResult });
-  return { step: stepName, sheet: sheetName, processed: processed, payload: payload.length, nextRow: newNext, done: done };
+  const result = { step: stepName, sheet: sheetName, processed: processed, payload: payload.length, nextRow: newNext, lastRow: rows.lastRow, done: done, write_result: writeResult };
+  insertPipelineRun_('bootstrap_' + stepName + '_' + sheetName, 'OK', processed, result);
+  Logger.log(JSON.stringify(result));
+  return result;
 }
 
 function readSheetRows_(sheetName, startRow, limit) {
@@ -370,11 +413,18 @@ function readSheetRows_(sheetName, startRow, limit) {
   const lastCol = sheet.getLastColumn();
   if (lastRow < 2 || lastCol < 1 || startRow > lastRow) return { headers: [], rows: [], lastRow: lastRow, endReached: true };
   const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) { return String(h || '').trim(); });
+  const normalizedHeaders = headers.map(function(h) { return normalizeHeaderKey_(h); });
   const n = Math.min(limit || getBootstrapConfig_().batchSize, lastRow - startRow + 1);
   const values = sheet.getRange(startRow, 1, n, lastCol).getValues();
   const rows = values.map(function(valuesRow) {
     const obj = {};
-    headers.forEach(function(h, i) { if (h) obj[h] = valuesRow[i]; });
+    headers.forEach(function(h, i) {
+      if (!h) return;
+      obj[h] = valuesRow[i];
+      if (normalizedHeaders[i] && !Object.prototype.hasOwnProperty.call(obj, normalizedHeaders[i])) {
+        obj[normalizedHeaders[i]] = valuesRow[i];
+      }
+    });
     return obj;
   }).filter(function(obj) {
     return Object.keys(obj).some(function(k) { return obj[k] !== '' && obj[k] !== null && obj[k] !== undefined; });
@@ -984,6 +1034,10 @@ function normalizeName_(value) {
     .replace(/&/g, ' and ')
     .replace(/[^a-zA-Z0-9]+/g, ' ')
     .trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function normalizeHeaderKey_(value) {
+  return normalizeName_(value).replace(/\s+/g, '_');
 }
 
 function makeSlug_(value) {
