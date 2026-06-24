@@ -311,19 +311,45 @@ function resetBootstrapProgressFromStep(stepName) {
 }
 
 function resetBootstrapProgressFromTeams() {
-  return resetBootstrapProgressFromStep('teams');
+  return resetBootstrapCanonicalProgressFromStep_('teams');
 }
 
 function resetBootstrapProgressFromPlayers() {
-  return resetBootstrapProgressFromStep('players');
+  return resetBootstrapCanonicalProgressFromStep_('players');
 }
 
 function resetBootstrapProgressFromMatches() {
-  return resetBootstrapProgressFromStep('matches');
+  return resetBootstrapCanonicalProgressFromStep_('matches');
 }
 
 function resetBootstrapProgressFromOddsPredictionsEv() {
-  return resetBootstrapProgressFromStep('odds_predictions_ev');
+  return resetBootstrapCanonicalProgressFromStep_('odds_predictions_ev');
+}
+
+function resetBootstrapCanonicalProgressFromStep_(stepName) {
+  const progress = getBootstrapProgress_();
+  if (!progress.steps.raw || !progress.steps.raw.done) {
+    progress.steps.raw = Object.assign({}, progress.steps.raw || {}, {
+      done: true,
+      skipped_for_canonical_reload: true,
+      updated_at: nowIso_()
+    });
+  }
+  saveBootstrapProgress_(progress);
+  return resetBootstrapProgressFromStep(stepName);
+}
+
+function markBootstrapRawDone() {
+  const progress = getBootstrapProgress_();
+  progress.steps.raw = Object.assign({}, progress.steps.raw || {}, {
+    done: true,
+    manually_marked_done: true,
+    updated_at: nowIso_()
+  });
+  saveBootstrapProgress_(progress);
+  const out = { ok: true, raw_done: true, progress: progress };
+  Logger.log(JSON.stringify(out));
+  return out;
 }
 
 function getBootstrapProgress() {
@@ -339,7 +365,15 @@ function validateBootstrapCounts() {
   }
   checks.push({ check: 'teams', value: count('teams'), severity: 'INFO' });
   checks.push({ check: 'players', value: count('players'), severity: 'INFO' });
+  checks.push({ check: 'team_aliases', value: count('team_aliases'), severity: 'INFO' });
+  checks.push({ check: 'competition_team_entries', value: count('competition_team_entries'), severity: 'INFO' });
+  checks.push({ check: 'competition_group_memberships', value: count('competition_group_memberships'), severity: 'INFO' });
+  checks.push({ check: 'team_memberships', value: count('team_memberships'), severity: 'INFO' });
+  checks.push({ check: 'competition_rosters', value: count('competition_rosters'), severity: 'INFO' });
   checks.push({ check: 'matches', value: count('matches'), severity: 'INFO' });
+  checks.push({ check: 'match_participants', value: count('match_participants'), severity: 'INFO' });
+  checks.push({ check: 'odds_snapshots', value: count('odds_snapshots'), severity: 'INFO' });
+  checks.push({ check: 'model_predictions', value: count('model_predictions'), severity: 'INFO' });
   checks.push({ check: 'pending_entity_resolution', value: count('entity_resolution_queue', 'resolution_status=in.(OPEN,IN_REVIEW)'), severity: 'WARN' });
 
   let health = [];
