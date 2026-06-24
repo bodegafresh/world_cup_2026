@@ -1252,6 +1252,7 @@ create index idx_odds_snapshots_match_market_time on odds_snapshots(match_id, ma
 create index idx_model_predictions_context on model_predictions(competition_season_id, match_id, market_id, as_of desc);
 create index idx_betting_decisions_context on betting_decisions(competition_season_id, decision_status, decided_at desc);
 create index idx_betting_decisions_settlement on betting_decisions(settlement_status, settled_at desc);
+create unique index if not exists ux_betting_decisions_prediction_odds on betting_decisions(prediction_id, odds_snapshot_id);
 create index idx_bets_mode_status on bets(bet_mode, bet_status, placed_at desc);
 create index idx_feature_snapshots_match on feature_snapshots(match_id, feature_set_version, as_of desc);
 create index idx_rating_snapshots_team on rating_snapshots(team_id, rating_type, as_of desc);

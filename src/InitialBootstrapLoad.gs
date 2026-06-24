@@ -58,7 +58,6 @@ function bootstrapInitialLoadRunner() {
 
 function bootstrapInitialLoad_step1_raw() {
   return withBootstrapStep_('raw', function(ctx) {
-    bootstrapSupabasePreflight_();
     const sheets = BOOTSTRAP_RAW_SHEETS;
     const sheetName = ctx.sheet || sheets[0];
     const idx = sheets.indexOf(sheetName);
@@ -115,7 +114,7 @@ function bootstrapInitialLoad_step2_competitions() {
 
     setBootstrapContext_({ competition_id: comp.competition_id, competition_season_id: season.competition_season_id });
 
-    supabaseUpsert_('competition_status', [{
+    supabaseBootstrapUpsert_('competition_status', [{
       competition_season_id: season.competition_season_id,
       status: 'OBSERVATION',
       status_reason: 'Initial bootstrap load',
@@ -134,10 +133,10 @@ function bootstrapInitialLoad_step2_competitions() {
       return {
         competition_season_id: season.competition_season_id,
         stage_code: s[0],
-        display_name: s[1],
+        stage_name: s[1],
         stage_type: s[2],
         stage_order: s[3],
-        metadata: { source: 'bootstrap' }
+        rules: { source: 'bootstrap' }
       };
     });
     const savedStages = supabaseUpsertReturn_('competition_stages', stages, 'competition_season_id,stage_code');
@@ -149,12 +148,12 @@ function bootstrapInitialLoad_step2_competitions() {
         competition_season_id: season.competition_season_id,
         stage_id: groupStage.stage_id,
         group_code: 'Grupo ' + letter,
-        display_name: 'Grupo ' + letter,
+        group_name: 'Grupo ' + letter,
         group_order: i + 1,
         metadata: { source: 'bootstrap' }
       };
     });
-    supabaseUpsert_('competition_groups', groups, 'competition_season_id,stage_id,group_code');
+    supabaseBootstrapUpsert_('competition_groups', groups, 'competition_season_id,stage_id,group_code');
 
     const checks = [
       'fixtures_reliable', 'results_reliable', 'odds_sufficient', 'aliases_normalized',
@@ -170,7 +169,7 @@ function bootstrapInitialLoad_step2_competitions() {
         details: { source: 'initial_bootstrap', reason: 'pending_validation' }
       };
     });
-    supabaseUpsert_('competition_readiness_checks', checks, 'competition_season_id,check_name');
+    supabaseBootstrapUpsert_('competition_readiness_checks', checks, 'competition_season_id,check_name');
     return bootstrapDone_('competitions', { competition_season_id: season.competition_season_id, stages: stages.length, groups: groups.length });
   });
 }
@@ -399,7 +398,7 @@ function getOrCreateTeam_(teamName, externalRefs) {
       metadata: { source: 'initial_bootstrap' }
     }, 'slug');
   }
-  supabaseUpsert_('team_aliases', [{
+  supabaseBootstrapUpsert_('team_aliases', [{
     team_id: team.team_id,
     alias: name,
     normalized_alias: normalizeName_(name),
@@ -428,7 +427,7 @@ function getOrCreatePlayer_(playerName, externalRefs) {
       metadata: { source: 'initial_bootstrap' }
     }, 'slug');
   }
-  supabaseUpsert_('player_aliases', [{
+  supabaseBootstrapUpsert_('player_aliases', [{
     player_id: player.player_id,
     alias: name,
     normalized_alias: normalizeName_(name),
@@ -464,7 +463,7 @@ function promoteTeamCandidate_(ctx, candidate) {
   if (candidate.groupCode) {
     const group = findGroup_(ctx.competition_season_id, candidate.groupCode);
     if (group) {
-      supabaseUpsert_('competition_group_memberships', [{
+      supabaseBootstrapUpsert_('competition_group_memberships', [{
         group_id: group.group_id,
         competition_team_entry_id: entry.competition_team_entry_id,
         membership_status: 'ACTIVE',
@@ -480,7 +479,7 @@ function promotePlayerCandidate_(ctx, candidate) {
   const player = getOrCreatePlayer_(candidate.name, candidate.externalRefs);
   const team = candidate.teamName ? getOrCreateTeam_(candidate.teamName, candidate.teamExternalRefs) : null;
   if (team) {
-    supabaseUpsert_('team_memberships', [{
+    supabaseBootstrapUpsert_('team_memberships', [{
       player_id: player.player_id,
       team_id: team.team_id,
       membership_type: 'NATIONAL_TEAM',
@@ -489,7 +488,7 @@ function promotePlayerCandidate_(ctx, candidate) {
       source: 'GOOGLE_SHEET',
       metadata: { source: candidate.sourceSheet || 'bootstrap' }
     }], 'player_id,team_id,membership_type,source');
-    supabaseUpsert_('competition_rosters', [{
+    supabaseBootstrapUpsert_('competition_rosters', [{
       competition_season_id: ctx.competition_season_id,
       team_id: team.team_id,
       player_id: player.player_id,
@@ -563,7 +562,7 @@ function promoteLineupRow_(ctx, row) {
   const team = getOrCreateTeam_(row.equipo, [{ source: 'API_FOOTBALL', source_entity_id: row.equipo_id }]);
   const player = getOrCreatePlayer_(row.jugador, [{ source: 'API_FOOTBALL', source_entity_id: row.jugador_id }]);
   if (!match || !team || !player) return null;
-  return supabaseUpsert_('match_lineups', [{
+  return supabaseBootstrapUpsert_('match_lineups', [{
     match_id: match.match_id,
     team_id: team.team_id,
     player_id: player.player_id,
@@ -597,7 +596,7 @@ function promotePlayerStatsRow_(ctx, row) {
       payload: { original: row }
     });
   });
-  return stats.length ? supabaseUpsert_('player_match_stats', stats, 'match_id,player_id,stat_name,source') : null;
+  return stats.length ? supabaseBootstrapUpsert_('player_match_stats', stats, 'match_id,player_id,stat_name,source') : null;
 }
 
 function promoteEventRow_(ctx, row) {
@@ -606,7 +605,7 @@ function promoteEventRow_(ctx, row) {
   const team = row.equipo ? getOrCreateTeam_(row.equipo, [{ source: 'API_FOOTBALL', source_entity_id: row.equipo_id }]) : null;
   const player = row.jugador ? getOrCreatePlayer_(row.jugador, [{ source: 'API_FOOTBALL', source_entity_id: row.jugador_id }]) : null;
   const assist = row.assist ? getOrCreatePlayer_(row.assist, [{ source: 'API_FOOTBALL', source_entity_id: row.assist_id }]) : null;
-  return supabaseUpsert_('match_events', [{
+  return supabaseBootstrapUpsert_('match_events', [{
     match_id: match.match_id,
     team_id: team && team.team_id,
     player_id: player && player.player_id,
@@ -630,7 +629,7 @@ function promoteOddsRow_(ctx, row) {
   const market = resolveMarket_(row.mercado || '1X2');
   const selection = resolveSelection_(market, row.seleccion, row.local, row.visitante);
   const bookmaker = getOrCreateBookmaker_(row.fuente || 'UNKNOWN');
-  return supabaseUpsert_('odds_snapshots', [{
+  return supabaseBootstrapUpsert_('odds_snapshots', [{
     match_id: match.match_id,
     bookmaker_id: bookmaker.bookmaker_id,
     source: String(row.fuente || 'GOOGLE_SHEET').toUpperCase(),
@@ -681,7 +680,7 @@ function promotePoissonRow_(ctx, row) {
       payload: { original: row }
     };
   }).filter(function(r) { return r.raw_probability !== null; });
-  return rows.length ? supabaseUpsert_('model_predictions', rows, 'model_run_id,match_id,market_id,selection_id,line,as_of') : null;
+  return rows.length ? supabaseBootstrapUpsert_('model_predictions', rows, 'model_run_id,match_id,market_id,selection_id,line,as_of') : null;
 }
 
 function promoteEvRow_(ctx, row, sheetName) {
@@ -702,7 +701,7 @@ function promoteEvRow_(ctx, row, sheetName) {
     return null;
   }
   const ev = toNumberOrNull_(row.ev);
-  return supabaseUpsert_('betting_decisions', [{
+  return supabaseBootstrapUpsert_('betting_decisions', [{
     competition_season_id: ctx.competition_season_id,
     match_id: match.match_id,
     prediction_id: prediction.prediction_id,
@@ -728,7 +727,7 @@ function promoteEvRow_(ctx, row, sheetName) {
 function promoteBetRow_(ctx, row) {
   const decision = null;
   if (!row.bet_id && !row.stake) return null;
-  return supabaseUpsert_('bets', [{
+  return supabaseBootstrapUpsert_('bets', [{
     bet_id: row.bet_id || Utilities.getUuid(),
     betting_decision_id: decision,
     bet_mode: 'PAPER',
@@ -759,7 +758,7 @@ function promoteCalibrationRow_(ctx, row) {
 
 function promoteRatingRow_(ctx, row) {
   const team = getOrCreateTeam_(row.equipo, []);
-  return supabaseUpsert_('rating_snapshots', [{
+  return supabaseBootstrapUpsert_('rating_snapshots', [{
     competition_season_id: ctx.competition_season_id,
     team_id: team.team_id,
     rating_type: 'ELO',
@@ -834,7 +833,10 @@ function withBootstrapLock_(fn) {
 }
 
 function withBootstrapStep_(stepName, fn) {
-  try { return fn(getBootstrapCursor_(stepName)); }
+  try {
+    bootstrapSupabasePreflight_();
+    return fn(getBootstrapCursor_(stepName));
+  }
   catch (e) {
     try {
       logDataQualityEvent_({ layer: 'STAGING', severity: 'ERROR', check_type: 'BOOTSTRAP_STEP_ERROR', message: stepName + ': ' + e.message, payload: { stack: e.stack } });
@@ -905,8 +907,14 @@ function supabaseUpsertReturn_(table, rows, conflictColumns) {
   if (!rows || !rows.length) return [];
   if (getBootstrapConfig_().dryRun) return rows;
   const payload = supabaseDedupeRowsByConflict_(rows, conflictColumns);
-  const query = conflictColumns ? 'on_conflict=' + encodeURIComponent(conflictColumns) : '';
-  return supabaseRequest_('post', table, payload, { query: query, prefer: 'resolution=merge-duplicates,return=representation' }) || [];
+  if (typeof supabaseTransactionalUpsert_ === 'function') {
+    const conflictList = String(conflictColumns || '').split(',').map(function(c) { return c.trim(); }).filter(Boolean);
+    if (conflictList.length) {
+      supabaseTransactionalUpsert_(table, payload, conflictList);
+      return selectRowsByConflict_(table, payload, conflictList);
+    }
+  }
+  throw new Error('supabaseTransactionalUpsert_ no disponible para upsert con retorno en ' + table + '. Ejecuta con src/SupabaseClient.gs actualizado y la RPC app_transaction_batch aplicada en Supabase.');
 }
 
 function supabaseBootstrapInsert_(table, rows) {
@@ -915,8 +923,7 @@ function supabaseBootstrapInsert_(table, rows) {
     const result = supabaseTransaction_([{ action: 'insert', table: table, rows: rows }], { retries: 1 });
     return { count: rows.length, transaction: result };
   }
-  supabaseRequest_('post', table, rows, { prefer: 'return=minimal' });
-  return { count: rows.length };
+  throw new Error('supabaseTransaction_ no disponible para bootstrap. Ejecuta con src/SupabaseClient.gs actualizado y la RPC app_transaction_batch aplicada en Supabase.');
 }
 
 function supabaseBootstrapUpsert_(table, rows, conflictColumns) {
@@ -928,7 +935,7 @@ function supabaseBootstrapUpsert_(table, rows, conflictColumns) {
     const result = supabaseTransactionalUpsert_(table, payload, conflictList);
     return { count: payload.length, source_count: rows.length, duplicates_removed: rows.length - payload.length, transaction: result };
   }
-  return supabaseUpsert_(table, payload, conflictColumns);
+  throw new Error('supabaseTransactionalUpsert_ no disponible para bootstrap de ' + table + '. Ejecuta con src/SupabaseClient.gs actualizado y la RPC app_transaction_batch aplicada en Supabase.');
 }
 
 function bootstrapSupabasePreflight_() {
@@ -950,10 +957,20 @@ function bootstrapSupabasePreflight_() {
 function upsertOneReturn_(table, row, conflictColumns) {
   const rows = supabaseUpsertReturn_(table, [row], conflictColumns);
   if (rows && rows[0]) return rows[0];
-  return supabaseSelectOne_(table, 'select=*&' + String(conflictColumns).split(',').map(function(c) {
-    c = c.trim();
+  return selectOneByConflict_(table, row, String(conflictColumns).split(',').map(function(c) { return c.trim(); }).filter(Boolean));
+}
+
+function selectRowsByConflict_(table, rows, conflictColumns) {
+  return (rows || []).map(function(row) {
+    return selectOneByConflict_(table, row, conflictColumns);
+  }).filter(Boolean);
+}
+
+function selectOneByConflict_(table, row, conflictColumns) {
+  const filters = (conflictColumns || []).map(function(c) {
     return c + '=eq.' + encodeURIComponent(row[c]);
-  }).join('&'));
+  }).join('&');
+  return supabaseSelectOne_(table, 'select=*&' + filters);
 }
 
 function supabaseSelectOne_(table, query) {
@@ -1048,7 +1065,7 @@ function inferSourceFromColumn_(col) {
 
 function upsertExternalRef_(entityType, entityId, source, sourceType, sourceId, sourceName, payload) {
   if (!entityId || !sourceId) return null;
-  return supabaseUpsert_('entity_external_refs', [{
+  return supabaseBootstrapUpsert_('entity_external_refs', [{
     entity_type: entityType,
     entity_id: entityId,
     source: String(source || 'GOOGLE_SHEET').toUpperCase(),
@@ -1063,7 +1080,7 @@ function upsertExternalRef_(entityType, entityId, source, sourceType, sourceId, 
 
 function enqueueEntityResolution_(entity) {
   entity = entity || {};
-  return supabaseUpsert_('entity_resolution_queue', [{
+  return supabaseBootstrapUpsert_('entity_resolution_queue', [{
     entity_type: entity.entity_type || 'OTHER',
     source: entity.source || 'GOOGLE_SHEET',
     source_entity_type: entity.source_entity_type || null,
@@ -1111,7 +1128,7 @@ function getOrCreateVenue_(row) {
 }
 
 function upsertMatchParticipant_(matchId, side, teamId, score) {
-  return supabaseUpsert_('match_participants', [{
+  return supabaseBootstrapUpsert_('match_participants', [{
     match_id: matchId,
     side: side,
     participant_role: 'TEAM',
