@@ -1,0 +1,42 @@
+docs/new_project/operational-jobs.md
+  s_b04792a387deb8::t_396257b409ad77 5
+docs/new_project/python-migration-plan.md
+  s_b04792a387deb8::t_d54c6dd64c41c8 3,7,45,110
+appsscript.json
+  s_b04792a387deb8::t_67044b6f23fca0 7,9
+supabase/new_project/001_clean_schema.sql
+  s_b04792a387deb8::t_464808a0d24011 2
+docs/new_project/countries-normalization.md
+  s_b04792a387deb8::t_69c2f3c819d204 87
+src/CompetitionReadiness.gs
+  s_b04792a387deb8::t_93bc29fe5b2f7c 4,31,39-40,44-45,48,56-57,60,63-68,70-73,75-81,84-90,94-102,104-108,110-111,114-117,120,122,125,127,130,134,138,142-144,148,151-161
+src/ApiV1.gs
+  s_b04792a387deb8::t_706535421fe3d5 129
+src/SupabaseClient.gs
+  s_b04792a387deb8::t_73334d7b554dd3 4,6-7,17-18,21-22,25-26,31-33,37-38,40-41,58,61-64,68-69,73,113-115,117-118,121-126,171-172,175-179,182-192,195-203,206-210,219-222
+  s_b04792a387deb8::t_1a40837f7e818a 5
+README.md
+  s_b04792a387deb8::t_6cf4b26025e3e7 9,74
+scripts/migration/migrate_wc2026_to_supabase.py
+  s_b04792a387deb8::t_149756132daec9 5-6,12,38,955-956,971
+src/config/PoolTeamEnv.gs
+  s_b04792a387deb8::t_9cf3e4856066ce 7-20
+src/Utils.gs
+  s_b04792a387deb8::t_97a710ac261625 54-55,67-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "2d2f014a5cea29b52a1ed4222059ded87a25d12f",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
