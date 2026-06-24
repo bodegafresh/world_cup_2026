@@ -208,16 +208,23 @@ function bootstrapInitialLoad_step3_teams() {
   return withBootstrapStep_('teams', function() {
     const ctx = requireBootstrapContext_();
     const sheetOrder = ['Equipos', 'Clasificacion', 'Partidos', 'SourceFixtures'];
-    return processMultiSheetPromoter_('teams', sheetOrder, function(sheetName, row) {
+    const out = processMultiSheetPromoter_('teams', sheetOrder, function(sheetName, row) {
       return extractTeamCandidates_(sheetName, row).map(function(candidate) {
         return promoteTeamCandidate_(ctx, candidate);
       });
     });
+    if (out.done && safeBootstrapCount_('teams') === 0) {
+      throw new Error('Teams step terminó pero public.teams sigue en 0. No continuar a players; revisar errores BOOTSTRAP_ROW_ERROR en data_quality_events.');
+    }
+    return out;
   });
 }
 
 function bootstrapInitialLoad_step4_players() {
   return withBootstrapStep_('players', function() {
+    if (safeBootstrapCount_('teams') === 0) {
+      throw new Error('No se puede cargar players porque public.teams está en 0. Ejecuta y valida primero el step teams.');
+    }
     const ctx = requireBootstrapContext_();
     const sheetOrder = ['Planteles'];
     return processMultiSheetPromoter_('players', sheetOrder, function(sheetName, row) {
@@ -413,6 +420,11 @@ function validateBootstrapCounts(options) {
   };
 }
 
+function safeBootstrapCount_(table, query) {
+  try { return Number(supabaseCount_(table, query || '') || 0); }
+  catch (e) { return 0; }
+}
+
 function processMultiSheetPromoter_(stepName, sheetOrder, mapper) {
   const ctx = getBootstrapCursor_(stepName);
   const sheetName = ctx.sheet || sheetOrder[0];
@@ -511,13 +523,14 @@ function readSheetRows_(sheetName, startRow, limit) {
 function getOrCreateTeam_(teamName, externalRefs) {
   const name = String(teamName || '').trim();
   if (!name) return null;
-  const slug = makeSlug_(canonicalTeamDisplayName_(name));
+  const displayName = bootstrapTeamDisplayName_(name);
+  const slug = makeSlug_(displayName);
   let team = supabaseSelectOne_('teams', 'select=*&slug=eq.' + encodeURIComponent(slug));
   if (!team) {
     team = upsertOneReturn_('teams', {
       slug: slug,
       team_type: 'NATIONAL_TEAM',
-      display_name: canonicalTeamDisplayName_(name),
+      display_name: displayName,
       normalized_name: normalizeName_(name),
       country_code: null,
       gender: 'MEN',
@@ -594,7 +607,7 @@ function findExistingTeam_(teamName, externalRefs) {
   }
   const name = String(teamName || '').trim();
   if (!name) return null;
-  return supabaseSelectOne_('teams', 'select=*&slug=eq.' + encodeURIComponent(makeSlug_(canonicalTeamDisplayName_(name)))) ||
+  return supabaseSelectOne_('teams', 'select=*&slug=eq.' + encodeURIComponent(makeSlug_(bootstrapTeamDisplayName_(name)))) ||
     supabaseSelectOne_('teams', 'select=*&normalized_name=eq.' + encodeURIComponent(normalizeName_(name)));
 }
 
@@ -651,28 +664,36 @@ function promoteTeamCandidate_(ctx, candidate) {
 
 function promotePlayerCandidate_(ctx, candidate) {
   if (!candidate || !candidate.name) return null;
-  const player = getOrCreatePlayer_(candidate.name, candidate.externalRefs);
-  const team = candidate.teamName ? getOrCreateTeam_(candidate.teamName, candidate.teamExternalRefs) : null;
-  if (team) {
-    supabaseBootstrapUpsert_('team_memberships', [{
-      player_id: player.player_id,
-      team_id: team.team_id,
-      membership_type: 'NATIONAL_TEAM',
-      valid_from_at: null,
-      valid_to_at: null,
-      source: 'GOOGLE_SHEET',
-      metadata: { source: candidate.sourceSheet || 'bootstrap' }
-    }], 'player_id,team_id,membership_type,source');
-    supabaseBootstrapUpsert_('competition_rosters', [{
-      competition_season_id: ctx.competition_season_id,
-      team_id: team.team_id,
-      player_id: player.player_id,
-      shirt_number: toNumberOrNull_(candidate.number),
-      position: candidate.position || null,
-      roster_status: 'ACTIVE',
-      metadata: { source: candidate.sourceSheet || 'bootstrap', role: candidate.role || null }
-    }], 'competition_season_id,team_id,player_id');
+  const team = candidate.teamName ? findExistingTeam_(candidate.teamName, candidate.teamExternalRefs) : null;
+  if (!team) {
+    logDataQualityEvent_({
+      layer: 'CANONICAL',
+      severity: 'ERROR',
+      check_type: 'ROSTER_PLAYER_WITHOUT_TEAM',
+      message: 'No se crea jugador porque el equipo no existe en teams',
+      payload: { candidate: candidate }
+    });
+    return null;
   }
+  const player = getOrCreatePlayer_(candidate.name, candidate.externalRefs);
+  supabaseBootstrapUpsert_('team_memberships', [{
+    player_id: player.player_id,
+    team_id: team.team_id,
+    membership_type: 'NATIONAL_TEAM',
+    valid_from_at: null,
+    valid_to_at: null,
+    source: 'GOOGLE_SHEET',
+    metadata: { source: candidate.sourceSheet || 'bootstrap' }
+  }], 'player_id,team_id,membership_type,source');
+  supabaseBootstrapUpsert_('competition_rosters', [{
+    competition_season_id: ctx.competition_season_id,
+    team_id: team.team_id,
+    player_id: player.player_id,
+    shirt_number: toNumberOrNull_(candidate.number),
+    position: candidate.position || null,
+    roster_status: 'ACTIVE',
+    metadata: { source: candidate.sourceSheet || 'bootstrap', role: candidate.role || null }
+  }], 'competition_season_id,team_id,player_id');
   return { player_id: player.player_id };
 }
 
@@ -1238,9 +1259,93 @@ function parseSheetDateToUtc_(row, fields) {
   return null;
 }
 
-function canonicalTeamDisplayName_(name) {
-  if (typeof teamNameToSpanish_ === 'function') return teamNameToSpanish_(name);
-  return String(name || '').trim();
+function bootstrapTeamDisplayName_(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return '';
+  const key = normalizeName_(raw).replace(/\s+/g, '');
+  const names = {
+    argentina: 'Argentina',
+    australia: 'Australia',
+    austria: 'Austria',
+    belgium: 'Belgica',
+    belgica: 'Belgica',
+    brazil: 'Brasil',
+    brasil: 'Brasil',
+    canada: 'Canada',
+    chile: 'Chile',
+    colombia: 'Colombia',
+    croatia: 'Croacia',
+    croacia: 'Croacia',
+    czechia: 'Republica Checa',
+    republicacheca: 'Republica Checa',
+    denmark: 'Dinamarca',
+    ecuador: 'Ecuador',
+    egypt: 'Egipto',
+    egipto: 'Egipto',
+    england: 'Inglaterra',
+    inglaterra: 'Inglaterra',
+    france: 'Francia',
+    francia: 'Francia',
+    germany: 'Alemania',
+    alemania: 'Alemania',
+    ghana: 'Ghana',
+    honduras: 'Honduras',
+    iran: 'Iran',
+    iraq: 'Irak',
+    irak: 'Irak',
+    italy: 'Italia',
+    italia: 'Italia',
+    japan: 'Japon',
+    japon: 'Japon',
+    jordan: 'Jordania',
+    jordania: 'Jordania',
+    mexico: 'Mexico',
+    morocco: 'Marruecos',
+    marruecos: 'Marruecos',
+    netherlands: 'Paises Bajos',
+    paisesbajos: 'Paises Bajos',
+    norway: 'Noruega',
+    noruega: 'Noruega',
+    paraguay: 'Paraguay',
+    portugal: 'Portugal',
+    qatar: 'Catar',
+    catar: 'Catar',
+    senegal: 'Senegal',
+    serbia: 'Serbia',
+    spain: 'Espana',
+    espana: 'Espana',
+    sweden: 'Suecia',
+    suecia: 'Suecia',
+    switzerland: 'Suiza',
+    suiza: 'Suiza',
+    tunisia: 'Tunez',
+    tunez: 'Tunez',
+    turkey: 'Turquia',
+    turquia: 'Turquia',
+    ukraine: 'Ucrania',
+    uruguay: 'Uruguay',
+    usa: 'EE.UU.',
+    eeuu: 'EE.UU.',
+    unitedstates: 'EE.UU.',
+    unitedstatesofamerica: 'EE.UU.',
+    algeria: 'Argelia',
+    argelia: 'Argelia',
+    caboverde: 'Cabo Verde',
+    capeverde: 'Cabo Verde',
+    congodr: 'Congo DR',
+    drcongo: 'Congo DR',
+    coreadelsur: 'Corea del Sur',
+    southkorea: 'Corea del Sur',
+    korearepublic: 'Corea del Sur',
+    costademarfil: 'Costa de Marfil',
+    ivorycoast: 'Costa de Marfil',
+    cotedivoire: 'Costa de Marfil',
+    saudiarabia: 'Arabia Saudita',
+    arabiasaudita: 'Arabia Saudita',
+    scotland: 'Escocia',
+    escocia: 'Escocia'
+  };
+  return names[key] || raw;
 }
 
 function makeMatchSlug_(row) {
