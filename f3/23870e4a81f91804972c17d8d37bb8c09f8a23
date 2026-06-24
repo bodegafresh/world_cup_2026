@@ -1,0 +1,25 @@
+supabase/new_project/001_clean_schema.sql
+  s_b04792a387deb8::t_65486aa88726ec 1255
+src/InitialBootstrapLoad.gs
+  s_b04792a387deb8::t_c115b23a75fb95 117,156,172,401,430,466,482,491,565,599,608,632,683,704,730,761,1068,1083,1131
+  s_b04792a387deb8::t_97258f1133a703 136,139,151
+  s_b04792a387deb8::t_2f03d1ced64fe6 917
+  s_b04792a387deb8::t_700de39c8c33dd 926,938
+  s_b04792a387deb8::t_89834bd62afcbd 836-839,910-916,960-970,972-973
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "f323870e4a81f91804972c17d8d37bb8c09f8a23",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
