@@ -213,12 +213,45 @@ create table stg_events (
 -- CANONICAL layer
 -- ---------------------------------------------------------------------------
 
+create table countries (
+  code_alpha2 text primary key,
+  code_alpha3 text not null unique,
+  numeric_code text not null unique,
+  fifa_code text,
+  ioc_code text,
+  default_name text not null,
+  names jsonb not null,
+  official_names jsonb,
+  region text,
+  subregion text,
+  continent text,
+  timezone_default text,
+  timezones text[],
+  currency_code text,
+  currency_name text,
+  flag_emoji text,
+  is_fifa_member boolean,
+  is_sovereign boolean,
+  payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (code_alpha2 = upper(code_alpha2) and code_alpha2 ~ '^[A-Z]{2}$'),
+  check (code_alpha3 = upper(code_alpha3) and code_alpha3 ~ '^[A-Z]{3}$'),
+  check (numeric_code ~ '^[0-9]{3}$'),
+  check (fifa_code is null or (fifa_code = upper(fifa_code) and fifa_code ~ '^[A-Z0-9]{3}$')),
+  check (ioc_code is null or (ioc_code = upper(ioc_code) and ioc_code ~ '^[A-Z0-9]{3}$')),
+  check (jsonb_typeof(names) = 'object'),
+  check (official_names is null or jsonb_typeof(official_names) = 'object'),
+  check (timezone_default is null or timezones is null or timezone_default = any(timezones)),
+  check (currency_code is null or (currency_code = upper(currency_code) and currency_code ~ '^[A-Z]{3}$'))
+);
+
 create table competitions (
   competition_id uuid primary key default gen_random_uuid(),
   slug text not null unique,
   display_name text not null,
   competition_type competition_type not null,
-  country_code text,
+  country_code text references countries(code_alpha2) on update cascade on delete restrict,
   region text,
   tier integer,
   is_international boolean not null default false,
@@ -298,7 +331,7 @@ create table teams (
   team_type team_type not null,
   display_name text not null,
   normalized_name text not null,
-  country_code text,
+  country_code text references countries(code_alpha2) on update cascade on delete restrict,
   gender gender_type not null default 'UNKNOWN',
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
@@ -381,7 +414,7 @@ create table players (
   display_name text not null,
   normalized_name text not null,
   birth_date date,
-  nationality_country_code text,
+  nationality_country_code text references countries(code_alpha2) on update cascade on delete restrict,
   gender gender_type not null default 'UNKNOWN',
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
@@ -436,7 +469,7 @@ create table venues (
   slug text unique,
   display_name text not null,
   city text,
-  country_code text,
+  country_code text references countries(code_alpha2) on update cascade on delete restrict,
   timezone_name text,
   latitude numeric,
   longitude numeric,
@@ -450,7 +483,7 @@ create table referees (
   slug text unique,
   display_name text not null,
   normalized_name text not null,
-  nationality_country_code text,
+  nationality_country_code text references countries(code_alpha2) on update cascade on delete restrict,
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -1234,11 +1267,17 @@ $$;
 
 create index idx_raw_payloads_source_time on raw_source_payloads(source, received_at desc);
 create index idx_stg_matches_source_match on stg_matches(source, source_match_id);
+create unique index idx_countries_fifa_code_unique on countries(fifa_code) where fifa_code is not null;
+create unique index idx_countries_ioc_code_unique on countries(ioc_code) where ioc_code is not null;
+create index idx_countries_region on countries(region, subregion);
+create index idx_countries_payload_gin on countries using gin(payload);
 create index idx_competition_seasons_competition on competition_seasons(competition_id, starts_at);
 create index idx_competition_status_status on competition_status(status);
 create index idx_competition_stages_order on competition_stages(competition_season_id, stage_order);
 create index idx_group_memberships_entry on competition_group_memberships(competition_team_entry_id);
+create index idx_teams_country on teams(country_code);
 create index idx_team_aliases_normalized on team_aliases(normalized_alias);
+create index idx_players_nationality_country on players(nationality_country_code);
 create index idx_player_aliases_normalized on player_aliases(normalized_alias);
 create index idx_entity_refs_entity on entity_external_refs(entity_type, entity_id);
 create index idx_entity_refs_source on entity_external_refs(source, source_entity_id);
@@ -1357,6 +1396,7 @@ on conflict (market_id, selection_code) do nothing;
 -- Updated_at triggers
 -- ---------------------------------------------------------------------------
 
+create trigger trg_countries_updated_at before update on countries for each row execute function set_updated_at();
 create trigger trg_competitions_updated_at before update on competitions for each row execute function set_updated_at();
 create trigger trg_competition_seasons_updated_at before update on competition_seasons for each row execute function set_updated_at();
 create trigger trg_competition_stages_updated_at before update on competition_stages for each row execute function set_updated_at();
@@ -1555,6 +1595,27 @@ left join competition_status st on st.competition_season_id = cs.competition_sea
 left join competition_readiness_checks rc on rc.competition_season_id = cs.competition_season_id
 group by cs.competition_season_id, cs.slug, c.display_name, st.status, st.readiness_score;
 
+create view published_country_catalog as
+select
+  code_alpha2,
+  code_alpha3,
+  numeric_code,
+  fifa_code,
+  ioc_code,
+  default_name,
+  names,
+  region,
+  subregion,
+  continent,
+  timezone_default,
+  timezones,
+  currency_code,
+  flag_emoji,
+  is_fifa_member,
+  is_sovereign,
+  payload->'sports' as sports_metadata
+from countries;
+
 create view published_blocked_decisions as
 select
   bd.betting_decision_id,
@@ -1731,7 +1792,16 @@ select
 from betting_decisions bd
 left join competition_status cs on cs.competition_season_id = bd.competition_season_id
 where bd.decision_status = 'BETTABLE'
-  and coalesce(cs.status::text, 'OBSERVATION') <> 'BETTABLE';
+  and coalesce(cs.status::text, 'OBSERVATION') <> 'BETTABLE'
+union all
+select
+  'NATIONAL_TEAMS_WITHOUT_ISO_COUNTRY',
+  'ERROR',
+  count(*)::bigint,
+  coalesce(jsonb_agg(jsonb_build_object('team_id', team_id, 'display_name', display_name, 'slug', slug)), '[]'::jsonb)
+from teams
+where team_type = 'NATIONAL_TEAM'
+  and country_code is null;
 
 -- ---------------------------------------------------------------------------
 -- RLS recommendation baseline

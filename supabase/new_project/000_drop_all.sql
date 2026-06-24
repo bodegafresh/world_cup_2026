@@ -27,6 +27,7 @@ begin
         'published_blocked_decisions',
         'published_competition_participants',
         'published_team_identity',
+        'published_country_catalog',
         'vw_sheet_partidos',
         'vw_sheet_odds_apuestas',
         'vw_sheet_poisson_odds',
@@ -109,6 +110,7 @@ drop table if exists competition_readiness_checks cascade;
 drop table if exists competition_status cascade;
 drop table if exists competition_seasons cascade;
 drop table if exists competitions cascade;
+drop table if exists countries cascade;
 
 -- Staging
 drop table if exists stg_events cascade;

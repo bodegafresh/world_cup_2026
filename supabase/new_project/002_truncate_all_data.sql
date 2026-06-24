@@ -64,6 +64,7 @@ truncate table
   competition_status,
   competition_seasons,
   competitions,
+  countries,
 
   -- Staging
   stg_events,
@@ -81,4 +82,3 @@ truncate table
 restart identity cascade;
 
 commit;
-

@@ -529,12 +529,13 @@ function getOrCreateTeam_(teamName, externalRefs) {
   if (!team && displayName !== name) team = findExistingTeam_(displayName, []);
   if (!team) team = supabaseSelectOne_('teams', 'select=*&slug=eq.' + encodeURIComponent(slug));
   if (!team) {
+    const countryCode = bootstrapTeamCountryCode_(name);
     team = upsertOneReturn_('teams', {
       slug: slug,
       team_type: 'NATIONAL_TEAM',
       display_name: displayName,
       normalized_name: normalizeName_(displayName),
-      country_code: null,
+      country_code: countryCode,
       gender: 'MEN',
       metadata: {
         source: 'initial_bootstrap',
@@ -1388,6 +1389,64 @@ function bootstrapTeamAliasVariants_(name) {
     teamAliasVariantsFor_(name).forEach(add);
   }
   return Object.keys(variants);
+}
+
+function bootstrapTeamCountryCode_(name) {
+  const key = bootstrapTeamKey_(name);
+  const map = {
+    algeria: 'DZ',
+    argentina: 'AR',
+    australia: 'AU',
+    austria: 'AT',
+    belgium: 'BE',
+    bosniaherzegovina: 'BA',
+    brazil: 'BR',
+    canada: 'CA',
+    capeverde: 'CV',
+    chile: 'CL',
+    colombia: 'CO',
+    congodr: 'CD',
+    cotedivoire: 'CI',
+    croatia: 'HR',
+    curacao: 'CW',
+    czechia: 'CZ',
+    ecuador: 'EC',
+    egypt: 'EG',
+    england: 'GB',
+    france: 'FR',
+    germany: 'DE',
+    ghana: 'GH',
+    haiti: 'HT',
+    iran: 'IR',
+    iraq: 'IQ',
+    japan: 'JP',
+    jordan: 'JO',
+    mexico: 'MX',
+    morocco: 'MA',
+    netherlands: 'NL',
+    newzealand: 'NZ',
+    norway: 'NO',
+    panama: 'PA',
+    paraguay: 'PY',
+    portugal: 'PT',
+    qatar: 'QA',
+    saudiarabia: 'SA',
+    scotland: 'GB',
+    senegal: 'SN',
+    southafrica: 'ZA',
+    southkorea: 'KR',
+    spain: 'ES',
+    sweden: 'SE',
+    switzerland: 'CH',
+    tunisia: 'TN',
+    turkey: 'TR',
+    unitedstates: 'US',
+    uruguay: 'UY',
+    uzbekistan: 'UZ',
+    wales: 'GB',
+    northernireland: 'GB'
+  };
+  return map[key] || null;
 }
 
 function makeMatchSlug_(row) {

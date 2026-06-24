@@ -122,6 +122,7 @@ drop table if exists match_source_ids cascade;
 drop table if exists matches cascade;
 drop table if exists players cascade;
 drop table if exists teams cascade;
+drop table if exists countries cascade;
 
 -- Types from the clean schema or possible previous attempts.
 drop type if exists entity_type cascade;
