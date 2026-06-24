@@ -58,6 +58,7 @@ function bootstrapInitialLoadRunner() {
 
 function bootstrapInitialLoad_step1_raw() {
   return withBootstrapStep_('raw', function(ctx) {
+    bootstrapSupabasePreflight_();
     const sheets = BOOTSTRAP_RAW_SHEETS;
     const sheetName = ctx.sheet || sheets[0];
     const idx = sheets.indexOf(sheetName);
@@ -75,7 +76,7 @@ function bootstrapInitialLoad_step1_raw() {
         received_at: nowIso_()
       };
     }, function(rows) {
-      return supabaseUpsert_('raw_source_payloads', rows, 'source,source_entity_type,payload_hash');
+      return supabaseBootstrapUpsert_('raw_source_payloads', rows, 'source,source_entity_type,payload_hash');
     });
 
     if (!out.done) return out;
@@ -896,7 +897,7 @@ function requireBootstrapContext_() {
 function supabaseInsert_(table, rows) {
   if (!rows || !rows.length) return { count: 0 };
   if (getBootstrapConfig_().dryRun) return { count: rows.length, dryRun: true };
-  supabaseRequest_('post', table, rows, { prefer: 'return=minimal' });
+  supabaseBootstrapInsert_(table, rows);
   return { count: rows.length };
 }
 
@@ -906,6 +907,44 @@ function supabaseUpsertReturn_(table, rows, conflictColumns) {
   const payload = supabaseDedupeRowsByConflict_(rows, conflictColumns);
   const query = conflictColumns ? 'on_conflict=' + encodeURIComponent(conflictColumns) : '';
   return supabaseRequest_('post', table, payload, { query: query, prefer: 'resolution=merge-duplicates,return=representation' }) || [];
+}
+
+function supabaseBootstrapInsert_(table, rows) {
+  if (!rows || !rows.length) return { count: 0 };
+  if (typeof supabaseTransaction_ === 'function') {
+    const result = supabaseTransaction_([{ action: 'insert', table: table, rows: rows }], { retries: 1 });
+    return { count: rows.length, transaction: result };
+  }
+  supabaseRequest_('post', table, rows, { prefer: 'return=minimal' });
+  return { count: rows.length };
+}
+
+function supabaseBootstrapUpsert_(table, rows, conflictColumns) {
+  if (!rows || !rows.length) return { count: 0 };
+  const payload = supabaseDedupeRowsByConflict_(rows, conflictColumns);
+  if (!payload.length) return { count: 0 };
+  const conflictList = String(conflictColumns || '').split(',').map(function(c) { return c.trim(); }).filter(Boolean);
+  if (typeof supabaseTransactionalUpsert_ === 'function' && conflictList.length) {
+    const result = supabaseTransactionalUpsert_(table, payload, conflictList);
+    return { count: payload.length, source_count: rows.length, duplicates_removed: rows.length - payload.length, transaction: result };
+  }
+  return supabaseUpsert_(table, payload, conflictColumns);
+}
+
+function bootstrapSupabasePreflight_() {
+  if (getBootstrapConfig_().dryRun) return { ok: true, dryRun: true };
+  try {
+    return supabaseRpc_('app_transaction_batch', { p_operations: [] }, { retries: 0 });
+  } catch (e) {
+    const msg = String(e && e.message || e);
+    if (msg.indexOf('401') !== -1 || msg.indexOf('row-level security') !== -1) {
+      throw new Error('Supabase RLS bloquea la carga inicial. Configura SUPABASE_SERVICE_ROLE_KEY con la service_role key real, no anon key, y aplica 001_clean_schema.sql actualizado con app_transaction_batch SECURITY DEFINER. Detalle: ' + msg);
+    }
+    if (msg.indexOf('app_transaction_batch') !== -1 || msg.indexOf('Could not find') !== -1 || msg.indexOf('404') !== -1) {
+      throw new Error('Falta RPC app_transaction_batch en Supabase. Ejecuta nuevamente supabase/new_project/001_clean_schema.sql actualizado antes del bootstrap. Detalle: ' + msg);
+    }
+    throw e;
+  }
 }
 
 function upsertOneReturn_(table, row, conflictColumns) {

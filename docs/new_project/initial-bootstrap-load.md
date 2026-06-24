@@ -28,10 +28,16 @@ Cada llamada procesa un lote y guarda cursor en `PropertiesService`.
 ## Script Properties necesarias
 
 - `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` con la service role key real. No usar anon key para bootstrap.
 - `BOOTSTRAP_SPREADSHEET_ID`
 - `BOOTSTRAP_BATCH_SIZE`, opcional
 - `BOOTSTRAP_DRY_RUN`, opcional
+
+El bootstrap usa la RPC `app_transaction_batch` definida en `001_clean_schema.sql`.
+Si aparece un error RLS sobre `raw_source_payloads` o `pipeline_runs`, normalmente significa una de estas dos cosas:
+
+- se configuró `SUPABASE_SERVICE_ROLE_KEY` con la anon key;
+- no se ejecutó la versión actualizada de `001_clean_schema.sql` que crea las funciones transaccionales `SECURITY DEFINER`.
 
 ## Mapeo principal
 
