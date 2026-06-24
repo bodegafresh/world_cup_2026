@@ -1,0 +1,40 @@
+docs/new_project/countries-normalization.md
+  s_b04792a387deb8::t_637203bf931b5d 1-96
+supabase/new_project/000_drop_current_migrations.sql
+  s_b04792a387deb8::t_1f74a03a1027ee 125
+supabase/new_project/002_truncate_all_data.sql
+  s_b04792a387deb8::t_32853f0c7b459a 67
+supabase/new_project/001_clean_schema.sql
+  s_b04792a387deb8::t_c38fd9b76f4031 216-248,254
+  s_b04792a387deb8::t_c794617ce38c96 1598-1618,1796-1804
+  s_b04792a387deb8::t_b15fb5c3401af4 1795
+  s_b04792a387deb8::t_8efb53c35155df 334,417
+  s_b04792a387deb8::t_85db0c6666bddf 1272-1273,1278,1280
+  s_b04792a387deb8::t_c838dc5aa54393 1270-1271
+  s_b04792a387deb8::t_bc18d13623eda1 472,486
+  s_b04792a387deb8::t_6820f0eb9176b3 1399
+supabase/new_project/003_seed_countries_wc2026.sql
+  s_b04792a387deb8::t_54b1c707fc19ba 49
+  s_b04792a387deb8::t_e6c639b87354bb 1-48,50-97
+supabase/new_project/000_drop_all.sql
+  s_b04792a387deb8::t_61a0c7ecdd474e 30
+  s_b04792a387deb8::t_31a0369150b444 113
+src/InitialBootstrapLoad.gs
+  s_b04792a387deb8::t_d0a55d8dbcf394 532,538,1394-1449
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "58a25db165a1272de9faeacbbef58b5800e3b385",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
