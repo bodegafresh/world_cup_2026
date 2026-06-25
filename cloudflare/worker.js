@@ -19,7 +19,7 @@ export default {
 
     // ── CORS preflight ───────────────────────────────────────────────────────
     if (method === 'OPTIONS') {
-      return corsResponse('', 204);
+      return corsResponse(request, '', 204);
     }
 
     // ── /api/v1/*  →  API estable del proyecto ─────────────────────────────
@@ -37,7 +37,7 @@ export default {
       return handleTelegram(request, env);
     }
 
-    return corsResponse('ok', 200);
+    return corsResponse(request, 'ok', 200);
   }
 };
 
@@ -45,13 +45,13 @@ export default {
 
 async function handleProjectApi(request, url, env) {
   const gasUrl = env.GAS_WEBAPP_URL || env.GAS_URL;
-  if (!gasUrl) return corsResponse(JSON.stringify({ ok: false, error: 'GAS_WEBAPP_URL no configurado' }), 500);
+  if (!gasUrl) return corsResponse(request, JSON.stringify({ ok: false, error: 'GAS_WEBAPP_URL no configurado' }), 500);
 
   const auth = request.headers.get('Authorization') || '';
   const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   const key = url.searchParams.get('key') || bearer;
   if (env.WEB_KEY && key !== env.WEB_KEY) {
-    return corsResponse(JSON.stringify({ ok: false, error: 'Unauthorized' }), 401);
+    return corsResponse(request, JSON.stringify({ ok: false, error: 'Unauthorized' }), 401);
   }
 
   const apiPath = url.pathname.replace(/^\/api\/v1\/?/, '') || 'health';
@@ -69,7 +69,7 @@ async function handleProjectApi(request, url, env) {
     if (method === 'GET') {
       const resp = await fetch(`${gasUrl}?${forwardParams.toString()}`, { redirect: 'follow' });
       const text = await resp.text();
-      return corsResponse(text, resp.status, 'application/json');
+      return corsResponse(request, text, resp.status, responseContentType(resp));
     }
 
     const bodyText = await request.text();
@@ -87,9 +87,9 @@ async function handleProjectApi(request, url, env) {
       redirect: 'follow'
     });
     const text = await resp.text();
-    return corsResponse(text, resp.status, 'application/json');
+    return corsResponse(request, text, resp.status, responseContentType(resp));
   } catch (err) {
-    return corsResponse(JSON.stringify({ ok: false, error: err.message }), 502);
+    return corsResponse(request, JSON.stringify({ ok: false, error: err.message }), 502);
   }
 }
 
@@ -101,12 +101,12 @@ function safeJsonParse(text) {
 
 async function handleApi(request, url, env) {
   const gasUrl = env.GAS_WEBAPP_URL || env.GAS_URL;
-  if (!gasUrl) return corsResponse(JSON.stringify({ ok: false, error: 'GAS_WEBAPP_URL no configurado' }), 500);
+  if (!gasUrl) return corsResponse(request, JSON.stringify({ ok: false, error: 'GAS_WEBAPP_URL no configurado' }), 500);
 
   // Verificar clave del dashboard
   const key = url.searchParams.get('key') || '';
   if (env.WEB_KEY && key !== env.WEB_KEY) {
-    return corsResponse(JSON.stringify({ ok: false, error: 'Unauthorized' }), 401);
+    return corsResponse(request, JSON.stringify({ ok: false, error: 'Unauthorized' }), 401);
   }
 
   // Reenviar al GAS Web App con TODOS los parámetros (tab, key, equipo, match_key, etc.)
@@ -122,9 +122,9 @@ async function handleApi(request, url, env) {
     // fetch con redirect:follow resuelve el 302 de GAS server-side (sin CORS)
     const resp = await fetch(targetUrl, { redirect: 'follow' });
     const text = await resp.text();
-    return corsResponse(text, resp.status, 'application/json');
+    return corsResponse(request, text, resp.status, responseContentType(resp));
   } catch (err) {
-    return corsResponse(JSON.stringify({ ok: false, error: err.message }), 502);
+    return corsResponse(request, JSON.stringify({ ok: false, error: err.message }), 502);
   }
 }
 
@@ -132,7 +132,7 @@ async function handleApi(request, url, env) {
 
 async function handleTelegram(request, env) {
   const gasUrl = env.GAS_URL;
-  if (!gasUrl) return new Response('GAS_URL no configurado', { status: 500 });
+  if (!gasUrl) return corsResponse(request, 'GAS_URL no configurado', 500, 'text/plain; charset=utf-8');
 
   try {
     const body = await request.text();
@@ -143,23 +143,33 @@ async function handleTelegram(request, env) {
       redirect: 'follow'
     });
     // Telegram necesita 200 rápido
-    return new Response('ok', { status: 200 });
+    return corsResponse(request, 'ok', 200, 'text/plain; charset=utf-8');
   } catch (err) {
     console.error('Telegram proxy error:', err.message);
-    return new Response('ok', { status: 200 }); // Siempre 200 a Telegram
+    return corsResponse(request, 'ok', 200, 'text/plain; charset=utf-8'); // Siempre 200 a Telegram
   }
 }
 
 // ─── Helper CORS ──────────────────────────────────────────────────────────────
 
-function corsResponse(body, status = 200, contentType = 'application/json') {
+function corsResponse(request, body, status = 200, contentType = 'application/json; charset=utf-8') {
+  const origin = request.headers.get('Origin') || '*';
+  const requestedHeaders = request.headers.get('Access-Control-Request-Headers');
   return new Response(body, {
     status,
     headers: {
-      'Content-Type':                contentType,
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods':'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers':'Content-Type, Authorization',
+      'Content-Type': contentType || 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': requestedHeaders || 'Authorization, Content-Type, X-Requested-With',
+      'Access-Control-Max-Age': '86400',
+      'Vary': 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers',
     }
   });
+}
+
+function responseContentType(resp) {
+  const type = resp.headers.get('Content-Type') || '';
+  if (type) return type;
+  return 'application/json; charset=utf-8';
 }

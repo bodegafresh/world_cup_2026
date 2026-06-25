@@ -1,0 +1,9 @@
+name = "matchalpha"
+main = "worker.js"
+compatibility_date = "2026-06-25"
+
+[vars]
+# Configure real values in Cloudflare Dashboard or with wrangler secret put:
+# GAS_URL = "https://script.google.com/macros/s/.../exec"
+# GAS_WEBAPP_URL = "https://script.google.com/macros/s/.../exec"
+# WEB_KEY is a secret, do not store it here.
