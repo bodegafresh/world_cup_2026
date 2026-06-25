@@ -1304,6 +1304,14 @@ create unique index ux_standings_context on standings (
   as_of
 );
 
+create unique index ux_standings_current_source on standings (
+  competition_season_id,
+  stage_id,
+  group_id,
+  team_id,
+  source
+);
+
 create unique index ux_odds_snapshots_capture on odds_snapshots (
   match_id,
   bookmaker_id,

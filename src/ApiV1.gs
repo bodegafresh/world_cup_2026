@@ -55,6 +55,12 @@ function apiV1Handle_(method, path, query, body) {
     return { data: apiV1CompetitionStatuses_() };
   }
 
+  if (method === 'GET' && path === 'web/matches') return { data: publishedWebMatches_(query || {}) };
+  if (method === 'GET' && path === 'web/standings') return { data: publishedWebStandings_(query || {}) };
+  if (method === 'GET' && path === 'web/teams') return { data: publishedWebTeams_(query || {}) };
+  if (method === 'GET' && path === 'web/knockout') return { data: publishedWebKnockout_(query || {}) };
+  if (method === 'GET' && path === 'web/bootstrap') return { data: publishedWebBootstrap_(query || {}) };
+
   if (method === 'GET' && parts.length === 3 && parts[0] === 'competitions' && parts[2] === 'readiness') {
     return { data: evaluateCompetitionReadiness_(parts[1]) };
   }
@@ -77,6 +83,7 @@ function apiV1Handle_(method, path, query, body) {
   if (method === 'POST' && path === 'predictions') return { data: apiV1Insert_('model_predictions', body) };
   if (method === 'POST' && path === 'features/snapshots') return { data: apiV1CreateFeatureSnapshot_(body) };
   if (method === 'POST' && path === 'betting-decisions/evaluate') return { data: apiV1EvaluateBettingDecision_(body) };
+  if (method === 'POST' && path === 'jobs/weather/enrich') return { data: enrichWeatherForWorldCupMatches_(body || {}) };
 
   if (method === 'GET' && path === 'betting-decisions') {
     const limit = Math.max(1, Math.min(100, Number(query.limit || 20)));

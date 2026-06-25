@@ -4,6 +4,7 @@
 --
 -- Use this when a bootstrap/import polluted canonical data and you want to
 -- restart migration from an empty database without recreating the schema.
+-- Reference catalogs such as countries are intentionally preserved.
 
 begin;
 
@@ -64,7 +65,6 @@ truncate table
   competition_status,
   competition_seasons,
   competitions,
-  countries,
 
   -- Staging
   stg_events,

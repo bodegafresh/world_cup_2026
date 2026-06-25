@@ -6,6 +6,7 @@ Plataforma cuantitativa multi-competencia para futbol, con Supabase/PostgreSQL c
 
 - Supabase es la fuente de verdad.
 - La migracion inicial se ejecuta con Python directo contra Supabase.
+- El runtime GAS nuevo no usa hojas; el migrador externo puede leer la fuente viva del proyecto original.
 - Las tablas finales no guardan raw rows ni replican estructuras externas.
 
 ## Base Limpia
@@ -37,6 +38,7 @@ Variables:
 ```bash
 export SUPABASE_URL="https://<project-ref>.supabase.co"
 export SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 ```
 
 Dry run:
@@ -52,6 +54,42 @@ Run real:
 ```bash
 python3 scripts/migration/migrate_wc2026_to_supabase.py \
   --xlsx "/Users/mcerda/Downloads/Mundial2026 - Modelo de Datos y Estadísticas (18).xlsx"
+```
+
+Run real desde la fuente viva:
+
+```bash
+python3 scripts/migration/migrate_wc2026_to_supabase.py \
+  --google-spreadsheet-id "<spreadsheet-id>" \
+  --venues-file "/Users/mcerda/Downloads/estadios.txt"
+```
+
+Por defecto no consume APIs externas. Para enriquecer con APIs usar budgets explicitos:
+
+```bash
+export API_FOOTBALL_KEY="<api-football-key>"
+export FOOTBALL_DATA_TOKEN="<football-data-token>"
+export SPORTMONKS_API_TOKEN="<sportmonks-token>"
+
+python3 scripts/migration/migrate_wc2026_to_supabase.py \
+  --google-spreadsheet-id "<spreadsheet-id>" \
+  --venues-file "/Users/mcerda/Downloads/estadios.txt" \
+  --api-football-budget 2 \
+  --football-data-budget 2 \
+  --espn-budget 2 \
+  --sportmonks-budget 0
+```
+
+El cache queda en `.cache/api_enrichment` para no repetir requests ya usados.
+
+Para aprovechar la trial corta de Sportmonks sin depender de ella en runtime, se puede correr un enriquecimiento mas amplio. El script usa primero `core/countries` para guardar referencias en `countries.payload.external_refs`, luego consulta jugadores por pais y solo enlaza jugadores cuando el nombre existe de forma unica en la base local:
+
+```bash
+python3 scripts/migration/migrate_wc2026_to_supabase.py \
+  --google-spreadsheet-id "<spreadsheet-id>" \
+  --venues-file "/Users/mcerda/Downloads/estadios.txt" \
+  --sportmonks-budget 60 \
+  --sportmonks-country-pages 6
 ```
 
 ## Conteos Esperados Del Workbook Actual
