@@ -85,6 +85,74 @@ function publishedWebMatches_(query) {
   };
 }
 
+function publishedWebMatchesOverview_(query) {
+  query = query || {};
+  const season = publishedWebSeason_(query);
+  if (!season) {
+    return {
+      season: null,
+      yesterday: [],
+      today: [],
+      tomorrow: [],
+      upcoming: [],
+      generated_at: ptNowIso_()
+    };
+  }
+
+  const ranges = {
+    yesterday: {
+      from: String(query.yesterday_from || query.kickoff_from || ''),
+      to: String(query.yesterday_to || '')
+    },
+    today: {
+      from: String(query.today_from || query.kickoff_from || ''),
+      to: String(query.today_to || query.kickoff_to || '')
+    },
+    tomorrow: {
+      from: String(query.tomorrow_from || ''),
+      to: String(query.tomorrow_to || '')
+    },
+    upcoming: {
+      from: String(query.upcoming_from || query.tomorrow_from || ''),
+      to: String(query.upcoming_to || '2026-07-20T05:00:00.000Z')
+    }
+  };
+
+  const allBounds = [];
+  Object.keys(ranges).forEach(function(key) {
+    if (ranges[key].from) allBounds.push(ranges[key].from);
+    if (ranges[key].to) allBounds.push(ranges[key].to);
+  });
+  const from = allBounds.length ? allBounds.slice().sort()[0] : '';
+  const to = ranges.upcoming.to || (allBounds.length ? allBounds.slice().sort()[allBounds.length - 1] : '');
+
+  let filter = 'select=*&competition_season_id=eq.' + season.competition_season_id;
+  if (from) filter += '&kickoff_at=gte.' + encodeURIComponent(from);
+  if (to) filter += '&kickoff_at=lt.' + encodeURIComponent(to);
+  filter += '&order=kickoff_at.asc';
+
+  const matches = ptSelect_('matches', filter);
+  const context = publishedWebContext_(season, matches);
+  const weatherRefresh = publishedWebMaybeRefreshWeather_(matches, context, query);
+  const mapped = matches.map(function(match) { return publishedWebMatchRow_(match, context); });
+
+  function inRange(match, range) {
+    const kickoff = String(match.kickoff_at || '');
+    return (!range.from || kickoff >= range.from) && (!range.to || kickoff < range.to);
+  }
+
+  return {
+    season: publishedWebSeasonSummary_(season),
+    yesterday: mapped.filter(function(match) { return inRange(match, ranges.yesterday); }),
+    today: mapped.filter(function(match) { return inRange(match, ranges.today); }),
+    tomorrow: mapped.filter(function(match) { return inRange(match, ranges.tomorrow); }),
+    upcoming: mapped.filter(function(match) { return inRange(match, ranges.upcoming); }),
+    ranges: ranges,
+    weather_refresh: weatherRefresh,
+    generated_at: ptNowIso_()
+  };
+}
+
 function publishedWebStandings_(query) {
   query = query || {};
   const season = publishedWebSeason_(query);

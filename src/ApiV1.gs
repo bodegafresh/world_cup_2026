@@ -56,6 +56,7 @@ function apiV1Handle_(method, path, query, body) {
   }
 
   if (method === 'GET' && path === 'web/matches') return { data: publishedWebMatches_(query || {}) };
+  if (method === 'GET' && path === 'web/matches-overview') return { data: publishedWebMatchesOverview_(query || {}) };
   if (method === 'GET' && path === 'web/standings') return { data: publishedWebStandings_(query || {}) };
   if (method === 'GET' && path === 'web/teams') return { data: publishedWebTeams_(query || {}) };
   if (method === 'GET' && path === 'web/team-detail') return { data: publishedWebTeamDetail_(query || {}) };
