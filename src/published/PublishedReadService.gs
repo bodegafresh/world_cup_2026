@@ -67,6 +67,8 @@ function publishedWebMatches_(query) {
   if (!season) return { matches: [], generated_at: ptNowIso_() };
 
   let filter = 'select=*&competition_season_id=eq.' + season.competition_season_id;
+  if (query.kickoff_from) filter += '&kickoff_at=gte.' + encodeURIComponent(String(query.kickoff_from));
+  if (query.kickoff_to) filter += '&kickoff_at=lt.' + encodeURIComponent(String(query.kickoff_to));
   if (query.date_from) filter += '&kickoff_at=gte.' + encodeURIComponent(String(query.date_from).substring(0, 10) + 'T00:00:00.000Z');
   if (query.date_to) filter += '&kickoff_at=lt.' + encodeURIComponent(ptAddDays_(String(query.date_to).substring(0, 10), 1) + 'T00:00:00.000Z');
   if (query.status) filter += '&status=eq.' + encodeURIComponent(String(query.status).toUpperCase());
@@ -209,6 +211,135 @@ function publishedWebTeams_(query) {
     teams: rows,
     generated_at: ptNowIso_()
   };
+}
+
+function publishedWebTeamDetail_(query) {
+  query = query || {};
+  const season = publishedWebSeason_(query);
+  if (!season) return { team: null, matches: [], roster: [], generated_at: ptNowIso_() };
+  const teamSlug = query.team_slug || query.slug;
+  const teamId = query.team_id;
+  const team = teamId
+    ? ptSelectOne_('teams', 'select=*&team_id=eq.' + encodeURIComponent(teamId))
+    : ptSelectOne_('teams', 'select=*&slug=eq.' + encodeURIComponent(teamSlug || ''));
+  if (!team) return { team: null, matches: [], roster: [], generated_at: ptNowIso_() };
+
+  const countries = publishedWebCountriesMap_();
+  const groups = publishedWebGroups_(season);
+  const groupById = groups.reduce(function(acc, group) { acc[group.group_id] = group; return acc; }, {});
+  const entry = ptSelectOne_('competition_team_entries',
+    'select=*&competition_season_id=eq.' + season.competition_season_id + '&team_id=eq.' + encodeURIComponent(team.team_id));
+  let group = {};
+  if (entry) {
+    const membership = ptSelectOne_('competition_group_memberships',
+      'select=*&competition_team_entry_id=eq.' + encodeURIComponent(entry.competition_team_entry_id));
+    group = groupById[membership && membership.group_id] || {};
+  }
+
+  const participants = ptSelect_('match_participants',
+    'select=match_id,side,score,penalty_score&team_id=eq.' + encodeURIComponent(team.team_id));
+  const matchIds = participants.map(function(row) { return row.match_id; });
+  const participantByMatch = participants.reduce(function(acc, row) { acc[row.match_id] = row; return acc; }, {});
+  const matches = matchIds.length ? ptSelect_('matches',
+    'select=*&competition_season_id=eq.' + season.competition_season_id +
+    '&match_id=in.(' + matchIds.join(',') + ')' +
+    '&order=kickoff_at.asc') : [];
+  const context = publishedWebContext_(season, matches);
+  const matchRows = matches.map(function(match) {
+    const row = publishedWebMatchRow_(match, context);
+    row.team_result = publishedWebTeamResult_(row, participantByMatch[match.match_id]);
+    return row;
+  });
+
+  const rosters = ptSelect_('competition_rosters',
+    'select=*&competition_season_id=eq.' + season.competition_season_id +
+    '&team_id=eq.' + encodeURIComponent(team.team_id) +
+    '&order=position.asc,shirt_number.asc');
+  const playerIds = rosters.map(function(row) { return row.player_id; });
+  const players = playerIds.length ? ptSelect_('players',
+    'select=*&player_id=in.(' + playerIds.join(',') + ')') : [];
+  const playersById = players.reduce(function(acc, player) { acc[player.player_id] = player; return acc; }, {});
+  const stats = playerIds.length ? ptSelect_('player_match_stats',
+    'select=*&team_id=eq.' + encodeURIComponent(team.team_id) +
+    '&player_id=in.(' + playerIds.join(',') + ')') : [];
+  const statsByPlayer = publishedWebPlayerStatsSummary_(stats);
+
+  return {
+    season: publishedWebSeasonSummary_(season),
+    team: {
+      team_id: team.team_id,
+      slug: team.slug,
+      display_name: team.display_name,
+      country_code: team.country_code,
+      flag_emoji: publishedWebFlag_(team, countries),
+      group_id: group.group_id || null,
+      group_code: group.group_code || null,
+      group_name: group.group_name || null,
+      metadata: team.metadata || {}
+    },
+    matches: matchRows,
+    roster: rosters.map(function(roster) {
+      const player = playersById[roster.player_id] || {};
+      const summary = statsByPlayer[roster.player_id] || {};
+      return {
+        player_id: roster.player_id,
+        slug: player.slug,
+        display_name: player.display_name,
+        shirt_number: roster.shirt_number,
+        position: roster.position || 'UNKNOWN',
+        roster_status: roster.roster_status,
+        metadata: player.metadata || {},
+        stats: summary
+      };
+    }),
+    generated_at: ptNowIso_()
+  };
+}
+
+function publishedWebTeamResult_(match, participant) {
+  if (!participant || match.home_score === null || match.home_score === undefined || match.away_score === null || match.away_score === undefined) {
+    return null;
+  }
+  const own = participant.side === 'HOME' ? Number(match.home_score) : Number(match.away_score);
+  const opp = participant.side === 'HOME' ? Number(match.away_score) : Number(match.home_score);
+  return own > opp ? 'W' : own < opp ? 'L' : 'D';
+}
+
+function publishedWebPlayerStatsSummary_(stats) {
+  return stats.reduce(function(acc, row) {
+    if (!acc[row.player_id]) {
+      acc[row.player_id] = {
+        appearances: 0,
+        minutes: 0,
+        goals: 0,
+        assists: 0,
+        yellow_cards: 0,
+        red_cards: 0,
+        avg_rating: null
+      };
+    }
+    const item = acc[row.player_id];
+    const name = String(row.stat_name || '').toLowerCase();
+    const value = Number(row.stat_value || 0);
+    if (name === 'minutes') {
+      item.appearances += 1;
+      item.minutes += value;
+    } else if (name === 'goals_scored' || name === 'goals') {
+      item.goals += value;
+    } else if (name === 'assists') {
+      item.assists += value;
+    } else if (name === 'yellow_cards') {
+      item.yellow_cards += value;
+    } else if (name === 'red_cards') {
+      item.red_cards += value;
+    } else if (name === 'rating') {
+      const ratings = item._ratings || [];
+      ratings.push(value);
+      item._ratings = ratings;
+      item.avg_rating = Math.round((ratings.reduce(function(a, b) { return a + b; }, 0) / ratings.length) * 100) / 100;
+    }
+    return acc;
+  }, {});
 }
 
 function publishedWebKnockout_(query) {
