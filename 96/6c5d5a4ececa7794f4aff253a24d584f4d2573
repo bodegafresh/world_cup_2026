@@ -1,0 +1,21 @@
+cloudflare/worker.js
+  s_b04792a387deb8::t_5aba42eadc0257 22,40,48,54,72,90,92,104,109,125,127,135,146,149,155-157,161-166,170-174
+cloudflare/wrangler.toml
+  s_b04792a387deb8::t_483912b7240a00 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "966c5d5a4ececa7794f4aff253a24d584f4d2573",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
