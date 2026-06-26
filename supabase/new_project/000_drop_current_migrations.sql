@@ -27,6 +27,7 @@ begin
         'published_competition_health',
         'published_competition_participants',
         'published_team_identity',
+        'competition_integrity_issues',
         'vw_sheet_partidos',
         'vw_sheet_odds_apuestas',
         'vw_sheet_poisson_odds',

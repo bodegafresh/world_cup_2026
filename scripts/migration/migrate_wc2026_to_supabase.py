@@ -900,7 +900,7 @@ def migrate(data: dict[str, list[dict[str, Any]]], sb: Supabase, args: argparse.
             "region": "Global",
             "tier": 1,
             "is_international": True,
-            "metadata": {"source": SOURCE_NAME, "format": "GROUP_THEN_KNOCKOUT"},
+            "metadata": {"source": SOURCE_NAME, "format": "GROUPS_THEN_KNOCKOUT"},
         }],
         "slug",
         returning=True,
@@ -915,7 +915,7 @@ def migrate(data: dict[str, list[dict[str, Any]]], sb: Supabase, args: argparse.
             "ends_at": "2026-07-19T23:59:59Z",
             "timezone_name": "UTC",
             "status": "ACTIVE",
-            "format_code": "GROUP_THEN_KNOCKOUT",
+            "format_code": "GROUPS_THEN_KNOCKOUT",
             "metadata": {"source": SOURCE_NAME, "host_countries": ["US", "MX", "CA"]},
         }],
         "slug",
@@ -944,13 +944,13 @@ def migrate(data: dict[str, list[dict[str, Any]]], sb: Supabase, args: argparse.
 
 def upsert_stages_and_groups(sb: Supabase, season_id: str) -> dict[str, dict[str, Any]]:
     stage_rows = [
-        ("GROUP_STAGE", "Fase de grupos", 1, "GROUP_STAGE"),
-        ("ROUND_OF_32", "Dieciseisavos de final", 2, "KNOCKOUT"),
-        ("ROUND_OF_16", "Octavos de final", 3, "KNOCKOUT"),
-        ("QUARTER_FINAL", "Cuartos de final", 4, "KNOCKOUT"),
-        ("SEMI_FINAL", "Semifinal", 5, "KNOCKOUT"),
-        ("THIRD_PLACE", "Tercer lugar", 6, "THIRD_PLACE"),
-        ("FINAL", "Final", 7, "FINAL"),
+        ("GROUP_STAGE", "Fase de grupos", 1, "GROUP_STAGE", {"view_type": "GROUP_TABLES", "expected_matches": 72, "teams_per_group": 4, "group_count": 12, "qualifies": {"top_n_per_group": 2, "best_third_places": 8}, "tie_breakers": ["points", "goal_difference", "goals_for", "head_to_head"]}),
+        ("ROUND_OF_32", "Dieciseisavos de final", 2, "KNOCKOUT", {"view_type": "BRACKET_ROUND", "expected_matches": 16, "single_leg": True, "extra_time": True, "penalties": True}),
+        ("ROUND_OF_16", "Octavos de final", 3, "KNOCKOUT", {"view_type": "BRACKET_ROUND", "expected_matches": 8, "single_leg": True, "extra_time": True, "penalties": True}),
+        ("QUARTER_FINAL", "Cuartos de final", 4, "KNOCKOUT", {"view_type": "BRACKET_ROUND", "expected_matches": 4, "single_leg": True, "extra_time": True, "penalties": True}),
+        ("SEMI_FINAL", "Semifinal", 5, "KNOCKOUT", {"view_type": "BRACKET_ROUND", "expected_matches": 2, "single_leg": True, "extra_time": True, "penalties": True}),
+        ("THIRD_PLACE", "Tercer lugar", 6, "THIRD_PLACE", {"view_type": "BRACKET_ROUND", "expected_matches": 1, "single_leg": True, "extra_time": True, "penalties": True}),
+        ("FINAL", "Final", 7, "FINAL", {"view_type": "BRACKET_ROUND", "expected_matches": 1, "single_leg": True, "extra_time": True, "penalties": True}),
     ]
     stages = sb.upsert(
         "competition_stages",
@@ -960,8 +960,8 @@ def upsert_stages_and_groups(sb: Supabase, season_id: str) -> dict[str, dict[str
             "stage_name": name,
             "stage_order": order,
             "stage_type": stage_type,
-            "rules": {"source": SOURCE_NAME},
-        } for code, name, order, stage_type in stage_rows],
+            "rules": rules | {"source": SOURCE_NAME},
+        } for code, name, order, stage_type, rules in stage_rows],
         "competition_season_id,stage_code",
         returning=True,
     )
@@ -980,6 +980,14 @@ def upsert_stages_and_groups(sb: Supabase, season_id: str) -> dict[str, dict[str
         "competition_season_id,stage_id,group_code",
     )
     return by_code
+
+
+def team_group_code(team_key_value: str, data: dict[str, list[dict[str, Any]]]) -> str | None:
+    for row in get_rows(data, "Clasificacion"):
+        if team_key(first_present(row, "equipo")) == team_key_value:
+            group = str(first_present(row, "grupo") or "").strip()
+            return group or None
+    return None
 
 
 def upsert_teams(sb: Supabase, data: dict[str, list[dict[str, Any]]], season_id: str) -> dict[str, dict[str, Any]]:
@@ -2556,8 +2564,16 @@ def upsert_matches(
         kickoff = parse_datetime(row, source_tz)
         if not home_raw or not away_raw or not kickoff:
             continue
+        home_key = team_key(home_raw) if not is_tournament_slot(home_raw) else None
+        away_key = team_key(away_raw) if not is_tournament_slot(away_raw) else None
+        home_group_code = team_group_code(home_key, data) if home_key else None
+        away_group_code = team_group_code(away_key, data) if away_key else None
         stage_code = stage_code_from_row(row)
+        stage_code = stage_code_from_participants(row, home_raw, away_raw, stage_code, source_tz)
         group = groups.get(str(first_present(row, "grupo", "group_name") or "").strip())
+        if home_key and away_key and home_group_code and home_group_code == away_group_code:
+            stage_code = "GROUP_STAGE"
+            group = groups.get(home_group_code) or group
         venue_slug = canonical_venue_slug(first_present(row, "estadio", "venue_name")) if first_present(row, "estadio", "venue_name") else None
         slug = slugify(first_present(row, "match_id", "match_key") or f"{kickoff}-{home_raw}-{away_raw}")
         match_lookup[slug] = {
@@ -2657,6 +2673,49 @@ def stage_code_from_row(row: dict[str, Any]) -> str:
     if "final" in raw:
         return "FINAL"
     return "GROUP_STAGE"
+
+
+def stage_code_from_participants(
+    row: dict[str, Any],
+    home_raw: Any,
+    away_raw: Any,
+    fallback: str,
+    source_tz: str,
+) -> str:
+    if fallback != "GROUP_STAGE":
+        return fallback
+    combined = normalize_text(f"{home_raw or ''} {away_raw or ''}")
+    if not (is_tournament_slot(home_raw) or is_tournament_slot(away_raw)):
+        return fallback
+    if "semifinal" in combined and "loser" in combined:
+        return "THIRD_PLACE"
+    if "semifinal" in combined and "winner" in combined:
+        return "FINAL"
+    if "quarter" in combined and "winner" in combined:
+        return "SEMI_FINAL"
+    if ("round of 16" in combined or "octav" in combined) and "winner" in combined:
+        return "QUARTER_FINAL"
+    if ("round of 32" in combined or "dieciseis" in combined) and "winner" in combined:
+        return "ROUND_OF_16"
+    if "group" in combined or "grupo" in combined or "third place group" in combined:
+        return "ROUND_OF_32"
+
+    kickoff = parse_datetime(row, source_tz)
+    if kickoff:
+        date_key = kickoff[:10]
+        if "2026-06-28" <= date_key <= "2026-07-03":
+            return "ROUND_OF_32"
+        if "2026-07-04" <= date_key <= "2026-07-07":
+            return "ROUND_OF_16"
+        if "2026-07-09" <= date_key <= "2026-07-11":
+            return "QUARTER_FINAL"
+        if "2026-07-14" <= date_key <= "2026-07-15":
+            return "SEMI_FINAL"
+        if date_key == "2026-07-18":
+            return "THIRD_PLACE"
+        if date_key == "2026-07-19":
+            return "FINAL"
+    return fallback
 
 
 def match_status(value: Any) -> str:
