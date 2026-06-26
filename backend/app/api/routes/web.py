@@ -1,6 +1,6 @@
+import re
 from collections import defaultdict
 from datetime import UTC, datetime
-import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query

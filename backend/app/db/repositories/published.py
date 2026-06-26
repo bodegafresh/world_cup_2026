@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import bindparam, text
@@ -8,7 +8,17 @@ from app.db.repositories.base import Repository
 
 
 class PublishedRepository(Repository):
-    async def match_schedule(self, season: str, kickoff_from: datetime | None = None, kickoff_to: datetime | None = None) -> list[dict[str, Any]]:
+    def _coerce_datetime(self, value: datetime | str | None) -> datetime | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+    async def match_schedule(self, season: str, kickoff_from: datetime | str | None = None, kickoff_to: datetime | str | None = None) -> list[dict[str, Any]]:
+        kickoff_from = self._coerce_datetime(kickoff_from)
+        kickoff_to = self._coerce_datetime(kickoff_to)
         filters = ["cs.slug = :season"]
         params = {"season": season}
         if kickoff_from:
