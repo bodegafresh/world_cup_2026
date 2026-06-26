@@ -1,0 +1,31 @@
+backend/app/jobs/registry.py
+  s_d706596f83878b::t_ce8d7b7604e69f 9-15,76-83,92-93
+backend/app/competitions/service.py
+  s_d706596f83878b::t_244dc408a00773 4,24,337,342,348-350,360,444,447,451-453,458,477,480,486,494,572-577,611-619
+  s_d706596f83878b::t_b541417f3a787a 329-336,338-341,343-347,351-359,361-385
+  s_d706596f83878b::t_60ff9d105a38e4 432-443,445-446,448-450,454-457,459-476,478-479,481-485,487-493,495-571,578-610,620-823
+  s_d706596f83878b::t_c431ad4a473b7b 5-7,21,31-60
+  s_d706596f83878b::t_12a24deb511621 25
+  s_d706596f83878b::t_b420a130b7f70d 61-62
+backend/app/jobs/orchestrator.py
+  s_d706596f83878b::t_c9eb22b34c7893 16-17,79,83-87,138-143,161-169
+src/BackendCronOrchestration.gs
+  s_d706596f83878b::t_87a4746234abcc 76,111-112,117-118,123-124,128,209-212
+  s_d706596f83878b::t_576e3799d90992 213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "94d273926280350ace5c18ac4d69e8b6e3f9e920",
+  "prompts": {},
+  "sessions": {
+    "s_d706596f83878b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f04ae-eba3-7a51-835d-be92088df573",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
