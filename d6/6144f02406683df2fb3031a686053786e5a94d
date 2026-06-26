@@ -1,0 +1,176 @@
+backend/app/db/repositories/betting.py
+  s_b04792a387deb8::t_767b536504a7cc 1,55
+  s_b04792a387deb8::t_5aad59f3eb73df 2-54,56-57
+backend/app/db/repositories/base.py
+  s_b04792a387deb8::t_5aad59f3eb73df 1-22
+backend/app/feedback/calibration_service.py
+  s_b04792a387deb8::t_7058208f5969dc 1-37
+backend/app/clients/odds_api_client.py
+  s_b04792a387deb8::t_7058208f5969dc 1-19
+backend/tests/test_decision_engine.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-46
+backend/app/db/session.py
+  s_b04792a387deb8::t_9850a0383b6bf8 2,21
+  s_b04792a387deb8::t_71e994d0e06a0d 5,23
+  s_b04792a387deb8::t_4fb54526a20964 4,15,17
+  s_b04792a387deb8::t_b40d7b26dff64e 16,24-26
+  s_b04792a387deb8::t_5aad59f3eb73df 1,3,6-14,27-36
+  s_b04792a387deb8::t_7e9e4cddd1430d 18-20,22
+backend/app/jobs/registry.py
+  s_b04792a387deb8::t_7058208f5969dc 2-3,5-40,43-48,51-92
+  s_b04792a387deb8::t_767b536504a7cc 1,4,41-42,49-50
+backend/app/ingestion/__init__.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-2
+backend/app/models/promotion_rules.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-40
+backend/app/main.py
+  s_b04792a387deb8::t_5aefe2c147e4f9 1-3,5-6,10,12,14-24,26,31-47
+  s_b04792a387deb8::t_ef16959eb76688 4,7-9,11,13,25,27-30,48-62
+backend/render.yaml
+  s_b04792a387deb8::t_2785ae28cd26da 1-14
+backend/app/db/repositories/published.py
+  s_b04792a387deb8::t_fb8ae429a0599d 13-14,16-17,19-21,85
+  s_b04792a387deb8::t_33858359a22241 88-93
+  s_b04792a387deb8::t_eb44fefa27e54c 109-110,112
+  s_b04792a387deb8::t_f2fb15c119fd00 2-5,43-44,46,53-54,56,94-95
+  s_b04792a387deb8::t_5eae54d73ec3ef 12,15,18,22-42,45,47-52,55,57-84,86
+  s_b04792a387deb8::t_7af0352e62917e 1,11
+  s_b04792a387deb8::t_5aad59f3eb73df 6-10,87,96-108,111,113-143
+backend/app/clients/espn_client.py
+  s_b04792a387deb8::t_7058208f5969dc 1-19
+backend/app/core/logging.py
+  s_b04792a387deb8::t_5aad59f3eb73df 1-13
+backend/app/db/repositories/observability.py
+  s_b04792a387deb8::t_5aad59f3eb73df 2-15,17-44,46-74,76-77
+  s_b04792a387deb8::t_767b536504a7cc 1,16,45,75
+backend/app/models/__init__.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-2
+backend/tests/test_poisson.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-8
+backend/app/api/routes/health.py
+  s_b04792a387deb8::t_01af4ecbdd6bd8 2,5,7,11,28-39,41,43-47,76-82,84,86-95
+  s_b04792a387deb8::t_767b536504a7cc 1
+  s_b04792a387deb8::t_ef16959eb76688 3-4,6,8-10,12-27,40
+  s_b04792a387deb8::t_94ddbca366af37 42,48-50,70-75
+  s_b04792a387deb8::t_62f88490179a58 51-69,83,85,96-99
+backend/app/clients/news_client.py
+  s_b04792a387deb8::t_7058208f5969dc 1-3
+backend/app/cli/run_job.py
+  s_b04792a387deb8::t_7058208f5969dc 1-26
+backend/tests/test_team_normalizer.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-10
+backend/.env.example
+  s_b04792a387deb8::t_2785ae28cd26da 1-6,8-28
+  s_b04792a387deb8::t_5604672052cea6 7
+backend/app/datasets/builder.py
+  s_b04792a387deb8::t_7058208f5969dc 1-30
+backend/app/cli/__init__.py
+  s_b04792a387deb8::t_7058208f5969dc 1-2
+backend/tests/test_model_rules.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-39
+backend/app/models/elo_model.py
+  s_b04792a387deb8::t_7058208f5969dc 1-10
+backend/README.md
+  s_b04792a387deb8::t_2785ae28cd26da 1-47
+backend/app/__init__.py
+  s_b04792a387deb8::t_5aad59f3eb73df 1-2
+backend/app/normalization/team_normalizer.py
+  s_b04792a387deb8::t_a5ff907ab097e6 6
+  s_b04792a387deb8::t_7058208f5969dc 1-5,7-30
+backend/app/normalization/__init__.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-2
+backend/app/features/__init__.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-2
+backend/Dockerfile
+  s_b04792a387deb8::t_2785ae28cd26da 1-12
+backend/app/clients/base.py
+  s_b04792a387deb8::t_7058208f5969dc 1-21
+backend/app/db/repositories/models.py
+  s_b04792a387deb8::t_767b536504a7cc 1,46,71
+  s_b04792a387deb8::t_5aad59f3eb73df 2-6,8-45,47-51,53-70,72-74
+  s_b04792a387deb8::t_efeee48f016bc2 7,52
+backend/app/api/routes/quant.py
+  s_b04792a387deb8::t_ef16959eb76688 1-13,15-19,21-25,27-31,33-37
+  s_b04792a387deb8::t_704bbaf0a9cdf2 14,20,26,32,38
+backend/app/clients/sportmonks_client.py
+  s_b04792a387deb8::t_7058208f5969dc 1-25
+backend/app/decision/__init__.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-2
+backend/app/clients/weather_client.py
+  s_b04792a387deb8::t_7058208f5969dc 1-16
+backend/app/core/errors.py
+  s_b04792a387deb8::t_5aad59f3eb73df 1-11
+backend/app/clients/football_data_client.py
+  s_b04792a387deb8::t_7058208f5969dc 1-18
+backend/app/feedback/__init__.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-2
+backend/app/core/config.py
+  s_b04792a387deb8::t_00d0412bac284f 14
+  s_b04792a387deb8::t_5aad59f3eb73df 1-13,15-65
+backend/app/api/routes/jobs.py
+  s_b04792a387deb8::t_ef16959eb76688 1-14
+backend/app/clients/__init__.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-2
+backend/requirements.txt
+  s_b04792a387deb8::t_df2cab20e2aec5 5
+  s_b04792a387deb8::t_2785ae28cd26da 1-4,6-12
+backend/app/jobs/__init__.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-2
+backend/app/core/hashing.py
+  s_b04792a387deb8::t_5aad59f3eb73df 1-16
+backend/app/core/security.py
+  s_b04792a387deb8::t_5aad59f3eb73df 1-15
+backend/app/db/__init__.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-2
+backend/app/features/snapshot_builder.py
+  s_b04792a387deb8::t_7058208f5969dc 1-20
+backend/app/models/prediction_validation.py
+  s_b04792a387deb8::t_efeee48f016bc2 1-7
+backend/tests/test_time.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-16
+backend/app/decision/ev_calculator.py
+  s_b04792a387deb8::t_7058208f5969dc 1-37
+backend/tests/test_prediction_validation.py
+  s_b04792a387deb8::t_efeee48f016bc2 1-9
+backend/app/models/poisson_model.py
+  s_b04792a387deb8::t_7058208f5969dc 1-30
+backend/app/api/routes/__init__.py
+  s_b04792a387deb8::t_ef16959eb76688 1-2
+backend/app/db/repositories/__init__.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-2
+backend/app/core/time.py
+  s_b04792a387deb8::t_5aad59f3eb73df 1-16
+backend/app/api/__init__.py
+  s_b04792a387deb8::t_ef16959eb76688 1-2
+backend/pyproject.toml
+  s_b04792a387deb8::t_2785ae28cd26da 1-17
+backend/app/datasets/__init__.py
+  s_b04792a387deb8::t_2785ae28cd26da 1-2
+backend/app/decision/decision_engine.py
+  s_b04792a387deb8::t_7058208f5969dc 1-61
+backend/app/api/routes/web.py
+  s_b04792a387deb8::t_0dc612801bfdb0 2,48-50,55,57-67,173-174,265-269,293-297,306-309
+  s_b04792a387deb8::t_8106237702543e 175-186,336-344,376-378,401,444-451,453,455
+  s_b04792a387deb8::t_ff664322497643 304-305
+  s_b04792a387deb8::t_ce1f74586f6413 3,16-35,37,68-172,189,193-194,198-204,215-216,229-230,232,236,467,471
+  s_b04792a387deb8::t_d26dba635d5df2 6,51-54,56
+  s_b04792a387deb8::t_6f4dbe53e19356 187-188,190-192,195-197,205-214,217-228,231,233-235,237-255,270-275,301,311,325,358,363-364,373-374,380,387-389,392,409,454,456-460,470,472-473
+  s_b04792a387deb8::t_271add7db57470 410-415,418-432,436-438,440
+  s_b04792a387deb8::t_ef16959eb76688 1,4-5,7-15,36,38-47,256-264,276-292,298-300,302-303,310,312-324,326-335,345-357,359-362,365-372,375,379,381-386,390-391,393-400,402-408,416-417,433-435,439,441-443,452,461-466,468-469
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "d66144f02406683df2fb3031a686053786e5a94d",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
