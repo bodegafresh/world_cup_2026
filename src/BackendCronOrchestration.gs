@@ -73,6 +73,7 @@ function backendFetch_(path, options) {
       timestamp: new Date().toISOString()
     };
     PropertiesService.getScriptProperties().setProperty(MATCH_ALPHA_CRON_PROPS.LAST_STATUS, JSON.stringify(result));
+    Logger.log('backendFetch_ %s %s -> %s', params.method.toUpperCase(), path, JSON.stringify(result));
     return result;
   } finally {
     lock.releaseLock();
@@ -107,24 +108,24 @@ function resetDailyFetchCounterIfNeeded_() {
 
 function pingBackendKeepAlive() {
   const config = getBackendCronConfig_();
-  if (!config.KEEPALIVE_ENABLED) return { ok: false, skipped: true, reason: 'KEEPALIVE_DISABLED' };
-  return backendFetch_('/api/v1/jobs/orchestrate/keepalive', { method: 'post', payload: { source: 'gas_keepalive' } });
+  if (!config.KEEPALIVE_ENABLED) return logBackendCronResult_('pingBackendKeepAlive', { ok: false, skipped: true, reason: 'KEEPALIVE_DISABLED' });
+  return logBackendCronResult_('pingBackendKeepAlive', backendFetch_('/api/v1/jobs/orchestrate/keepalive', { method: 'post', payload: { source: 'gas_keepalive' } }));
 }
 
 function runDailyBackendOrchestration() {
   const config = getBackendCronConfig_();
-  if (!config.DAILY_JOB_ENABLED) return { ok: false, skipped: true, reason: 'DAILY_JOB_DISABLED' };
-  return backendFetch_('/api/v1/jobs/orchestrate/daily', { method: 'post', payload: { source: 'gas_daily' } });
+  if (!config.DAILY_JOB_ENABLED) return logBackendCronResult_('runDailyBackendOrchestration', { ok: false, skipped: true, reason: 'DAILY_JOB_DISABLED' });
+  return logBackendCronResult_('runDailyBackendOrchestration', backendFetch_('/api/v1/jobs/orchestrate/daily', { method: 'post', payload: { source: 'gas_daily' } }));
 }
 
 function runLiveBackendOrchestration() {
   const config = getBackendCronConfig_();
-  if (!config.LIVE_JOB_ENABLED) return { ok: false, skipped: true, reason: 'LIVE_JOB_DISABLED' };
-  return backendFetch_('/api/v1/jobs/orchestrate/live', { method: 'post', payload: { source: 'gas_live' } });
+  if (!config.LIVE_JOB_ENABLED) return logBackendCronResult_('runLiveBackendOrchestration', { ok: false, skipped: true, reason: 'LIVE_JOB_DISABLED' });
+  return logBackendCronResult_('runLiveBackendOrchestration', backendFetch_('/api/v1/jobs/orchestrate/live', { method: 'post', payload: { source: 'gas_live' } }));
 }
 
 function checkBackendLatestStatus() {
-  return backendFetch_('/api/v1/jobs/status/latest', { method: 'get' });
+  return logBackendCronResult_('checkBackendLatestStatus', backendFetch_('/api/v1/jobs/status/latest', { method: 'get' }));
 }
 
 function installMatchAlphaTriggers() {
@@ -204,4 +205,9 @@ function readBooleanProperty_(key, fallback) {
   const value = PropertiesService.getScriptProperties().getProperty(key);
   if (value === null || value === undefined || value === '') return fallback;
   return String(value).toLowerCase() === 'true';
+}
+
+function logBackendCronResult_(label, result) {
+  Logger.log('%s result: %s', label, JSON.stringify(result));
+  return result;
 }
