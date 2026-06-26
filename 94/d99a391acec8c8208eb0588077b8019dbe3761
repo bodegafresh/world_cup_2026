@@ -1,0 +1,21 @@
+backend/app/db/repositories/published.py
+  s_b04792a387deb8::t_30886f2658a66d 1,11-21
+backend/app/api/routes/web.py
+  s_b04792a387deb8::t_b9e7aa48b95121 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "94d99a391acec8c8208eb0588077b8019dbe3761",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
