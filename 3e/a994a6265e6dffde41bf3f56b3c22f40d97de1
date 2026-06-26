@@ -1,0 +1,23 @@
+backend/app/competitions/service.py
+  s_d706596f83878b::t_cc9fac16226fe9 388
+backend/app/jobs/orchestrator.py
+  s_d706596f83878b::t_a4308b6b5159f8 163,182-188
+  s_d706596f83878b::t_2040d46ce95311 4,18,191-203,287-294
+  s_d706596f83878b::t_e5f418670d7959 190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "3ea994a6265e6dffde41bf3f56b3c22f40d97de1",
+  "prompts": {},
+  "sessions": {
+    "s_d706596f83878b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f04ae-eba3-7a51-835d-be92088df573",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
