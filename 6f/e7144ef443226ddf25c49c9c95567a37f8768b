@@ -1,0 +1,24 @@
+backend/app/main.py
+  s_b04792a387deb8::t_f6097a3b828705 8,56
+backend/app/api/routes/competitions.py
+  s_b04792a387deb8::t_bbb96498347a12 56
+  s_b04792a387deb8::t_87ea87e6ba982b 62-65,211-216,252-256
+  s_b04792a387deb8::t_ad0f4b61f8a479 181
+  s_b04792a387deb8::t_ddd4817be74fc1 1-55,57-61,66-180,182-210,217-251,257-274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "6fe7144ef443226ddf25c49c9c95567a37f8768b",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
