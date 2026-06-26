@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from app.api.schemas.competition import CompetitionLayoutEnvelope
 from app.db.session import get_connection
 
 router = APIRouter(prefix="/competitions", tags=["competitions"])
@@ -81,6 +82,13 @@ def _navigation_item(key: str, label: str, enabled: bool, order: int) -> dict[st
     return {"key": key, "label": label, "enabled": enabled, "order": order}
 
 
+def _group_label(value: Any) -> str:
+    raw = str(value or "").strip()
+    if raw.lower().startswith("grupo "):
+        return raw
+    return raw.replace("_", " ") or "Grupo"
+
+
 async def _fetch_one(conn: AsyncConnection, sql: str, params: dict[str, Any]) -> dict[str, Any] | None:
     result = await conn.execute(text(sql), params)
     row = result.first()
@@ -92,7 +100,7 @@ async def _fetch_all(conn: AsyncConnection, sql: str, params: dict[str, Any]) ->
     return [_dict(row) for row in result]
 
 
-@router.get("/{competition_season_id}/layout")
+@router.get("/{competition_season_id}/layout", response_model=CompetitionLayoutEnvelope)
 async def competition_layout(
     competition_season_id: str,
     conn: AsyncConnection = Depends(get_connection),
@@ -152,6 +160,73 @@ async def competition_layout(
         """,
         params,
     )
+    groups = await _fetch_all(
+        conn,
+        """
+        select
+          group_id::text,
+          stage_id::text,
+          group_code,
+          group_name,
+          group_order,
+          metadata
+        from competition_groups
+        where competition_season_id = cast(:season_id as uuid)
+        order by group_order nulls last, group_code
+        """,
+        params,
+    )
+    slots = await _fetch_all(
+        conn,
+        """
+        select
+          tournament_slot_id::text,
+          stage_id::text,
+          slot_code,
+          slot_label,
+          slot_type,
+          source_group_id::text,
+          source_match_id::text,
+          source_rank,
+          resolved_team_id::text,
+          resolved_at,
+          metadata
+        from tournament_slots
+        where competition_season_id = cast(:season_id as uuid)
+        order by slot_code
+        """,
+        params,
+    )
+    groups_by_stage: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for group in groups:
+        groups_by_stage[group["stage_id"]].append(
+            {
+                "group_id": group["group_id"],
+                "group_code": group["group_code"],
+                "group_name": group["group_name"],
+                "group_label": _group_label(group["group_name"] or group["group_code"]),
+                "group_order": group["group_order"],
+                "metadata": _as_dict(group.get("metadata")),
+            }
+        )
+    slots_by_stage: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for slot in slots:
+        if not slot.get("stage_id"):
+            continue
+        slots_by_stage[slot["stage_id"]].append(
+            {
+                "tournament_slot_id": slot["tournament_slot_id"],
+                "slot_code": slot["slot_code"],
+                "slot_label": slot["slot_label"],
+                "slot_type": slot["slot_type"],
+                "source_group_id": slot["source_group_id"],
+                "source_match_id": slot["source_match_id"],
+                "source_rank": slot["source_rank"],
+                "resolved_team_id": slot["resolved_team_id"],
+                "resolved_at": slot["resolved_at"],
+                "metadata": _as_dict(slot.get("metadata")),
+            }
+        )
 
     standings_count = await _fetch_one(
         conn,
@@ -183,6 +258,9 @@ async def competition_layout(
                 "has_groups": bool(stage.get("group_count")),
                 "has_slots": bool(stage.get("slot_count")),
                 "match_count": stage.get("match_count") or 0,
+                "expected_match_count": rules.get("expected_matches"),
+                "groups": groups_by_stage.get(stage["stage_id"], []),
+                "slots": slots_by_stage.get(stage["stage_id"], []),
                 "rules": rules,
             }
         )

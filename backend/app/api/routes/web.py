@@ -73,9 +73,14 @@ def _slugish(value: Any) -> str:
 
 def _normalize_stage_code(row: dict[str, Any]) -> str:
     raw_code = str(row.get("stage_code") or "").upper()
+    if raw_code in STAGE_LABELS:
+        return raw_code
+
     raw_name = str(row.get("stage_name") or "").upper()
     raw_type = str(row.get("stage_type") or "").upper()
     combined = f"{raw_code} {raw_name} {raw_type}"
+    if raw_type in {"GROUP_STAGE", "LEAGUE_PHASE"}:
+        return "GROUP_STAGE"
     if "THIRD" in combined or "TERCER" in combined:
         return "THIRD_PLACE"
     if "FINAL" in combined and "SEMI" not in combined and "QUARTER" not in combined:
@@ -88,27 +93,19 @@ def _normalize_stage_code(row: dict[str, Any]) -> str:
         return "ROUND_OF_16"
     if "ROUND_OF_32" in combined or "ROUND OF 32" in combined or "DIECISEIS" in combined:
         return "ROUND_OF_32"
-    if raw_code and raw_code != "GROUP_STAGE" and raw_code in STAGE_LABELS:
-        return raw_code
-
-    kickoff = _to_datetime(row.get("kickoff_at"))
-    has_placeholder = bool(row.get("home_slot_label") or row.get("away_slot_label"))
-    has_group = bool(row.get("group_code") or row.get("group_name"))
-    if kickoff and (has_placeholder or not has_group):
-        date_key = kickoff.date().isoformat()
-        if "2026-06-28" <= date_key <= "2026-07-03":
-            return "ROUND_OF_32"
-        if "2026-07-04" <= date_key <= "2026-07-07":
-            return "ROUND_OF_16"
-        if "2026-07-09" <= date_key <= "2026-07-11":
-            return "QUARTER_FINAL"
-        if "2026-07-14" <= date_key <= "2026-07-15":
-            return "SEMI_FINAL"
-        if date_key == "2026-07-18":
-            return "THIRD_PLACE"
-        if date_key == "2026-07-19":
-            return "FINAL"
     return "GROUP_STAGE"
+
+
+def _is_knockout_row(row: dict[str, Any]) -> bool:
+    view_type = str(row.get("stage_view_type") or "").upper()
+    if view_type == "BRACKET_ROUND":
+        return True
+    if view_type in {"GROUP_TABLES", "LEAGUE_TABLE"}:
+        return False
+    stage_type = str(row.get("stage_type") or "").upper()
+    if stage_type in {"GROUP_STAGE", "LEAGUE_PHASE"}:
+        return False
+    return _normalize_stage_code(row) != "GROUP_STAGE"
 
 
 def _stage_label(stage_code: str, fallback: Any = None) -> str:
@@ -228,9 +225,13 @@ def _match_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "winner_team_id": serialized.get("winner_team_id"),
         "stage_code": stage_code,
         "source_stage_code": serialized.get("stage_code"),
+        "stage_id": serialized.get("stage_id"),
+        "stage_view_type": serialized.get("stage_view_type"),
+        "stage_rules": serialized.get("stage_rules"),
         "stage_name": serialized.get("stage_name"),
         "stage_label": _stage_label(stage_code, serialized.get("stage_name")),
         "stage_type": serialized.get("stage_type"),
+        "group_id": serialized.get("group_id"),
         "group_code": serialized.get("group_code"),
         "group_name": serialized.get("group_name"),
         "group_label": group_label,
@@ -464,7 +465,7 @@ async def web_team_detail(team_slug: str = Query(...), season: str | None = None
 async def web_knockout(season: str | None = None, conn: AsyncConnection = Depends(get_connection)) -> dict:
     repo = PublishedRepository(conn)
     season_slug = season or get_settings().default_season_slug
-    rows = [row for row in await repo.match_schedule(season_slug) if _normalize_stage_code(row) != "GROUP_STAGE"]
+    rows = [row for row in await repo.match_schedule(season_slug) if _is_knockout_row(row)]
     by_round: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         match = _match_from_row(row)

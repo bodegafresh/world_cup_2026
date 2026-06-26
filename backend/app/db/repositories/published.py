@@ -40,9 +40,23 @@ class PublishedRepository(Repository):
             m.is_neutral,
             m.home_score,
             m.away_score,
+            m.stage_id::text as match_stage_id,
+            m.group_id::text as match_group_id,
+            st.stage_id::text as stage_id,
             st.stage_code,
             st.stage_name,
             st.stage_type,
+            st.rules as stage_rules,
+            coalesce(
+              st.rules->>'view_type',
+              case
+                when st.stage_type in ('GROUP_STAGE') then 'GROUP_TABLES'
+                when st.stage_type in ('LEAGUE_PHASE') then 'LEAGUE_TABLE'
+                when st.stage_type in ('KNOCKOUT', 'THIRD_PLACE', 'FINAL') then 'BRACKET_ROUND'
+                else 'MATCH_LIST'
+              end
+            ) as stage_view_type,
+            cg.group_id::text,
             cg.group_code,
             cg.group_name,
             cg.group_order,
