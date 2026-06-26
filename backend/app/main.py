@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api.routes import health, jobs, quant, web
+from app.api.routes import competitions, health, jobs, quant, web
 from app.core.config import get_settings
 from app.core.time import iso_utc
 from app.core.logging import configure_logging
@@ -53,6 +53,7 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type"],
     )
     app.include_router(health.router, prefix=settings.api_prefix)
+    app.include_router(competitions.router, prefix=settings.api_prefix)
     app.include_router(web.router, prefix=settings.api_prefix)
     app.include_router(quant.router, prefix=settings.api_prefix)
     app.include_router(jobs.router, prefix=settings.api_prefix)
