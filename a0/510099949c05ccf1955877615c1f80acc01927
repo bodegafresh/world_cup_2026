@@ -1,0 +1,46 @@
+backend/app/normalization/competition_format.py
+  s_b04792a387deb8::t_d523c84fdf1750 1-111
+backend/app/competitions/__init__.py
+  s_b04792a387deb8::t_c7aba84443ddd1 1-2
+backend/app/clients/sportmonks_client.py
+  s_b04792a387deb8::t_376124c185154c 23-43
+backend/app/clients/api_football_client.py
+  s_b04792a387deb8::t_01cce23d16f63d 1-55
+backend/app/api/routes/jobs.py
+  s_b04792a387deb8::t_45f137cfc22068 1-3,14-20
+backend/app/api/routes/competitions.py
+  s_b04792a387deb8::t_49e670d6fd18d6 9,104-127
+backend/app/competitions/catalog.py
+  s_b04792a387deb8::t_24f9537f4a57a2 74,77-83
+  s_b04792a387deb8::t_8118b59fcac71f 1-73,75-76,84-266,273-293,303-322,332-377
+  s_b04792a387deb8::t_d8b752a013827c 267-272,294-302,323-331
+backend/app/clients/football_data_client.py
+  s_b04792a387deb8::t_dc15f1a867fcea 19-31
+backend/app/jobs/registry.py
+  s_b04792a387deb8::t_e42e86c67052f9 9,14,28-29,40-41,58-71,75-77,92,95
+backend/app/cli/run_job.py
+  s_b04792a387deb8::t_e7a4388a5e5599 9,13,20,22-23
+backend/app/competitions/service.py
+  s_b04792a387deb8::t_99b66bd0fa2a20 1-15,17-330,332-401
+  s_b04792a387deb8::t_2f10697d02da3d 16,331
+supabase/new_project/008_seed_competition_catalog.sql
+  s_b04792a387deb8::t_a428c3ebe7825d 1-232
+backend/tests/test_competition_catalog.py
+  s_b04792a387deb8::t_4ee029a53218eb 1-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "a0510099949c05ccf1955877615c1f80acc01927",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
