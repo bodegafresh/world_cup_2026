@@ -1,0 +1,34 @@
+supabase/new_project/000_drop_all.sql
+  s_b04792a387deb8::t_55dd3e952ec8b7 31
+supabase/new_project/000_drop_current_migrations.sql
+  s_b04792a387deb8::t_55dd3e952ec8b7 30
+supabase/new_project/007_competition_integrity_checks.sql
+  s_b04792a387deb8::t_be1f2081a42de3 1-71
+supabase/new_project/006_repair_wc2026_stage_group_assignments.sql
+  s_b04792a387deb8::t_be1f2081a42de3 1-53,165-177
+  s_b04792a387deb8::t_a52b6d4c57c502 54-112
+  s_b04792a387deb8::t_db1c1a00e703ae 113-164
+scripts/migration/migrate_wc2026_to_supabase.py
+  s_b04792a387deb8::t_6f81c04c208b28 2572,2678-2684,2703
+  s_b04792a387deb8::t_4046067f2f0b57 903,918
+  s_b04792a387deb8::t_a52b6d4c57c502 2685-2702,2704-2718
+  s_b04792a387deb8::t_b5f9501d0e05b3 947-953,963-964,985-992,2567-2570,2574-2576
+supabase/new_project/005_seed_wc2026_competition_rules.sql
+  s_b04792a387deb8::t_be1f2081a42de3 1-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "1b850decf65ccf4ce2658d6cc2376ef2cd213450",
+  "prompts": {},
+  "sessions": {
+    "s_b04792a387deb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef0c5-4049-7aa0-bb43-b8b33e24f151",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
