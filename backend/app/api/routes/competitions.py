@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.api.schemas.competition import CompetitionLayoutEnvelope
+from app.competitions.catalog import supported_competitions
 from app.db.session import get_connection
 
 router = APIRouter(prefix="/competitions", tags=["competitions"])
@@ -98,6 +99,32 @@ async def _fetch_one(conn: AsyncConnection, sql: str, params: dict[str, Any]) ->
 async def _fetch_all(conn: AsyncConnection, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     result = await conn.execute(text(sql), params)
     return [_dict(row) for row in result]
+
+
+@router.get("/catalog")
+async def competition_catalog() -> dict[str, Any]:
+    entries = []
+    for entry in supported_competitions():
+        entries.append(
+            {
+                "competition_season_slug": entry.slug,
+                "competition_slug": entry.competition_slug,
+                "name": entry.name,
+                "season_label": entry.season_label,
+                "competition_type": entry.competition_type,
+                "domain_type": entry.competition_metadata.get("domain_type"),
+                "format_code": entry.format_code,
+                "country_code": entry.country_code,
+                "region": entry.region,
+                "tier": entry.tier,
+                "is_international": entry.is_international,
+                "primary_source": entry.source.primary,
+                "secondary_sources": entry.source.secondary,
+                "stage_count": len(entry.stages),
+                "group_count": len(entry.groups),
+            }
+        )
+    return {"ok": True, "data": {"competitions": entries}}
 
 
 @router.get("/{competition_season_id}/layout", response_model=CompetitionLayoutEnvelope)

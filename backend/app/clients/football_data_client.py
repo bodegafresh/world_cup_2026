@@ -16,3 +16,16 @@ class FootballDataClient(HttpClient):
         params = {"season": season} if season else None
         return await self.get(f"competitions/{code}/matches", params=params)
 
+    async def competitions(self) -> dict[str, Any]:
+        return await self.get("competitions")
+
+    async def competition(self, code: str) -> dict[str, Any]:
+        return await self.get(f"competitions/{code}")
+
+    async def competition_standings(self, code: str, season: str | int | None = None) -> dict[str, Any]:
+        params = {"season": season} if season else None
+        return await self.get(f"competitions/{code}/standings", params=params)
+
+    async def competition_teams(self, code: str, season: str | int | None = None) -> dict[str, Any]:
+        params = {"season": season} if season else None
+        return await self.get(f"competitions/{code}/teams", params=params)
