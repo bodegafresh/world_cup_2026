@@ -1,0 +1,32 @@
+backend/app/jobs/orchestrator.py
+  s_d706596f83878b::t_d1347bcb8e61e1 1-250
+backend/app/api/routes/health.py
+  s_d706596f83878b::t_2551c3f172eb29 21,23-27,29-83
+  s_d706596f83878b::t_86b7995daba831 5,10,18,28,88
+backend/app/api/routes/jobs.py
+  s_d706596f83878b::t_5aebe4576fc3dd 8,14-43
+backend/app/main.py
+  s_d706596f83878b::t_5bcc59008572bf 8,60
+backend/app/jobs/registry.py
+  s_d706596f83878b::t_f438637529ae8c 83-84
+src/BackendCronOrchestration.gs
+  s_d706596f83878b::t_f7fefd7924b186 1-207
+backend/app/api/routes/gas.py
+  s_d706596f83878b::t_292f98595f2551 1-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "c65ba52bc2316a7f985b86bf895a86eee6d8e601",
+  "prompts": {},
+  "sessions": {
+    "s_d706596f83878b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f04ae-eba3-7a51-835d-be92088df573",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marco Cerda <marco.cerda@mercadolibre.cl>"
+    }
+  }
+}
