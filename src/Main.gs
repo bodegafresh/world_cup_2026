@@ -529,7 +529,6 @@ function gatherFixtureContext_(fixture) {
 
   const news = fetchNewsForFixture_(fixture);
   if (news.length && news[0].source !== 'cache') saveNewsForFixture_(fixture, news);
-  pushNewsToMatchAlpha_(fixture, news);
 
   calculateBasicOddsSignals_(fixture);
 
@@ -555,7 +554,6 @@ function analyzeAndSaveFixture_(fixture) {
 
   const weather  = fetchWeatherForFixture_(fixture);
   const news     = fetchNewsForFixture_(fixture);
-  pushNewsToMatchAlpha_(fixture, news);
   const baseOdds = calculateBasicOddsSignals_(fixture);
   const aiInput  = buildAiPreviewInput_(fixture, weather, news, baseOdds);
   const aiResult = analyzeFixtureWithAi_(aiInput);
