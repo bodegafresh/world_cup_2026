@@ -98,3 +98,51 @@ function saveNewsForFixture_(fixture, news) {
 
   if (rows.length) appendRows_(CONFIG.SHEETS.NOTICIAS, rows);
 }
+
+// ─── match_alpha sync ────────────────────────────────────────────────────────
+
+/**
+ * Push news for a fixture to match_alpha's /web/news/ingest endpoint.
+ * Call after saveNewsForFixture_ so the DB mirrors the Sheet.
+ * Requires script property MATCH_ALPHA_URL and MATCH_ALPHA_INTERNAL_KEY.
+ */
+function pushNewsToMatchAlpha_(fixture, news) {
+  const props = PropertiesService.getScriptProperties();
+  const baseUrl = props.getProperty('MATCH_ALPHA_URL');
+  const key     = props.getProperty('MATCH_ALPHA_INTERNAL_KEY');
+  if (!baseUrl || !key) return; // silently skip if not configured
+
+  const homeName = safe_(fixture.teams.home.name);
+  const awayName = safe_(fixture.teams.away.name);
+
+  const payload = news.map(item => ({
+    id_hash:    hash_(item.title + item.link),
+    home_team:  homeName,
+    away_team:  awayName,
+    title:      safe_(item.title),
+    url:        safe_(item.link),
+    source:     safe_(item.source) || 'Google News RSS',
+    pub_date:   safe_(item.pubDate) || null,
+  }));
+
+  if (!payload.length) return;
+
+  try {
+    const resp = UrlFetchApp.fetch(baseUrl + '/api/v1/web/news/ingest', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'X-Internal-Key': key },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+    const code = resp.getResponseCode();
+    if (code !== 200) {
+      console.warn('match_alpha news ingest returned ' + code + ': ' + resp.getContentText().slice(0, 200));
+    } else {
+      const result = JSON.parse(resp.getContentText());
+      console.log('match_alpha news ingest: inserted=' + result.inserted + '/' + result.total);
+    }
+  } catch (e) {
+    console.warn('match_alpha news ingest failed: ' + e.message);
+  }
+}
